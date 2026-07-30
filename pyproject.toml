@@ -1,0 +1,13 @@
+[project]
+name = "xas-billing-dashboard-agent"
+version = "0.1.0"
+description = "Conversational Claude Managed Agent that reads billing data and builds self-contained HTML dashboards"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic",
+    "python-dotenv",
+]
+
+[tool.uv]
+# Scripts-only project — nothing to build/install for the project itself.
+package = false

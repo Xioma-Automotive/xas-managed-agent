@@ -28,7 +28,9 @@ Managed Agents split cleanly into two planes, and so does this repo:
 | ------------------ | ------------ | ------------ |
 | `.gitignore`       | —            | Ignores `.env`, generated `*.html`, and Python cruft. |
 | `.env.example`     | —            | Committed template for the values below. Copy to `.env`. |
-| `requirements.txt` | —            | `anthropic` + `python-dotenv`. |
+| `pyproject.toml`   | —            | Project + dependencies (`anthropic`, `python-dotenv`). Managed by `uv`. |
+| `uv.lock`          | —            | Locked dependency versions (committed for reproducible installs). |
+| `requirements.txt` | —            | Same deps, for a plain `pip` fallback. |
 | `setup_agent.py`   | Control (once) | Creates a **cloud** environment (limited networking, scoped to the billing host), the **agent** (`claude-opus-5`, prebuilt toolset, billing-analyst system prompt), and a **vault**. Attaches the billing token as an `environment_variable` credential if it's set — otherwise skips it so you can add it later. Prints `AGENT_ID` / `ENV_ID` / `VAULT_ID`. |
 | `billing_agent.py` | Data (per run) | Loads the three IDs, opens a session, runs a smoke-test turn then your real request, and downloads the HTML dashboards the agent produced. |
 | `README.md`        | —            | This file. |
@@ -36,14 +38,17 @@ Managed Agents split cleanly into two planes, and so does this repo:
 ## Run order
 
 ```bash
-pip install -r requirements.txt
+uv sync
 cp .env.example .env
 #   fill in ANTHROPIC_API_KEY and BILLING_HOST
 #   (BILLING_DATA_TOKEN is optional now — you can add it later)
-python setup_agent.py
+uv run python setup_agent.py
 #   paste the printed AGENT_ID / ENV_ID / VAULT_ID into .env
-python billing_agent.py
+uv run python billing_agent.py
 ```
+
+> Using plain `pip` instead of `uv`? `pip install -r requirements.txt`, then
+> drop the `uv run` prefix from the commands above.
 
 ### Don't have the billing token yet?
 
@@ -54,8 +59,8 @@ billing API yet, so the smoke-test turn in `billing_agent.py` will report an aut
 failure (expected).
 
 When you get the token from Xioma, set `BILLING_DATA_TOKEN` in `.env` and **re-run
-`setup_agent.py`** — it detects the existing IDs and attaches the credential to
-the existing vault, without re-creating anything.
+`uv run python setup_agent.py`** — it detects the existing IDs and attaches the
+credential to the existing vault, without re-creating anything.
 
 `billing_agent.py` prints a Console trace URL for each session so you can watch
 tool calls and messages stream live. Dashboards the agent writes are downloaded
