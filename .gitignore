@@ -1,0 +1,11 @@
+# Secrets — never commit
+.env
+
+# Generated dashboards
+*.html
+
+# Python cruft
+__pycache__/
+*.pyc
+.venv/
+venv/
