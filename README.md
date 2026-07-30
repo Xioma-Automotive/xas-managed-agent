@@ -29,7 +29,7 @@ Managed Agents split cleanly into two planes, and so does this repo:
 | `.gitignore`       | —            | Ignores `.env`, generated `*.html`, and Python cruft. |
 | `.env.example`     | —            | Committed template for the values below. Copy to `.env`. |
 | `requirements.txt` | —            | `anthropic` + `python-dotenv`. |
-| `setup_agent.py`   | Control (once) | Creates a **cloud** environment (limited networking, scoped to the billing host), the **agent** (`claude-opus-5`, prebuilt toolset, billing-analyst system prompt), and a **vault** with an `environment_variable` credential for the billing token. Prints `AGENT_ID` / `ENV_ID` / `VAULT_ID`. |
+| `setup_agent.py`   | Control (once) | Creates a **cloud** environment (limited networking, scoped to the billing host), the **agent** (`claude-opus-5`, prebuilt toolset, billing-analyst system prompt), and a **vault**. Attaches the billing token as an `environment_variable` credential if it's set — otherwise skips it so you can add it later. Prints `AGENT_ID` / `ENV_ID` / `VAULT_ID`. |
 | `billing_agent.py` | Data (per run) | Loads the three IDs, opens a session, runs a smoke-test turn then your real request, and downloads the HTML dashboards the agent produced. |
 | `README.md`        | —            | This file. |
 
@@ -38,11 +38,24 @@ Managed Agents split cleanly into two planes, and so does this repo:
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-#   fill in ANTHROPIC_API_KEY, BILLING_API_TOKEN, BILLING_HOST
+#   fill in ANTHROPIC_API_KEY and BILLING_HOST
+#   (BILLING_DATA_TOKEN is optional now — you can add it later)
 python setup_agent.py
 #   paste the printed AGENT_ID / ENV_ID / VAULT_ID into .env
 python billing_agent.py
 ```
+
+### Don't have the billing token yet?
+
+You can stand everything up without it. Leave `BILLING_DATA_TOKEN` blank and run
+`setup_agent.py` — it creates the environment, agent, and (empty) vault, and
+skips the credential. The agent exists and Claude works; it just can't reach the
+billing API yet, so the smoke-test turn in `billing_agent.py` will report an auth
+failure (expected).
+
+When you get the token from Xioma, set `BILLING_DATA_TOKEN` in `.env` and **re-run
+`setup_agent.py`** — it detects the existing IDs and attaches the credential to
+the existing vault, without re-creating anything.
 
 `billing_agent.py` prints a Console trace URL for each session so you can watch
 tool calls and messages stream live. Dashboards the agent writes are downloaded
@@ -50,8 +63,8 @@ into the working directory as `*.html` (gitignored).
 
 ## How auth works
 
-The billing token is stored in an Anthropic-managed **vault** as an
-`environment_variable` credential, scoped to the billing host. The sandbox only
+The billing token (`BILLING_DATA_TOKEN`) is stored in an Anthropic-managed
+**vault** as an `environment_variable` credential, scoped to the billing host. The sandbox only
 ever sees an opaque placeholder; the real token is substituted into the outbound
 `Authorization` header **at egress**, so agent code can't read or exfiltrate it.
 The smoke-test turn exists because credential/network failures surface on first
