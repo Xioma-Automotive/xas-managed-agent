@@ -1,5 +1,12 @@
 # Self-hosted XAS Allocation Agent Implementation Plan
 
+> **Superseded on this branch.** This documents the *self-hosted* build, which
+> lives on `claude/agent-spec-managed-i6tn8r`. `olga/cloud-sandbox` replaced it
+> with an Anthropic-hosted sandbox after an agent enumerated the host's
+> credential files through `bash`. `worker.py`, `make_pull_tool()`, and
+> `ALLOC_SANDBOX_ROOT` referenced below no longer exist here. Kept as the record
+> of why this branch exists.
+
 > **For agentic workers:** Steps use checkbox (`- [ ]`) syntax for tracking. Implement task-by-task, running the stated command after each step.
 
 **Goal:** Run the XAS Allocation Agent on a self-hosted sandbox — one long-lived worker process on our host serves every session's tool calls, imports the reference solver directly, and answers a synthetic-data pull tool; a small FastAPI UI drives sessions.

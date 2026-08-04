@@ -51,6 +51,10 @@ client = anthropic.Anthropic()
 
 MODEL = "claude-opus-5"
 
+# Unique per organization, and the self-hosted branch already holds
+# "XAS allocation repair" — creating a skill reuses no title.
+SKILL_TITLE = "XAS allocation repair (cloud sandbox)"
+
 # §10 — the system prompt carries identity, the one-line job, and the HARD RULES.
 # Everything procedural (cost model, spec-compat, reference solver) lives in the
 # xas-allocation skill, loaded when relevant.
@@ -147,7 +151,7 @@ def create_environment() -> str:
 def create_skill() -> str:
     skill = client.beta.skills.create(
         files=skill_files(),
-        display_title="XAS allocation repair",
+        display_title=SKILL_TITLE,
     )
     print(f"Created skill:       {skill.id}")
     return skill.id

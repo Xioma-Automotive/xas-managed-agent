@@ -141,8 +141,7 @@ async function listSessions() {
     const div = document.createElement("div");
     div.className = "session" + (s.id === active ? " active" : "");
     div.innerHTML = `<div class="id">${escape(s.id)}</div>
-      <div class="meta">${escape(s.status)} · ${escape(s.model || "—")}
-      ${s.files ? " · files" : ""}</div>`;
+      <div class="meta">${escape(s.status)} · ${escape(s.model || "—")}</div>`;
     return div;
   }));
 }

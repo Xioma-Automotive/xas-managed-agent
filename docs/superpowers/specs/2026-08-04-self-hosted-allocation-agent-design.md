@@ -1,5 +1,12 @@
 # Self-hosted XAS Allocation Agent — design
 
+> **Superseded on this branch.** This documents the *self-hosted* build, which
+> lives on `claude/agent-spec-managed-i6tn8r`. `olga/cloud-sandbox` replaced it
+> with an Anthropic-hosted sandbox after an agent enumerated the host's
+> credential files through `bash`. `worker.py`, `make_pull_tool()`, and
+> `ALLOC_SANDBOX_ROOT` referenced below no longer exist here. Kept as the record
+> of why this branch exists.
+
 Date: 2026-08-04
 Branch: `claude/agent-spec-managed-i6tn8r`
 Status: approved manifest, pending implementation

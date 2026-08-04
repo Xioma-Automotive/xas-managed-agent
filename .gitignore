@@ -1,20 +1,13 @@
 # Secrets — never commit. Ignore every .env variant and allow back only the
-# committed template: a backup or a stray .env.broker from another branch is a
-# real credentials file, and an untracked credentials file is one `git add -A`
-# away from a commit.
+# committed template: an untracked credentials file is one `git add -A` away
+# from a commit.
 .env*
 !.env.example
 
-# Self-hosted sandbox: the worker's working directory and the per-session
-# archives web.py moves into place when a session ends.
-sandbox/
-sessions/
-snapshot.json
-
-# Local solver artifacts
-out/
+# Local solver artifacts, from running xas_allocation.session by hand
 ledger.json
 residual_cache.json
+snapshot.json
 
 # Python cruft
 __pycache__/
