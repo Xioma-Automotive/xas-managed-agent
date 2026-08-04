@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XAS allocation steering override",
+  "description": "The typed object a planner's natural language compiles to (§6). The prompt moves weights and pins; it NEVER edits solver code. Same inputs + same override => byte-identical plan. A ledger entry wraps one of these.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "pins": {
+      "description": "Instruction-driven pins. 'defer' unpins an order and forbids arrivals before not_before.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order", "action"],
+        "properties": {
+          "order": { "type": "integer", "description": "Real order_id (resolved from NL by the agent)." },
+          "action": { "type": "string", "enum": ["defer"] },
+          "not_before": { "type": "string", "pattern": "^[0-9]{4}-W[0-9]{2}$", "description": "Earliest allowed arrival week, e.g. 2026-W36." }
+        }
+      }
+    },
+    "boosts": {
+      "description": "Multiplicative weight bumps on W(o) for a customer's orders.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["customer", "weight_mult"],
+        "properties": {
+          "customer": { "type": "string", "description": "customer_id (resolved from a dealer name, e.g. 'Colmobil' -> CUST-001)." },
+          "weight_mult": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "forbid": {
+      "description": "Hard 'do not move' — pins an order to its incumbent week.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order", "action"],
+        "properties": {
+          "order": { "type": "integer" },
+          "action": { "type": "string", "enum": ["no_move"] }
+        }
+      }
+    },
+    "lambda": {
+      "description": "Changed-week step penalty for this solve. If null/absent, the λ sweep default applies.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "ttl": {
+      "description": "Optional expiry as a week label; the entry is skipped on replay once the current week passes it, so a one-off nudge doesn't linger.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-W[0-9]{2}$"
+    }
+  }
+}

@@ -4,6 +4,11 @@
 # Generated dashboards
 *.html
 
+# Managed-agent session outputs + local solver artifacts
+out/
+ledger.json
+residual_cache.json
+
 # Python cruft
 __pycache__/
 *.pyc

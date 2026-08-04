@@ -1,11 +1,12 @@
 [project]
-name = "xas-billing-dashboard-agent"
+name = "xas-managed-agents"
 version = "0.1.0"
-description = "Conversational Claude Managed Agent that reads billing data and builds self-contained HTML dashboards"
+description = "Xioma Automotive Managed Agents: billing dashboard + allocation repair (OR-Tools min-cost-flow)"
 requires-python = ">=3.10"
 dependencies = [
     "anthropic",
     "python-dotenv",
+    "ortools",
 ]
 
 [tool.uv]
