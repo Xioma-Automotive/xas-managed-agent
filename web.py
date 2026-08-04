@@ -89,6 +89,26 @@ def _require_config() -> None:
         )
 
 
+def _digest(call) -> str:
+    """One line describing what the pull returned, for the server log."""
+    blocks = getattr(getattr(call, "result", None), "content", None) or []
+    body = "".join(
+        b.get("text", "") if isinstance(b, dict) else getattr(b, "text", "") for b in blocks
+    )
+    if not body:
+        return "no result body"
+    try:
+        d = json.loads(body)
+    except json.JSONDecodeError:
+        return f"{len(body)} chars"
+    disruption = d.get("disruption") or {}
+    return (
+        f"seed={d.get('seed')} orders={d.get('orders')} units={d.get('units')} "
+        f"disruption={disruption.get('shipment')}+{disruption.get('delay_weeks')}w "
+        f"freed={d.get('disrupted_orders')}"
+    )
+
+
 async def _answer_custom_tools(session_id: str) -> None:
     """Answer this session's custom tool calls for as long as it lives.
 
@@ -105,7 +125,16 @@ async def _answer_custom_tools(session_id: str) -> None:
     )
     try:
         async for call in runner:
-            log.info("answered %s for %s", call.event.name, session_id)
+            # Log the arguments and a digest of the answer, not just the name.
+            # This is the one tool we own, and it runs out of sight of both the
+            # sandbox and the transcript — the name alone tells you nothing about
+            # which seed the agent chose or what it got back.
+            log.info(
+                "%s(%s) -> %s",
+                call.event.name,
+                json.dumps(getattr(call.event, "input", {}), sort_keys=True),
+                _digest(call),
+            )
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -144,8 +173,10 @@ async def _stop(session_id: str) -> None:
 def _render(event) -> dict | None:
     """One session event -> what the browser shows, or None to drop it.
 
-    Tool results are dropped: they are the snapshot summary and solver output,
-    which belong in the sandbox and the agent's own reply, not in the transcript.
+    Builtin tool results are dropped — they are sandbox chatter, and the agent's
+    own reply already says what came of them. The *custom* tool's result is
+    kept: it is answered by this process, so the transcript is the only place a
+    planner can see what the pull actually returned.
     """
     kind = event.type
     if kind == "agent.message":
@@ -160,7 +191,12 @@ def _render(event) -> dict | None:
         detail = event.input.get("command") or event.input.get("file_path") or ""
         return {"type": "tool", "name": event.name, "detail": str(detail)[:200]}
     if kind == "agent.custom_tool_use":
-        return {"type": "tool", "name": event.name, "detail": json.dumps(event.input)[:200]}
+        return {"type": "tool", "name": event.name, "detail": json.dumps(event.input)}
+    if kind == "user.custom_tool_result":
+        body = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
+        if getattr(event, "is_error", False):
+            return {"type": "error", "text": f"pull failed: {body[:400]}"}
+        return {"type": "tool_result", "text": body}
     if kind == "session.status_running":
         return {"type": "status", "status": "running"}
     if kind == "session.status_idle":

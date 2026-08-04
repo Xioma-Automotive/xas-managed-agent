@@ -110,13 +110,17 @@ def materialize_command(seed: int, n_orders: int, spare_ratio: float, delay_week
     """The one-liner that reproduces this exact snapshot inside the sandbox.
 
     Self-locating on purpose. The solver ships in the skill bundle, so it lands
-    wherever the platform materializes skills — not in the working directory,
-    and not at a path we can predict from here. The command therefore walks the
-    working directory for the package and puts its parent on ``sys.path``.
+    wherever the platform materializes skills — in practice inside the sandbox
+    workspace, but not at a path we can name from here.
 
-    ``rglob`` from ``.`` and not from ``/``: bounded to the sandbox's own tree.
-    An unbounded search is what blew the 120s bash timeout on the self-hosted
-    build and took the agent's shell with it.
+    The search bases are **explicit and never** ``/``. An earlier version globbed
+    from ``.`` and trusted the caller's working directory; the agent ran it from
+    ``/`` and swept the whole container before retrying. A bound the caller can
+    opt out of is not a bound. The candidates are the working directory (unless
+    that *is* ``/``) and then the workspace root, first hit wins.
+
+    ``snapshot.json`` is written next to whichever base matched and the command
+    prints the absolute path, so there is no ambiguity about where it landed.
 
     Single line, single quoting level, so the agent can paste it into bash
     verbatim.
@@ -128,12 +132,18 @@ def materialize_command(seed: int, n_orders: int, spare_ratio: float, delay_week
     return (
         'python -c "'
         "import sys, json, pathlib; "
-        "hit = next(pathlib.Path('.').rglob('xas_allocation/synth_data.py'), None); "
-        "sys.exit('xas_allocation not found under the working directory') if hit is None else None; "
+        "root = pathlib.Path('/'); "
+        "bases = [p for p in (pathlib.Path.cwd(), pathlib.Path('/workspace')) "
+        "if p.is_dir() and p != root]; "
+        "found = next(((b, h) for b in bases "
+        "for h in b.rglob('xas_allocation/synth_data.py')), None); "
+        "sys.exit('xas_allocation not found under ' + str(bases)) if found is None else None; "
+        "base, hit = found; "
         "sys.path.insert(0, str(hit.parent.parent)); "
         "from xas_allocation.synth_data import generate_snapshot; "
-        f"json.dump({call}.as_dict(), open('{SNAPSHOT_FILENAME}','w'), indent=2, sort_keys=True); "
-        f"print('wrote {SNAPSHOT_FILENAME}')"
+        f"out = base / '{SNAPSHOT_FILENAME}'; "
+        f"json.dump({call}.as_dict(), open(out,'w'), indent=2, sort_keys=True); "
+        "print('wrote ' + str(out))"
         '"'
     )
 

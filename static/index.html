@@ -43,6 +43,11 @@
   .msg.tool { background: transparent; color: var(--dim); font-family: ui-monospace, monospace;
               font-size: 12px; padding: 2px 12px; }
   .msg.tool b { color: var(--warn); font-weight: 600; }
+  .msg.tool_result { background: var(--panel); border: 1px solid var(--line);
+                     font-family: ui-monospace, monospace; font-size: 12px; }
+  .msg.tool_result summary { cursor: pointer; color: var(--warn); }
+  .msg.tool_result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
+                         max-height: 320px; overflow-y: auto; color: var(--dim); }
   .msg.error { background: #3a1f27; color: #ffc9d2; border: 1px solid #6b2b3a; }
 
   footer { border-top: 1px solid var(--line); padding: 12px; display: flex; gap: 8px; }
@@ -118,6 +123,10 @@ function render(event) {
     case "user":  return add("user", escape(event.text));
     case "agent": return add("agent", escape(event.text));
     case "tool":  return add("tool", `<b>${escape(event.name)}</b> ${escape(event.detail)}`);
+    case "tool_result":
+      return add("tool_result",
+        `<details><summary>pull result (${event.text.length} chars)</summary>`
+        + `<pre>${escape(event.text)}</pre></details>`);
     case "error": return add("error", escape(event.text));
     case "status":
       if (event.status === "running") setStatus("running…", "running");

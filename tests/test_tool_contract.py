@@ -104,6 +104,31 @@ def test_materialize_command_reproduces_the_snapshot(tmp_path):
     assert snapshot["disruption"]["disrupted_orders"] == summary["disrupted_order_ids"]
 
 
+def test_materialize_command_never_sweeps_the_filesystem_root():
+    """Regression: the agent ran this from `/` and swept the whole container.
+
+    The search bases must exclude `/` outright rather than trusting the caller's
+    working directory. Run from `/` with no package under /workspace, the command
+    must fail fast with a message — not walk the filesystem.
+    """
+    import subprocess
+    import sys
+    import time
+
+    command = call(seed=1, n_orders=5)["materialize"].replace("python ", f"{sys.executable} ", 1)
+
+    started = time.monotonic()
+    done = subprocess.run(
+        command, shell=True, cwd="/", capture_output=True, text=True, timeout=60, check=False
+    )
+    elapsed = time.monotonic() - started
+
+    assert done.returncode != 0, "should not have found a solver under /"
+    assert "not found" in (done.stdout + done.stderr)
+    # A root sweep on any real machine takes far longer than this.
+    assert elapsed < 30, f"took {elapsed:.1f}s — looks like it searched too widely"
+
+
 def test_same_seed_same_summary():
     """The data_snapshot half of plan = pure_function(data_snapshot, skill, ledger)."""
     assert call(seed=7, n_orders=30) == call(seed=7, n_orders=30)
