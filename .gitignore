@@ -1,10 +1,17 @@
-# Secrets — never commit
-.env
+# Secrets — never commit. Ignore every .env variant and allow back only the
+# committed template: a backup or a stray .env.broker from another branch is a
+# real credentials file, and an untracked credentials file is one `git add -A`
+# away from a commit.
+.env*
+!.env.example
 
-# Generated dashboards
-*.html
+# Self-hosted sandbox: the worker's working directory and the per-session
+# archives web.py moves into place when a session ends.
+sandbox/
+sessions/
+snapshot.json
 
-# Managed-agent session outputs + local solver artifacts
+# Local solver artifacts
 out/
 ledger.json
 residual_cache.json
@@ -14,3 +21,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+
+# Local Claude Code state (worktrees are embedded repos)
+.claude/

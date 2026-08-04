@@ -1,26 +1,30 @@
-# Xioma Automotive — Managed Agents
+# XAS Allocation Agent
 
-This repo hosts Claude **Managed Agents** for Xioma Automotive. Each agent uses
-the Managed Agents REST surface via the Python `anthropic` SDK, model
-`claude-opus-5`. The agent loop runs against a **self-hosted** per-session
-sandbox where the agent's tools (bash, file ops, web fetch, etc.) execute; your
-code just drives the session and collects the results.
+A Claude **Managed Agent** for Xioma Automotive, running against a
+**self-hosted** sandbox: `worker.py` on your own machine claims each session from
+Anthropic's work queue and executes the agent's tool calls locally. Uses the
+Managed Agents REST surface via the Python `anthropic` SDK, model
+`claude-opus-5`.
 
-| Agent | Control-plane setup | Data-plane driver | What it does |
-| ----- | ------------------- | ----------------- | ------------ |
-| **XAS Allocation Agent** | `setup_allocation_agent.py` | `allocation_agent.py` | Repairs a vehicle-to-order allocation after a disruption via a deterministic OR-Tools min-cost-flow solver. Prototype on synthetic data. |
-| **Billing Dashboard Agent** | `setup_agent.py` | `billing_agent.py` | Reads billing data from an internal HTTP API and builds self-contained HTML dashboards. |
+| File | Plane | Role |
+| ---- | ----- | ---- |
+| `setup_allocation_agent.py` | control (once) | Creates the self-hosted environment, uploads the skill, creates the agent. Re-runnable: updates in place. |
+| `worker.py` | run | The sandbox. Serves every session's tool calls. Holds the environment key only. |
+| `web.py` + `static/index.html` | run | Session control and transcript. Holds the organization API key. |
+| `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
+| `xas_allocation/` | — | The deterministic reference solver. |
+| `skills/xas-allocation/SKILL.md` | — | The skill: cost model, procedure, steering contract. |
 
-Every agent splits into two planes: **control** (create the agent, environment,
-and vault once — persistent, versioned resources referenced by ID forever after)
-and **data** (open a fresh session per conversation and drive it). Never call
-`agents/environments/vaults create()` in the per-conversation path.
+The split is **control** (create the agent and environment once — persistent,
+versioned resources referenced by ID forever after) and **run** (open a session
+per conversation and drive it). Never call `agents/environments create()` in the
+per-conversation path.
 
 ---
 
-# XAS Allocation Agent (prototype)
+## What it does
 
-A Managed Agent that helps a planner **repair** a vehicle-to-order allocation
+Helps a planner **repair** a vehicle-to-order allocation
 after a disruption (delayed shipment, changed inbound, manual steering). It does
 **not** allocate by reasoning — it translates the situation + planner
 instructions into inputs for a **deterministic min-cost-flow solver**, runs the
@@ -73,21 +77,77 @@ PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (5/5)
 the hard-constraint self-check, and a reason-coded change list — first for a base
 repair, then after a steering turn (defer an order, prefer Colmobil, set λ).
 
-## Run it as a Managed Agent
+## Run it as a Managed Agent (self-hosted)
+
+The sandbox is **your machine**. `worker.py` claims each session from Anthropic's
+work queue and executes the agent's tool calls locally, which is what lets the
+agent `import xas_allocation` directly instead of being handed the solver's
+source to retype. Determinism is the reference solver's, never the model
+re-deriving it.
 
 ```bash
 uv sync
-cp .env.example .env            # fill in ANTHROPIC_API_KEY (XAS_HOST stays blank in the prototype)
+cp .env.example .env                  # fill in ANTHROPIC_API_KEY
 uv run python setup_allocation_agent.py
-#   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_VAULT_ID into .env
-uv run python allocation_agent.py
+#   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_SKILL_ID into .env
+#   then create .env.worker with ALLOC_ENV_ID + ANTHROPIC_ENVIRONMENT_KEY
+#   (Console: Workspace > Environments > your env > Generate key)
+
+uv run python worker.py               # terminal 1 — the sandbox
+uv run uvicorn web:app --port 8000    # terminal 2 — the UI, then open localhost:8000
 ```
 
-`allocation_agent.py` opens a session, materializes the **exact** reference
-solver into the sandbox and runs the invariant test as a smoke test (determinism
-is the reference solver's, never the model re-deriving it), then drives one
-steering turn and downloads the ledger + proposed plan to `./out/`. It never
-writes back to XAS — the plan is a proposal the planner approves.
+Three processes, three trust levels:
+
+| Process | Holds | Runs |
+| --- | --- | --- |
+| `setup_allocation_agent.py`, `web.py` | organization API key | no tool calls |
+| `worker.py` | environment key only | every tool call |
+| — | — | there is no fourth: no broker, no vault, no container |
+
+`worker.py` refuses to start if it finds `ANTHROPIC_API_KEY` in its environment,
+which is why `.env` and `.env.worker` are separate files.
+
+### One session at a time
+
+`EnvironmentWorker.run()` serves one session to completion before claiming the
+next, so a second live session would queue behind the first with nothing to show.
+"New session" in the UI therefore stops the current one and moves its working
+files from `~/xas-alloc-sandbox` into `~/xas-alloc-sessions/<session_id>/`. That
+archive is what the session list points at.
+
+### The sandbox lives outside the repo
+
+`~/xas-alloc-sandbox`, not `./sandbox`. The file tools confine themselves to the
+workdir, but `bash` does not — and a sandbox sited inside the repo puts `.env`,
+which holds the organization API key, one `cd ..` away from a shell the agent
+controls. Override with `ALLOC_SANDBOX_ROOT` if you must, but keep it out of the
+repo.
+
+At the start of every session the worker copies `xas_allocation/` and
+`tests/test_invariant.py` into the workdir, because the system prompt promises
+the solver is importable there. Copied rather than symlinked: the file tools are
+symlink-aware and reject links resolving outside the workdir. Skip this and the
+agent goes hunting — and `find /` outlives the bash tool's 120s timeout, which
+takes its shell with it.
+
+### The data pull is a tool, not a file read
+
+The agent calls `pull_allocation_snapshot` (declared and implemented once, in
+`alloc_tools.py`). The worker answers it on the host: it writes `snapshot.json`
+into the sandbox and returns a summary — the disruption, the orders it freed, and
+the dealer-name → `customer_id` map the §6 steering contract needs. The rows stay
+on disk; the solver reads the file, the conversation does not.
+
+### What "no outside connections" does and does not mean
+
+The builtin toolset is `bash, read, write, edit, glob, grep` — there is no fetch
+or search tool, and no credential is attached to anything, so **no tool offers
+egress**. But the tools run as your host process, so `bash` inherits your host's
+network. A real egress jail (container + proxy allow-list) is a later adaptation;
+until then this is a local prototype, not an isolation boundary.
+
+The agent never writes back to XAS — the plan is a proposal the planner approves.
 
 ## Open decisions (`DECIDE-n` — stubbed defaults, NOT settled answers)
 
@@ -109,96 +169,3 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and
 any new hard constraint. The prompt moves weights and pins; a human moves the
 model.
-
----
-
-# Billing Dashboard Agent
-
-A conversational Claude **Managed Agent** that reads billing data from an
-internal HTTP API, analyzes it (trends, anomalies, top movers), and produces
-self-contained HTML dashboards. You chat with it to describe the report you want.
-
-It uses the Managed Agents REST surface via the Python `anthropic` SDK, model
-`claude-opus-5`. The agent loop runs against a **self-hosted** per-session
-sandbox where the agent's tools (bash, file ops, web fetch, etc.) execute; your
-code just drives the session and collects the results.
-
-## Setup-once vs. runtime-per-conversation
-
-Managed Agents split cleanly into two planes, and so does this repo:
-
-- **Control plane — run once.** The agent, environment, and vault are
-  persistent, versioned resources. You create them a single time with
-  `setup_agent.py`, then reference them by ID forever after. Re-creating them on
-  every run accumulates orphaned resources and pays create latency for nothing.
-- **Data plane — run every conversation.** `billing_agent.py` opens a fresh
-  session against the pre-created agent, streams the conversation, and downloads
-  outputs. It never calls `agents.create()` / `environments.create()` /
-  `vaults.create()` — it only references the IDs from `.env`.
-
-## Files
-
-| File               | Plane        | What it does |
-| ------------------ | ------------ | ------------ |
-| `.gitignore`       | —            | Ignores `.env`, generated `*.html`, and Python cruft. |
-| `.env.example`     | —            | Committed template for the values below. Copy to `.env`. |
-| `pyproject.toml`   | —            | Project + dependencies (`anthropic`, `python-dotenv`). Managed by `uv`. |
-| `uv.lock`          | —            | Locked dependency versions (committed for reproducible installs). |
-| `requirements.txt` | —            | Same deps, for a plain `pip` fallback. |
-| `setup_agent.py`   | Control (once) | Creates a **cloud** environment (limited networking, scoped to the billing host), the **agent** (`claude-opus-5`, prebuilt toolset, billing-analyst system prompt), and a **vault**. Attaches the billing token as an `environment_variable` credential if it's set — otherwise skips it so you can add it later. Prints `AGENT_ID` / `ENV_ID` / `VAULT_ID`. |
-| `billing_agent.py` | Data (per run) | Loads the three IDs, opens a session, runs a smoke-test turn then your real request, and downloads the HTML dashboards the agent produced. |
-| `README.md`        | —            | This file. |
-
-## Run order
-
-```bash
-uv sync
-cp .env.example .env
-#   fill in ANTHROPIC_API_KEY and BILLING_HOST
-#   (BILLING_DATA_TOKEN is optional now — you can add it later)
-uv run python setup_agent.py
-#   paste the printed AGENT_ID / ENV_ID / VAULT_ID into .env
-uv run python billing_agent.py
-```
-
-> Using plain `pip` instead of `uv`? `pip install -r requirements.txt`, then
-> drop the `uv run` prefix from the commands above.
-
-### Don't have the billing token yet?
-
-You can stand everything up without it. Leave `BILLING_DATA_TOKEN` blank and run
-`setup_agent.py` — it creates the environment, agent, and (empty) vault, and
-skips the credential. The agent exists and Claude works; it just can't reach the
-billing API yet, so the smoke-test turn in `billing_agent.py` will report an auth
-failure (expected).
-
-When you get the token from Xioma, set `BILLING_DATA_TOKEN` in `.env` and **re-run
-`uv run python setup_agent.py`** — it detects the existing IDs and attaches the
-credential to the existing vault, without re-creating anything.
-
-`billing_agent.py` prints a Console trace URL for each session so you can watch
-tool calls and messages stream live. Dashboards the agent writes are downloaded
-into the working directory as `*.html` (gitignored).
-
-## How auth works
-
-The billing token (`BILLING_DATA_TOKEN`) is stored in an Anthropic-managed
-**vault** as an `environment_variable` credential, scoped to the billing host. The sandbox only
-ever sees an opaque placeholder; the real token is substituted into the outbound
-`Authorization` header **at egress**, so agent code can't read or exfiltrate it.
-The smoke-test turn exists because credential/network failures surface on first
-use, not when the session is created — it does one authenticated GET and reports
-the status before any real work.
-
-## Things to confirm
-
-- **`BILLING_HOST` in `.env.example` is a placeholder** (`api.xiomautomotive.com`).
-  Set it to the real internal billing API host before running setup — it scopes
-  both the environment's `allowed_hosts` and the credential's egress allow-list,
-  so a wrong value means the agent can't reach the API.
-- **The token is injected as `Authorization: Bearer <token>`** (header injection).
-  If the real billing API expects a different auth scheme — a custom header like
-  `X-API-Key`, a query param, or a non-Bearer scheme — the header-injected Bearer
-  token won't authenticate. Adjust the credential's `injection_location` and the
-  system prompt's auth guidance accordingly (note: secrets can only be injected
-  into request headers or bodies, never the URL path).

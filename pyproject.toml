@@ -1,14 +1,38 @@
 [project]
-name = "xas-managed-agents"
+name = "xas-allocation-agent"
 version = "0.1.0"
-description = "Xioma Automotive Managed Agents: billing dashboard + allocation repair (OR-Tools min-cost-flow)"
+description = "XAS Allocation Agent: self-hosted Managed Agent for allocation repair (OR-Tools min-cost-flow)"
 requires-python = ">=3.10"
 dependencies = [
     "anthropic",
     "python-dotenv",
     "ortools",
+    "fastapi",
+    "uvicorn[standard]",
+    "sse-starlette",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
 ]
 
 [tool.uv]
 # Scripts-only project — nothing to build/install for the project itself.
 package = false
+
+[tool.pytest.ini_options]
+# The agent scripts live at the repo root and import each other by module name;
+# put the root on sys.path so the tests import them the same way the running
+# processes do.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# Every script here carries a shebang and is run as `python <script>.py`, none
+# are chmod +x. Matching the convention, not the rule.
+ignore = ["EXE001"]
