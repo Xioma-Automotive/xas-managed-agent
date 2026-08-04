@@ -2,9 +2,9 @@
 
 This repo hosts Claude **Managed Agents** for Xioma Automotive. Each agent uses
 the Managed Agents REST surface via the Python `anthropic` SDK, model
-`claude-opus-5`: Anthropic runs the agent loop and hosts a per-session sandbox
-where the agent's tools (bash, file ops, web fetch, etc.) execute; your code just
-drives the session and collects the results.
+`claude-opus-5`. The agent loop runs against a **self-hosted** per-session
+sandbox where the agent's tools (bash, file ops, web fetch, etc.) execute; your
+code just drives the session and collects the results.
 
 | Agent | Control-plane setup | Data-plane driver | What it does |
 | ----- | ------------------- | ----------------- | ------------ |
@@ -119,9 +119,9 @@ internal HTTP API, analyzes it (trends, anomalies, top movers), and produces
 self-contained HTML dashboards. You chat with it to describe the report you want.
 
 It uses the Managed Agents REST surface via the Python `anthropic` SDK, model
-`claude-opus-5`. Anthropic runs the agent loop and hosts a per-session sandbox
-where the agent's tools (bash, file ops, web fetch, etc.) execute; your code
-just drives the session and collects the results.
+`claude-opus-5`. The agent loop runs against a **self-hosted** per-session
+sandbox where the agent's tools (bash, file ops, web fetch, etc.) execute; your
+code just drives the session and collects the results.
 
 ## Setup-once vs. runtime-per-conversation
 
