@@ -1,32 +1,37 @@
 """The allocation agent's data tool: pull a snapshot to repair.
 
 ONE contract, ONE definition. ``PULL_TOOL`` is the ``custom`` tool
-``setup_allocation_agent.py`` declares on the agent; ``make_pull_tool()`` builds
-the implementation ``worker.py`` registers to answer it. Both are derived from
+``setup_allocation_agent.py`` declares on the agent; ``pull_allocation_snapshot``
+is the implementation ``web.py`` registers to answer it. Both are derived from
 the constants below, so the declaration and the implementation cannot drift into
 the failure this arrangement invites: a custom tool call whose name nothing
 answers parks the session on a ``requires_action`` idle, which never times out.
 
-The tool writes the full snapshot to ``snapshot.json`` in the session workdir and
-returns a *summary*. A 120-order pull is ~100 KB of JSON; returning the rows
-would push the entire dataset through the context window on every pull, and the
-solver reads the file rather than the conversation. The summary carries exactly
-what the agent needs to reason and to compile a steering override: the disruption,
-the orders it freed, and the customer-name → customer_id map the §6 steering
-contract requires ("prefer Colmobil" → ``CUST-001``).
+**Cloud sandbox.** The tool runs on *our* host; the agent runs in Anthropic's.
+Nothing this function writes to disk is visible to the agent, and everything it
+returns crosses into the agent's context. A 120-order snapshot is ~100 KB of
+JSON — perhaps 30k tokens per pull, most of it rows the agent never reads
+directly because the solver reads them.
 
-DECIDE-7: the real XAS pull does not exist. This is the seeded synthetic
-generator, so ``seed`` is the whole data snapshot — same seed, byte-identical
-bytes on disk, which is the ``data_snapshot`` half of the core invariant.
+So the tool returns the *seed*, not the rows. The data is a seeded generator, so
+regenerating it inside the sandbox is byte-identical to generating it here — the
+determinism argument that makes this sound is the same one the core invariant
+rests on. The tool remains the pull interface: it decides the parameters, it is
+where a real XAS API plugs in, and it returns the summary the agent needs to
+reason. Only the transport differs.
+
+DECIDE-7: when the real XAS pull exists the rows are no longer reproducible from
+a seed, and the tool result has to carry them — at which point the payload
+question comes back and wants a real answer (paging, a file resource, or a
+sandbox-side fetch through a credentialed proxy).
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
-from anthropic.lib.tools import BetaAsyncFunctionTool, beta_async_tool
+from anthropic.lib.tools import beta_async_tool
 
 from xas_allocation.synth_data import (
     CUSTOMERS,
@@ -43,12 +48,12 @@ TOOL_NAME = "pull_allocation_snapshot"
 
 TOOL_DESCRIPTION = (
     "Pull the current allocation snapshot: open orders, inbound units, the "
-    "complete incumbent plan, and the disruption to repair. Writes the full "
-    "snapshot to snapshot.json in the working directory and returns a summary — "
-    "load the file from the solver, never into the conversation. Call this once "
-    "at the start of a repair cycle; the same seed always regenerates a "
-    "byte-identical snapshot, which is what makes a ledger replay reproduce the "
-    "same plan. Prototype (DECIDE-7): the real XAS pull does not exist yet, so "
+    "complete incumbent plan, and the disruption to repair. Returns a summary "
+    "plus the exact command to materialize the full snapshot as snapshot.json in "
+    "your sandbox — run that command before solving. Call this once at the start "
+    "of a repair cycle and reuse the same seed for every turn of that cycle; the "
+    "seed identifies the data snapshot, and a replay against a different seed is "
+    "not a replay. Prototype (DECIDE-7): the real XAS pull does not exist yet, so "
     "this is a seeded synthetic generator shaped like XAS bins."
 )
 
@@ -59,8 +64,7 @@ PULL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
             "type": "integer",
             "description": (
                 "Seed for the synthetic pull. Identifies the data snapshot: "
-                "reuse the same seed for every turn of one repair cycle, or a "
-                "ledger replay will solve against different data."
+                "reuse the same seed for every turn of one repair cycle."
             ),
             "default": 42,
         },
@@ -102,15 +106,48 @@ PULL_TOOL: dict[str, Any] = {
 }
 
 
-def _summarize(snapshot: Any, path: Path) -> dict[str, Any]:
-    """The part of the pull that goes into the conversation."""
+def materialize_command(seed: int, n_orders: int, spare_ratio: float, delay_weeks: int) -> str:
+    """The one-liner that reproduces this exact snapshot inside the sandbox.
+
+    Self-locating on purpose. The solver ships in the skill bundle, so it lands
+    wherever the platform materializes skills — not in the working directory,
+    and not at a path we can predict from here. The command therefore walks the
+    working directory for the package and puts its parent on ``sys.path``.
+
+    ``rglob`` from ``.`` and not from ``/``: bounded to the sandbox's own tree.
+    An unbounded search is what blew the 120s bash timeout on the self-hosted
+    build and took the agent's shell with it.
+
+    Single line, single quoting level, so the agent can paste it into bash
+    verbatim.
+    """
+    call = (
+        f"generate_snapshot(seed={seed}, n_orders={n_orders}, "
+        f"spare_ratio={spare_ratio}, delay_weeks={delay_weeks})"
+    )
+    return (
+        'python -c "'
+        "import sys, json, pathlib; "
+        "hit = next(pathlib.Path('.').rglob('xas_allocation/synth_data.py'), None); "
+        "sys.exit('xas_allocation not found under the working directory') if hit is None else None; "
+        "sys.path.insert(0, str(hit.parent.parent)); "
+        "from xas_allocation.synth_data import generate_snapshot; "
+        f"json.dump({call}.as_dict(), open('{SNAPSHOT_FILENAME}','w'), indent=2, sort_keys=True); "
+        f"print('wrote {SNAPSHOT_FILENAME}')"
+        '"'
+    )
+
+
+def summarize(snapshot: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """The part of the pull that crosses into the agent's context."""
     disruption = snapshot.disruption
     units_by_state: dict[str, int] = {}
     for unit in snapshot.units:
         units_by_state[unit.state] = units_by_state.get(unit.state, 0) + 1
 
     return {
-        "snapshot_path": path.name,
+        "materialize": materialize_command(**params),
+        "snapshot_path": SNAPSHOT_FILENAME,
         "seed": snapshot.seed,
         "orders": len(snapshot.orders),
         "units": len(snapshot.units),
@@ -139,36 +176,26 @@ def _summarize(snapshot: Any, path: Path) -> dict[str, Any]:
     }
 
 
-def make_pull_tool(workdir: str | Path) -> BetaAsyncFunctionTool[Any]:
-    """Build the pull tool bound to one session's workdir.
+@beta_async_tool(
+    name=TOOL_NAME,
+    description=TOOL_DESCRIPTION,
+    input_schema=PULL_TOOL_INPUT_SCHEMA,
+)
+async def pull_allocation_snapshot(
+    seed: int = 42,
+    n_orders: int = 120,
+    spare_ratio: float = 0.6,
+    delay_weeks: int = 3,
+) -> str:
+    """Generate the snapshot here, return the summary and the seed that reproduces it.
 
-    Async because ``beta_agent_toolset_20260401`` returns async function tools
-    and the session runner is async-only.
+    Async because the session tool runner is async-only.
     """
-    root = Path(workdir)
-
-    @beta_async_tool(
-        name=TOOL_NAME,
-        description=TOOL_DESCRIPTION,
-        input_schema=PULL_TOOL_INPUT_SCHEMA,
-    )
-    async def pull_allocation_snapshot(
-        seed: int = 42,
-        n_orders: int = 120,
-        spare_ratio: float = 0.6,
-        delay_weeks: int = 3,
-    ) -> str:
-        snapshot = generate_snapshot(
-            seed=seed,
-            n_orders=n_orders,
-            spare_ratio=spare_ratio,
-            delay_weeks=delay_weeks,
-        )
-        root.mkdir(parents=True, exist_ok=True)
-        path = root / SNAPSHOT_FILENAME
-        # sort_keys so two pulls of one seed are byte-identical on disk, not just
-        # equal as objects — the invariant test compares bytes.
-        path.write_text(json.dumps(snapshot.as_dict(), indent=2, sort_keys=True))
-        return json.dumps(_summarize(snapshot, path), indent=2)
-
-    return pull_allocation_snapshot
+    params = {
+        "seed": seed,
+        "n_orders": n_orders,
+        "spare_ratio": spare_ratio,
+        "delay_weeks": delay_weeks,
+    }
+    snapshot = generate_snapshot(**params)
+    return json.dumps(summarize(snapshot, params), indent=2)

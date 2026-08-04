@@ -1,18 +1,20 @@
 # XAS Allocation Agent
 
-A Claude **Managed Agent** for Xioma Automotive, running against a
-**self-hosted** sandbox: `worker.py` on your own machine claims each session from
-Anthropic's work queue and executes the agent's tool calls locally. Uses the
-Managed Agents REST surface via the Python `anthropic` SDK, model
-`claude-opus-5`.
+A Claude **Managed Agent** for Xioma Automotive, running against an
+**Anthropic-hosted** sandbox. The agent's bash and file tools execute in
+Anthropic's container; nothing on your machine runs them. Uses the Managed
+Agents REST surface via the Python `anthropic` SDK, model `claude-opus-5`.
+
+> The self-hosted variant is on `claude/agent-spec-managed-i6tn8r`. It runs the
+> agent's shell as your own uid — in testing, an agent there enumerated every
+> credential file on the host. These branches are alternatives, not a merge.
 
 | File | Plane | Role |
 | ---- | ----- | ---- |
-| `setup_allocation_agent.py` | control (once) | Creates the self-hosted environment, uploads the skill, creates the agent. Re-runnable: updates in place. |
-| `worker.py` | run | The sandbox. Serves every session's tool calls. Holds the environment key only. |
-| `web.py` + `static/index.html` | run | Session control and transcript. Holds the organization API key. |
+| `setup_allocation_agent.py` | control (once) | Creates the cloud environment, uploads the skill **with the solver inside it**, creates the agent. Re-runnable: updates in place. |
+| `web.py` + `static/index.html` | run | The only process. Session control, transcript, and the one custom tool the sandbox cannot answer for itself. |
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
-| `xas_allocation/` | — | The deterministic reference solver. |
+| `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
 | `skills/xas-allocation/SKILL.md` | — | The skill: cost model, procedure, steering contract. |
 
 The split is **control** (create the agent and environment once — persistent,
@@ -77,75 +79,72 @@ PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (5/5)
 the hard-constraint self-check, and a reason-coded change list — first for a base
 repair, then after a steering turn (defer an order, prefer Colmobil, set λ).
 
-## Run it as a Managed Agent (self-hosted)
-
-The sandbox is **your machine**. `worker.py` claims each session from Anthropic's
-work queue and executes the agent's tool calls locally, which is what lets the
-agent `import xas_allocation` directly instead of being handed the solver's
-source to retype. Determinism is the reference solver's, never the model
-re-deriving it.
+## Run it as a Managed Agent (Anthropic-hosted)
 
 ```bash
 uv sync
 cp .env.example .env                  # fill in ANTHROPIC_API_KEY
 uv run python setup_allocation_agent.py
 #   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_SKILL_ID into .env
-#   then create .env.worker with ALLOC_ENV_ID + ANTHROPIC_ENVIRONMENT_KEY
-#   (Console: Workspace > Environments > your env > Generate key)
 
-uv run python worker.py               # terminal 1 — the sandbox
-uv run uvicorn web:app --port 8000    # terminal 2 — the UI, then open localhost:8000
+uv run uvicorn web:app --port 8000    # the only process — open localhost:8000
 ```
 
-Three processes, three trust levels:
+No worker, no environment key, no `.env.worker`. One process.
 
-| Process | Holds | Runs |
+| Where | Holds | Runs |
 | --- | --- | --- |
-| `setup_allocation_agent.py`, `web.py` | organization API key | no tool calls |
-| `worker.py` | environment key only | every tool call |
-| — | — | there is no fourth: no broker, no vault, no container |
+| `web.py` (here) | organization API key | the one custom tool |
+| Anthropic's sandbox | nothing of yours | bash, file tools, the solver |
 
-`worker.py` refuses to start if it finds `ANTHROPIC_API_KEY` in its environment,
-which is why `.env` and `.env.worker` are separate files.
+**If `.env` already holds self-hosted IDs**, clear all three `ALLOC_*` values
+before running setup. The two sandbox types need separate resources, and setup
+refuses to cross-wire them rather than producing an agent whose sessions queue
+for a worker that will never arrive.
+
+### How the solver reaches a sandbox we don't run
+
+It ships **inside the skill**. `skill_files()` uploads `xas_allocation/` under
+the skill directory alongside `SKILL.md`, and the platform materializes skills
+into the sandbox. The package stays at the repo root — the bundle is synthesized
+at upload time, so the tests and the sandbox run the same source.
+
+The consequence to remember: **edit the solver and you must re-run
+`setup_allocation_agent.py`**, or the sandbox keeps using the previous version
+with nothing to tell you.
+
+### Why the pull returns a seed instead of rows
+
+The tool runs here; the agent runs in Anthropic's sandbox. Everything the tool
+returns crosses into the agent's context, and a 120-order snapshot is ~100 KB of
+JSON the agent never reads directly — the solver reads it.
+
+So the tool returns a summary plus a `materialize` command, and the agent runs
+that command to rebuild the snapshot in its own sandbox. The generator is seeded,
+so the result is byte-identical to what the tool generated here; the same
+determinism argument the core invariant rests on is what makes the shortcut
+sound. The tool is still the pull interface — it decides the parameters and is
+where a real XAS API plugs in. Only the transport differs.
+
+When the real XAS pull exists (DECIDE-7) the rows stop being reproducible from a
+seed, and the payload question comes back wanting a real answer.
 
 ### One session at a time
 
-`EnvironmentWorker.run()` serves one session to completion before claiming the
-next, so a second live session would queue behind the first with nothing to show.
-"New session" in the UI therefore stops the current one and moves its working
-files from `~/xas-alloc-sandbox` into `~/xas-alloc-sessions/<session_id>/`. That
-archive is what the session list points at.
+A product choice here rather than a constraint — with a cloud sandbox nothing
+queues. Kept because the ledger and the planner's attention are both singular.
+"New session" stops the current one; `/session/{id}/files` lists what the agent
+wrote, and `/session/{id}/files/download` pulls it to `~/xas-alloc-outputs`.
 
-### The sandbox lives outside the repo
+### What "no outside connections" means here
 
-`~/xas-alloc-sandbox`, not `./sandbox`. The file tools confine themselves to the
-workdir, but `bash` does not — and a sandbox sited inside the repo puts `.env`,
-which holds the organization API key, one `cd ..` away from a shell the agent
-controls. Override with `ALLOC_SANDBOX_ROOT` if you must, but keep it out of the
-repo.
+The environment is created with `networking: limited` and an empty
+`allowed_hosts`, so the sandbox reaches nothing. `allow_package_managers` stays
+on because the agent needs `pip install ortools` for the solver.
 
-At the start of every session the worker copies `xas_allocation/` and
-`tests/test_invariant.py` into the workdir, because the system prompt promises
-the solver is importable there. Copied rather than symlinked: the file tools are
-symlink-aware and reject links resolving outside the workdir. Skip this and the
-agent goes hunting — and `find /` outlives the bash tool's 120s timeout, which
-takes its shell with it.
-
-### The data pull is a tool, not a file read
-
-The agent calls `pull_allocation_snapshot` (declared and implemented once, in
-`alloc_tools.py`). The worker answers it on the host: it writes `snapshot.json`
-into the sandbox and returns a summary — the disruption, the orders it freed, and
-the dealer-name → `customer_id` map the §6 steering contract needs. The rows stay
-on disk; the solver reads the file, the conversation does not.
-
-### What "no outside connections" does and does not mean
-
-The builtin toolset is `bash, read, write, edit, glob, grep` — there is no fetch
-or search tool, and no credential is attached to anything, so **no tool offers
-egress**. But the tools run as your host process, so `bash` inherits your host's
-network. A real egress jail (container + proxy allow-list) is a later adaptation;
-until then this is a local prototype, not an isolation boundary.
+Unlike the self-hosted variant, this is an actual boundary: the agent's shell is
+in Anthropic's container, with no path to your filesystem, your credentials, or
+your network.
 
 The agent never writes back to XAS — the plan is a proposal the planner approves.
 

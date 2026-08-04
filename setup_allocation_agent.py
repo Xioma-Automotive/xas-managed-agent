@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """Control-plane setup for the XAS Allocation Agent (Managed Agent).
 
-RUN ONCE, re-runnable. Creates the persistent resources — a **self-hosted**
-environment, the skill, and the agent — and prints their IDs to paste into .env.
-Re-running with those IDs already set updates the agent and pushes a new skill
-version instead of creating duplicates.
+RUN ONCE, re-runnable. Creates the persistent resources — an **Anthropic-hosted
+(cloud)** environment, the skill, and the agent — and prints their IDs to paste
+into .env. Re-running with those IDs already set updates the agent and pushes a
+new skill version instead of creating duplicates.
+
+The skill bundle carries the reference solver, which is how the solver reaches a
+sandbox we do not run. Change anything under xas_allocation/ and you must re-run
+this, or the sandbox keeps solving with the previous version.
 
 There is no vault. The prototype's data is a seeded synthetic generator answered
-by worker.py on the host (DECIDE-7), so there is no credential to store and
-nothing for a vault to hold.
+by web.py on our side (DECIDE-7), so there is no credential to store and nothing
+for a vault to hold.
 
 Anti-pattern warning: never call environments/agents/skills create() in the
 per-conversation path — that accumulates orphaned resources and pays create
 latency on every run. web.py only creates sessions.
 
-After this, generate the environment key in the Console
-(Workspace > Environments > your env > Generate key) and put it in .env.worker.
+No environment key and no worker: the sandbox is Anthropic's. Our only
+host-side job is answering the pull tool, which web.py does.
 """
 
 import os
@@ -59,8 +63,9 @@ You do not allocate by reasoning. You translate the situation and the planner's 
 
 Environment
 
-The reference solver is already present at the ROOT of your working directory, as the xas_allocation package — `cd` nowhere, just `import xas_allocation` or run `python -m xas_allocation...` from where you start. Run it; never reimplement, rewrite, re-derive, or approximate it. It is provisioned for you at session start: if an import seems to fail, re-check your working directory with `ls` — do NOT search the filesystem. `find /` exceeds the 120s bash timeout and kills your shell.
-Call pull_allocation_snapshot to get data. It writes snapshot.json and returns a summary. Read the file from your solver code, not into this conversation.
+The reference solver ships INSIDE the `xas-allocation` skill, as the `xas_allocation` package in that skill's directory. Locate the skill directory with a shallow `ls` of your working directory and its `skills/` subdirectory, then run from there (or set PYTHONPATH to it) so `import xas_allocation` resolves. Run it; never reimplement, rewrite, re-derive, or approximate it. If an import fails, look in the skill directory — do NOT search the filesystem. `find /` exceeds the 120s bash timeout and kills your shell.
+Run `pip install ortools` once per session; the solver needs it.
+Call pull_allocation_snapshot to get data. It returns a summary plus a `materialize` command — run that command verbatim to write snapshot.json into your sandbox, then read the file from your solver code, never into this conversation.
 No network access — everything is local.
 
 Determinism (the core invariant)
@@ -93,25 +98,49 @@ TOOLS = [{"type": "agent_toolset_20260401"}, alloc_tools.PULL_TOOL]
 
 
 def skill_files() -> list[tuple[str, bytes]]:
-    """Every file in the skill directory, keyed by its path under one top-level
-    directory. The API requires exactly that shape, with SKILL.md at its root."""
-    files = []
+    """The skill bundle: SKILL.md plus the reference solver itself.
+
+    The API requires one top-level directory with SKILL.md at its root, so both
+    are mapped under ``xas-allocation/``. Shipping the solver inside the skill is
+    what gets it into an Anthropic-hosted sandbox at all — there is no host-side
+    workdir to copy it into, and having the model retype it from a prompt is the
+    determinism leak this design exists to prevent. It is also §10's "reference
+    solver in the skill for day-one", arrived at the long way round.
+
+    The package stays at the repo root: this synthesizes the bundle at upload
+    time rather than duplicating the files, so the tests and the skill run
+    against the same source.
+    """
+    files: list[tuple[str, bytes]] = []
     for path in sorted(SKILL_DIR.rglob("*")):
         if path.is_file():
-            rel = path.relative_to(SKILL_DIR.parent)
-            files.append((str(rel), path.read_bytes()))
+            files.append((str(path.relative_to(SKILL_DIR.parent)), path.read_bytes()))
     if not any(name.endswith("/SKILL.md") for name, _ in files):
         sys.exit(f"No SKILL.md found in {SKILL_DIR}")
+
+    package = REPO_ROOT / "xas_allocation"
+    for path in sorted(package.rglob("*")):
+        if path.is_file() and "__pycache__" not in path.parts:
+            files.append((f"{SKILL_DIR.name}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
     return files
 
 
 def create_environment() -> str:
     environment = client.beta.environments.create(
-        name="xas-allocation-env",
-        description="Self-hosted sandbox for the XAS Allocation Agent (worker.py serves it).",
-        config={"type": "self_hosted"},
+        name="xas-allocation-cloud",
+        description="Anthropic-hosted sandbox for the XAS Allocation Agent.",
+        config={
+            "type": "cloud",
+            "networking": {
+                # No allowed_hosts: the agent reaches nothing. Package managers
+                # stay on so it can `pip install ortools` for the solver.
+                "type": "limited",
+                "allow_package_managers": True,
+                "allowed_hosts": [],
+            },
+        },
     )
-    print(f"Created environment: {environment.id}  (self-hosted)")
+    print(f"Created environment: {environment.id}  (cloud, no egress)")
     return environment.id
 
 
@@ -152,8 +181,26 @@ def update_agent(agent_id: str, skill_id: str) -> None:
     print(f"Updated agent:       {agent.id}  (version {agent.version})")
 
 
+def check_environment_type(environment_id: str) -> None:
+    """This branch builds a cloud agent; .env may still hold self-hosted IDs.
+
+    Updating across that boundary produces an agent whose environment nothing
+    serves — the sessions would queue forever waiting for a worker that is not
+    coming. Cheaper to refuse than to debug.
+    """
+    kind = client.beta.environments.retrieve(environment_id).config.type
+    if kind != "cloud":
+        sys.exit(
+            f"ALLOC_ENV_ID={environment_id} is a {kind!r} environment, but this branch\n"
+            "builds an Anthropic-hosted (cloud) agent. Clear ALLOC_AGENT_ID / ALLOC_ENV_ID /\n"
+            "ALLOC_SKILL_ID from .env and re-run to create a fresh cloud set — the two\n"
+            "sandbox types need separate resources."
+        )
+
+
 def main() -> None:
     if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID:
+        check_environment_type(ALLOC_ENV_ID)
         print("Resources already exist — updating in place.\n")
         update_skill(ALLOC_SKILL_ID)
         update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID)
@@ -171,10 +218,8 @@ def main() -> None:
     print(f"ALLOC_SKILL_ID={skill_id}")
     print("=" * 60)
     print(
-        "\nThen, in .env.worker:\n"
-        f"  ALLOC_ENV_ID={environment_id}\n"
-        "  ANTHROPIC_ENVIRONMENT_KEY=   <- Console: Workspace > Environments > this env > Generate key\n"
-        "\nThe environment is self-hosted: nothing runs until you start worker.py."
+        "\nThe environment is Anthropic-hosted — there is no worker to start and no\n"
+        "environment key to generate. Run `uv run uvicorn web:app --port 8000`."
     )
 
 

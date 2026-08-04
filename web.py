@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
-"""Web interface for the XAS Allocation Agent.
+"""Web interface for the XAS Allocation Agent (Anthropic-hosted sandbox).
 
 Thin FastAPI server between the browser and the Managed Agents session API.
 
   uv run uvicorn web:app --reload --port 8000
 
-One session is active at a time. That is not a UI convention imposed on the
-backend — worker.py serves sessions sequentially, so a second live session would
-simply queue behind the first with nothing to show for it. Starting a new session
-therefore stops the current one and archives its sandbox directory, which is what
-gives the session list something to point at.
+The ONLY process. The sandbox is Anthropic's, so nothing here executes the
+agent's bash / file tools and there is no worker to run alongside.
 
-This process holds the organization API key: it creates and stops sessions and
-reads their event streams. It runs no tool calls. worker.py, which does run them,
-holds only the environment key and refuses to start if it finds an org key.
+What this process still owes the session is the one **custom** tool. A custom
+tool is answered by the API client wherever the sandbox lives: the agent emits
+``agent.custom_tool_use`` and the session idles on ``requires_action`` until a
+``user.custom_tool_result`` arrives. So each session gets a background
+``tool_runner`` task here that answers ``pull_allocation_snapshot`` and leaves
+every other tool name alone for the cloud sandbox to handle.
+
+That task must not depend on a browser being attached — a session parked on a
+pending tool call never times out, so a page close would hang it indefinitely.
+It is owned by the session lifecycle, not by the event stream.
+
+One session is active at a time. With a cloud sandbox that is a product choice
+rather than a constraint (nothing queues), kept because the ledger and the
+planner's attention are both singular.
 """
 
 import asyncio
 import json
 import logging
 import os
-import shutil
 from pathlib import Path
 
 from anthropic import APIError, AsyncAnthropic
@@ -29,6 +36,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
+
+import alloc_tools
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
@@ -40,13 +49,8 @@ load_dotenv()
 REPO_ROOT = Path(__file__).resolve().parent
 ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
 ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
-# Both outside the repo, matching worker.py: bash is not confined to the workdir,
-# and a sandbox inside the repo puts .env one `cd ..` away.
-SANDBOX_ROOT = Path(
-    os.environ.get("ALLOC_SANDBOX_ROOT") or Path.home() / "xas-alloc-sandbox"
-).expanduser()
-SESSIONS_ROOT = Path(
-    os.environ.get("ALLOC_SESSIONS_ROOT") or Path.home() / "xas-alloc-sessions"
+DOWNLOAD_DIR = Path(
+    os.environ.get("ALLOC_DOWNLOAD_DIR") or Path.home() / "xas-alloc-outputs"
 ).expanduser()
 
 # Per-session model overrides. The agent resource keeps whatever
@@ -61,8 +65,9 @@ DEFAULT_MODEL = "opus"
 app = FastAPI(title="XAS Allocation Agent")
 client = AsyncAnthropic()
 
-# The one active session. A single slot, deliberately: see the module docstring.
+# The one active session, and the task answering its custom tool calls.
 _active: str | None = None
+_answering: asyncio.Task | None = None
 _lock = asyncio.Lock()
 
 
@@ -84,22 +89,29 @@ def _require_config() -> None:
         )
 
 
-def _archive_sandbox(session_id: str) -> str | None:
-    """Move the finished session's working files out of the shared sandbox.
+async def _answer_custom_tools(session_id: str) -> None:
+    """Answer this session's custom tool calls for as long as it lives.
 
-    The sandbox directory is flat and reused, so this is what keeps one session's
-    ledger, snapshot, and plan from being read as the next one's.
+    Registers exactly one tool. A tool name the runner does not own is left
+    unanswered, which is what lets the cloud sandbox keep serving bash and the
+    file tools while we serve the data pull over the same session.
+
+    Runs as a background task owned by the session, not by the browser: the
+    session idles on ``requires_action`` while a custom call is pending and never
+    times out, so an unanswered call is a hang rather than an error.
     """
-    if not SANDBOX_ROOT.exists() or not any(SANDBOX_ROOT.iterdir()):
-        return None
-    destination = SESSIONS_ROOT / session_id
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.move(str(SANDBOX_ROOT), str(destination))
-    SANDBOX_ROOT.mkdir(parents=True, exist_ok=True)
-    log.info("archived sandbox for %s -> %s", session_id, destination)
-    return str(destination)
+    runner = client.beta.sessions.events.tool_runner(
+        session_id, tools=[alloc_tools.pull_allocation_snapshot]
+    )
+    try:
+        async for call in runner:
+            log.info("answered %s for %s", call.event.name, session_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # If this dies the session wedges on the next pull with no visible error,
+        # so it is worth a loud log rather than a silent task exception.
+        log.exception("tool runner for %s stopped", session_id)
 
 
 async def _interrupt(session_id: str) -> None:
@@ -108,14 +120,13 @@ async def _interrupt(session_id: str) -> None:
     )
 
 
-async def _stop(session_id: str) -> str | None:
-    """Interrupt the agent, archive the session, archive its files.
+async def _stop(session_id: str) -> None:
+    """Interrupt the agent, end the session, drop its tool-answering task.
 
     Both API calls are allowed to fail: a session that already terminated on its
-    own rejects them, and that is the ordinary case rather than an error. What
-    must not be skipped is the sandbox archive below — leave it out and the next
-    session inherits this one's ledger.
+    own rejects them, and that is the ordinary case rather than an error.
     """
+    global _answering
     try:
         await _interrupt(session_id)
     except APIError as e:  # already terminated, or never started
@@ -124,7 +135,10 @@ async def _stop(session_id: str) -> str | None:
         await client.beta.sessions.archive(session_id)
     except APIError as e:
         log.info("archive on %s: %s", session_id, e)
-    return _archive_sandbox(session_id)
+    if _answering:
+        _answering.cancel()
+        await asyncio.gather(_answering, return_exceptions=True)
+        _answering = None
 
 
 def _render(event) -> dict | None:
@@ -187,7 +201,6 @@ async def sessions() -> dict:
                 "model": s.agent.model.id if s.agent and s.agent.model else None,
                 "created_at": s.created_at.isoformat(),
                 "archived": s.archived_at is not None,
-                "files": str(SESSIONS_ROOT / s.id) if (SESSIONS_ROOT / s.id).exists() else None,
             }
             for s in listing.data
         ],
@@ -203,11 +216,12 @@ async def new_session(body: NewSession) -> dict:
     if body.model not in MODELS:
         raise HTTPException(400, f"unknown model {body.model!r}")
 
+    global _answering
     async with _lock:
-        previous, archived = None, None
+        previous = None
         if _active:
-            previous, archived = _active, await _stop(_active)
-            _active = None
+            previous, _active = _active, None
+            await _stop(previous)
 
         session = await client.beta.sessions.create(
             agent={
@@ -219,9 +233,12 @@ async def new_session(body: NewSession) -> dict:
             title=body.title or "XAS allocation repair",
         )
         _active = session.id
+        # Start answering before the planner can send anything: a pull that
+        # arrives with no runner attached parks the session indefinitely.
+        _answering = asyncio.create_task(_answer_custom_tools(session.id))
 
     log.info("session %s started (%s)", session.id, MODELS[body.model]["id"])
-    return {"id": session.id, "model": body.model, "stopped": previous, "archived": archived}
+    return {"id": session.id, "model": body.model, "stopped": previous}
 
 
 @app.post("/session/interrupt")
@@ -240,9 +257,9 @@ async def stop() -> dict:
     if not _active:
         raise HTTPException(409, "no active session")
     async with _lock:
-        session_id, archived = _active, await _stop(_active)
-        _active = None
-    return {"stopped": session_id, "archived": archived}
+        session_id, _active = _active, None
+        await _stop(session_id)
+    return {"stopped": session_id}
 
 
 @app.get("/session/{session_id}/events")
@@ -284,3 +301,42 @@ async def message(body: Message) -> dict:
         events=[{"type": "user.message", "content": [{"type": "text", "text": body.text}]}],
     )
     return {"sent": _active}
+
+
+MANAGED_AGENTS_BETA = "managed-agents-2026-04-01"
+
+
+@app.get("/session/{session_id}/files")
+async def files(session_id: str) -> dict:
+    """What the agent wrote — the ledger, the plan, the change list.
+
+    With an Anthropic-hosted sandbox these live in the session's file store
+    rather than on our disk, so this replaces the archive directory the
+    self-hosted build could just list.
+    """
+    _require_config()
+    listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
+    return {
+        "files": [
+            {"id": f.id, "filename": f.filename, "size_bytes": f.size_bytes} for f in listing.data
+        ]
+    }
+
+
+@app.post("/session/{session_id}/files/download")
+async def download_files(session_id: str) -> dict:
+    """Pull the session's outputs onto this host, under ALLOC_DOWNLOAD_DIR."""
+    _require_config()
+    listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
+    destination = DOWNLOAD_DIR / session_id
+    destination.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for f in listing.data:
+        content = await client.beta.files.download(f.id)
+        # basename: the filename comes from the sandbox, so treat it as untrusted
+        # input rather than a path we are willing to follow.
+        target = destination / os.path.basename(f.filename or f.id)
+        await content.write_to_file(target)
+        saved.append(str(target))
+    log.info("downloaded %d file(s) for %s", len(saved), session_id)
+    return {"saved": saved, "directory": str(destination)}
