@@ -13,11 +13,13 @@ description: >-
 
 **Core invariant — the whole design in one line:**
 
-> `plan = pure_function(data_snapshot, skill, ledger)`
+> `plan = pure_function(data_snapshot, skill, override)`
 
 If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is lost. That is the
-bug to guard against everywhere. You do **not** decide allocations; you build the
+bug to guard against everywhere. `override` is a **single combined object** you
+carry forward and show each turn (no ledger, no replay); same snapshot + same
+override → byte-identical plan. You do **not** decide allocations; you build the
 network and call the solver, then explain the result.
 
 Reference solver version pinned by this skill: **0.2.0-prototype**
@@ -105,29 +107,46 @@ tests**, never as live-session code.
    `xas_allocation.flatten`) maps the rich pull into `orders/units/incumbent` —
    pure code; never re-shape the data by reasoning. This is the data-prep step;
    `xas_allocation.session.data_prep_flowchart` draws it as a mermaid flow chart.
-3. **Detect discrepancies** (`session.find_discrepancies`): SO lines whose
-   allocated vehicle now delivers past its `promised_date`. Map them for the
-   planner **before** solving — this is what the disruption actually broke.
-4. Apply the combined override from the ledger replay (§7), build the graph
-   (§4), run the **λ sweep**.
+3. **Map discrepancies** — print `session.discrepancy_report(snapshot)`. It lists
+   the SO rows whose allocated supply now delivers past its `promised_date` **and
+   classifies each fixable vs locked-in** (frozen fence / committed vehicle). Show
+   this **before** solving — it is the turn-1 truth of what the disruption broke
+   *and* which of it re-allocation can't touch.
+4. Apply the current combined override (weights / pins / forbid / lambda / scope /
+   bump), build the graph (§4), run the **λ sweep**. `session.repair_and_report`
+   does all of this and returns the finished reply.
 5. **Self-check hard constraints:** no frozen/committed vehicle moved, no
    sales_model violation, every order has exactly one vehicle (or a surfaced
-   backorder), no vehicle double-booked.
-6. **Emit a reason-coded change list** — not a bare new plan. This is the hard
-   part; spend the effort here. The internal line carries everything
-   (`order SO-4471: 2026-09-01 → 2026-09-14 (promised 2026-09-07, 7d late);
-   vehicle VEH-9a→VEH-9b; priority A, delayed 1× before`) — but that is the
-   *source*, not the reply. Render it for the planner per **Planner-facing
-   output** below.
-7. Human approves → write back via MCP (approval-gated). Steering → append a new
-   ledger entry → back to step 4.
+   backorder), no vehicle double-booked. (`repair_and_report` runs the self-check;
+   trust it.)
+6. **Print `session.repair_and_report(snapshot, override)`** — the finished,
+   jargon-free reply (headline · what-changed table with the actual swap ·
+   still-late split into locked-in vs no-car · unchanged count · one caveat). It
+   already builds the reason-coded change list; **do not re-derive the solver's
+   output by hand or write ad-hoc analysis scripts** — that is the exact leak the
+   invariant guards against, and it burns time and tokens.
+7. Human approves → write back via MCP (approval-gated). Steering → edit the one
+   combined override and re-run step 4.
 
 ## Planner-facing output — the reply the planner reads
+
+**`session.discrepancy_report` and `session.repair_and_report` already produce
+this reply — print them, don't rebuild them.** The contract below is what those
+helpers emit and why; read it so you can trust the output and answer follow-ups,
+not so you re-derive it. Hand-assembling the report from raw solver fields (the
+old habit) is slow, leaks jargon, and re-computes what the helper already did.
 
 The planner is a dealer-allocation scheduler, not an engineer. The reply's job
 is to let them answer "did my instruction land, what moved, and what still needs
 my attention" at a glance. Write **outcomes in business terms**; keep the
 machinery in the sandbox.
+
+**Turn 1 is the discrepancy map, and it must say what's stuck.**
+`discrepancy_report` splits the broken orders into **can be repaired** vs
+**locked in** (too close to delivery to re-slot, or riding a committed vehicle).
+Say this up front — an order that's frozen won't be helped by any re-allocation,
+and the planner needs to know that on turn 1 (a call to expedite the delivery),
+not after three rounds of steering that can't move it.
 
 **Lead with the outcome, in one or two lines.** What the instruction did (or
 didn't do) and the headline: how many orders moved, how many are still late.
@@ -168,8 +187,8 @@ not internal levers.
 Compute it, rely on it, but do **not** print it unless the planner asks or it
 carries a decision:
 
-- **The override JSON**, `customer_id`s (`CUST-001`), `weight_mult`, the ledger,
-  "replay", "seed", "reproducible", "turn N". Confirm the *translation* in plain
+- **The override JSON**, `customer_id`s (`CUST-001`), `weight_mult`, "override
+  object", "seed", "reproducible", "turn N". Confirm the *translation* in plain
   words ("prioritizing Colmobil over the other dealers") before running — not the
   raw object.
 - **The λ sweep table when it's flat.** §2 keeps the sweep as the high-value
@@ -241,19 +260,26 @@ lower-priority row off its on-time vehicle. You must **never do this uninvited**
 Every bump is flagged in the change list (`— BUMPED …`), so a displacement is
 never silent.
 
-## The override ledger (§7)
+## Steering state — one combined override (§7)
 
-Ordered, timestamped, **append-only** list of override entries — the source of
-truth (replayable, attributable). The sandbox (loaded data, solver in memory) is
-a performance convenience only. Per turn: translate NL → entry, confirm, **replay
-the whole ledger top-to-bottom** (skipping TTL-expired entries) → combined
-override, feed that + a fresh pull into the solver. Discard the sandbox, replay
-the ledger against a fresh pull → the same plan. If not, it's a leak — the bug.
+Steering is a **single combined override object** (weights / pins / forbid /
+lambda / scope / bump) — not a log. Each turn you *edit that one object* (add a
+boost, tighten a scope, authorize a bump), show it back, and feed it + a fresh
+pull into the solver. There is no ledger, no append-only history, no replay, no
+TTL. The sandbox (loaded data, solver in memory) is a performance convenience
+only: discard it, re-pull, re-apply the **same** override → the same plan. If
+not, state has leaked — the bug.
 
-DECIDE-5: the *statefulness* is a Managed Agents platform concern; this
-ledger schema/replay/TTL/attribution is the application pattern built on top
-(`xas_allocation/ledger.py`). Verify the platform session-persistence API before
-wiring them together.
+The override is the only state that must survive a sandbox reclaim; recover it
+from the last one you showed the planner. Because it is order-independent (a set
+of accumulated instructions, not a sequence), there is no replay order to get
+wrong.
+
+DECIDE-5: durable, cross-session persistence of that override is a Managed Agents
+platform concern and stays **deferred** — the real fix is a host-side store
+(`web.py` keyed by session id, shipped in via the pull). In this prototype the
+override lives only in the conversation. No audit trail of *who* steered *when*
+is kept (the ledger carried that; deferred with persistence).
 
 ## Infeasibility (§9)
 

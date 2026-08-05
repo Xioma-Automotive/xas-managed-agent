@@ -15,7 +15,7 @@ platform notes in `docs/managed-agents-adoption.md`.
 
 ## The invariant everything serves
 
-> `plan = pure_function(data_snapshot, skill, ledger)`
+> `plan = pure_function(data_snapshot, skill, override)`
 
 If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is gone. Concretely:
@@ -24,10 +24,14 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   the agent) fabricates `data/pull.json` (PO→PDN→Vehicle, Customer→SO with vehicle
   order rows); the pull ships it and `flatten` explodes SOs into rows + unions the
   supply (vehicles ∪ PO-line slots) into the `orders/units/incumbent` snapshot. The
-  *same* bundled dataset backs every turn of a repair cycle — a replay against
-  different data is not a replay.
-- **The ledger is the session.** Steering instructions are appended and replayed;
-  the sandbox is a performance convenience.
+  *same* bundled dataset backs every turn of a repair cycle — re-applying the same
+  override against different data is not the same turn.
+- **The override is the session.** Steering is one combined override object
+  (weights / pins / forbid / lambda / scope / bump) the agent edits in place and
+  carries forward — no ledger, no replay. Same snapshot + same override →
+  byte-identical plan; the sandbox is a performance convenience. Durable
+  cross-session persistence of that override is deferred (DECIDE-5) — the real fix
+  is a host-side store, not the ephemeral sandbox.
 - **Flatten is pure code, not judgment.** Eligibility is a hard `sales_model`
   equality — there is no LLM spec-residual left to cache. If the rich→snapshot
   mapping were re-derived by the model each turn, that is the leak this guards
@@ -98,8 +102,9 @@ is the right place for it, since the sandbox never sees this process.
 anyone touching this: DECIDE-7 (no real XAS API — `scenario_engine/` fabricates
 PDN/Vehicle/SO data shaped per `docs/xasdatamodel.md`), DECIDE-3 (which
 `location_state` counts as committed), DECIDE-9 (the solver lives in-repo; it
-moves to a version-pinned repo before real dealer data), DECIDE-5 (no platform
-session persistence assumed — the ledger is a JSON artifact), DECIDE-10
+moves to a version-pinned repo before real dealer data), DECIDE-5 (no durable
+session persistence assumed — steering is one combined override carried in the
+conversation; a host-side store is the deferred real fix), DECIDE-10
 (reserved_for_customer eligibility, deferred).
 
 Not in the prototype, per spec: the CP-SAT + LNS escape hatch for *coupled*

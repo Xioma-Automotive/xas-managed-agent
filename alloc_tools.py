@@ -45,7 +45,8 @@ TOOL_DESCRIPTION = (
     "snapshot as snapshot.json in your sandbox — run that command before solving, "
     "then read the file from your solver code, never into this conversation. Call "
     "once at the start of a repair cycle; the same bundled dataset backs every "
-    "turn, so the ledger replay is what makes a turn reproducible. Prototype "
+    "turn, so re-applying the same combined override is what makes a turn "
+    "reproducible. Prototype "
     "(DECIDE-7): the real XAS pull does not exist yet, so the rows are fabricated "
     "by the scenario engine and shipped inside the skill."
 )

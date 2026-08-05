@@ -61,7 +61,7 @@ def effective_weight(order: Order, boosts: dict[str, float]) -> float:
     protects it from being delayed *again* and picks someone else to absorb the
     next slip — the fairness lever, not a new hard constraint.
 
-    boosts maps customer_id -> multiplier (from ledger override 'boosts')."""
+    boosts maps customer_id -> multiplier (from override 'boosts')."""
     escalation = 1 + D.ALPHA * order.n_prior_delays + D.GAMMA * order.times_rescheduled
     w = D.PRIORITY_WEIGHT[order.priority] * escalation
     if D.AGING_MODE == "multiplicative":
@@ -99,6 +99,19 @@ def arc_cost_float(
     return cost
 
 
+def repairability(order: Order, now: date, incumbent_unit: Unit | None) -> str:
+    """Can a broken order even be re-slotted? Returns 'movable' | 'frozen' |
+    'committed' — the same hard rules `partition` applies, surfaced for the
+    discrepancy map so the planner learns on turn 1 (not turn 4) that an order is
+    stuck. 'frozen' = too close to its promised date to move; 'committed' = riding
+    a vehicle already in final prep (bonded/pdi) that can't be recalled."""
+    if fence_of(order, now) == "frozen":
+        return "frozen"
+    if incumbent_unit is not None and incumbent_unit.committed:
+        return "committed"
+    return "movable"
+
+
 def eligible(order: Order, unit: Unit) -> bool:
     """The sparse arc rule (computed, never stored): hard sales_model equality.
 
@@ -119,7 +132,7 @@ class RepairPlan:
     free_orders: list[str]  # order_ids to (re)match
     free_units: list[str]  # vehicle_ids available to the free orders
     boosts: dict[str, float]  # customer_id -> weight multiplier
-    lam_default: int | None  # ledger-supplied λ (sweep still explores all)
+    lam_default: int | None  # override-supplied λ (sweep still explores all)
     not_before: dict[str, date]  # order_id -> earliest allowed delivery date
     forbid_no_move: set[str]  # orders explicitly pinned by instruction
 
@@ -408,7 +421,7 @@ def solve(
     override: dict | None = None,
     lam: int | None = None,
 ) -> SolveResult:
-    """Single deterministic solve at one λ (default: ledger λ, else first sweep value)."""
+    """Single deterministic solve at one λ (default: override λ, else first sweep value)."""
     override = override or {}
     rp = partition(snapshot, override)
     if lam is None:

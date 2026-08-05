@@ -20,8 +20,8 @@ pending tool call never times out, so a page close would hang it indefinitely.
 It is owned by the session lifecycle, not by the event stream.
 
 One session is active at a time. With a cloud sandbox that is a product choice
-rather than a constraint (nothing queues), kept because the ledger and the
-planner's attention are both singular.
+rather than a constraint (nothing queues), kept because the steering override
+and the planner's attention are both singular.
 """
 
 import asyncio
@@ -376,7 +376,7 @@ MANAGED_AGENTS_BETA = "managed-agents-2026-04-01"
 
 @app.get("/session/{session_id}/files")
 async def files(session_id: str) -> dict:
-    """What the agent wrote — the ledger, the plan, the change list.
+    """What the agent wrote — the steering override, the plan, the change list.
 
     With an Anthropic-hosted sandbox these live in the session's file store
     rather than on our disk, so this replaces the archive directory the

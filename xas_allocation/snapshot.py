@@ -2,7 +2,7 @@
 
 This is the *frozen* half of the core invariant:
 
-    plan = pure_function(data_snapshot, skill, ledger)
+    plan = pure_function(data_snapshot, skill, override)
 
 The rich relational world (PO → PDN → Vehicle, Customer → SO → vehicle order
 rows, allocation links) is fabricated by the standalone `scenario_engine/` and

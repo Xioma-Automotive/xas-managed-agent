@@ -1,17 +1,21 @@
 """Determinism invariant (§11.7) — the crack the whole design guards against.
 
-    plan = pure_function(data_snapshot, skill, ledger)
+    plan = pure_function(data_snapshot, skill, override)
 
-These tests prove:
+Steering is a single combined **override** object the agent carries forward —
+there is no ledger, no append-only log, no replay, no TTL. These tests prove:
   1. the fabricated pull regenerates byte-identically (engine seed + flatten);
   2. a solve is deterministic given (snapshot, override);
-  3. the headline invariant: DISCARD the sandbox (all in-memory state), reload the
-     ledger from disk, re-pull the dataset from disk and re-flatten, replay ->
-     the SAME plan, byte-for-byte;
-  4. TTL entries drop out of replay once the pull date passes their expiry.
+  3. the headline invariant: DISCARD the sandbox (all in-memory state), re-pull
+     the dataset from disk, re-flatten, re-apply the SAME override -> the SAME
+     plan, byte-for-byte. The override is the only state that crosses the
+     discard; there is nothing else to remember.
 
-Eligibility is now a hard `sales_model` equality — there is no LLM residual
-left to cache, so the old residual-cache leak test is gone with it.
+Eligibility is a hard `sales_model` equality — there is no LLM residual left to
+cache, so the old residual-cache leak test is gone with it. Durable, cross-
+session persistence of the override is a platform concern, deferred (DECIDE-5);
+here it is simply a dict, and the invariant holds because it is re-applied
+verbatim, not remembered by the sandbox.
 
 Runnable two ways:
     PYTHONPATH=. python tests/test_invariant.py     # plain-assert runner
@@ -29,26 +33,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scenario_engine.generate import generate
 from xas_allocation.flatten import flatten
-from xas_allocation.ledger import Ledger, LedgerEntry
 from xas_allocation.session import run_cycle
 from xas_allocation.solver import solve
 
 SEED = 20
 
-# A representative steering override (defer + boost + λ), fixed timestamp so the
-# ledger serializes identically on every run. Dates now, not week labels.
-STEER = LedgerEntry(
-    turn=1,
-    author="Olga",
-    override={
-        "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
-        "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
-        "lambda": 25,
-        "ttl": None,
-    },
-    timestamp="2026-08-04T09:15:00Z",
-    ttl=None,
-)
+# A representative steering override (defer + boost + λ). Just a dict — the whole
+# point is that the agent carries this object, not a log of how it was built.
+STEER = {
+    "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
+    "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
+    "lambda": 25,
+}
 
 
 def _pull_from_disk(path: Path) -> dict:
@@ -70,64 +66,62 @@ def test_snapshot_reproducible() -> None:
 
 def test_solve_deterministic() -> None:
     snap = flatten(generate(seed=SEED)["pull"])
-    override = STEER.override
-    r1 = solve(snap, override, lam=25)
-    r2 = solve(snap, override, lam=25)
+    r1 = solve(snap, STEER, lam=25)
+    r2 = solve(snap, STEER, lam=25)
     assert _plan_json(r1.plan) == _plan_json(r2.plan)
     assert r1.self_check["ok"], r1.self_check["violations"]
 
 
-def test_replay_invariant_across_sandbox_discard() -> None:
+def test_override_invariant_across_sandbox_discard() -> None:
+    """The headline invariant, ledger-free: the ONLY state that survives a sandbox
+    discard is the override dict. Re-pull, re-flatten, re-apply it -> same plan."""
     with tempfile.TemporaryDirectory() as d:
-        ledger_path = Path(d) / "ledger.json"
         data_path = Path(d) / "pull.json"
 
         def frontier(cyc) -> list[tuple]:
             return [(p.lam, p.n_changes, p.weighted_late_days, p.unfilled) for p in cyc.sweep]
 
-        # --- Run A: build ledger, pull+flatten, solve. Sandbox = in-memory. ---
-        ledgerA = Ledger.load(ledger_path)
-        ledgerA.append(STEER)  # persists to disk
+        # --- Run A: pull+flatten from disk, solve under the override. ---
         snapA = flatten(_pull_from_disk(data_path))
-        cycA = run_cycle(snapA, ledgerA)
+        cycA = run_cycle(snapA, STEER)
         planA, frontierA = _plan_json(cycA.chosen.plan), frontier(cycA)
 
-        # --- DISCARD the sandbox: drop every in-memory object. Reload the ledger
-        #     from disk, re-pull the dataset from disk, re-flatten, replay. ---
-        del ledgerA, snapA, cycA
-        ledgerB = Ledger.load(ledger_path)  # reloaded, not remembered
+        # --- DISCARD the sandbox: drop every in-memory object. Re-pull the dataset
+        #     from disk, re-flatten, re-apply the SAME override (carried, not
+        #     remembered — it's just the dict we already had). ---
+        del snapA, cycA
         snapB = flatten(_pull_from_disk(data_path))  # re-pulled, not remembered
-        cycB = run_cycle(snapB, ledgerB)
+        cycB = run_cycle(snapB, STEER)
         planB, frontierB = _plan_json(cycB.chosen.plan), frontier(cycB)
 
         assert planA == planB, "plan changed after sandbox discard — state leaked"
         assert frontierA == frontierB, "λ frontier changed after sandbox discard"
 
 
-def test_ttl_entry_drops_from_replay() -> None:
-    from datetime import date
-
-    ledger = Ledger.load(None)
-    ledger.append(
-        LedgerEntry(
-            turn=1,
-            author="Olga",
-            override={"boosts": [{"customer": "CUST-001", "weight_mult": 3.0}]},
-            timestamp="2026-08-04T09:15:00Z",
-            ttl="2026-08-17",  # expires after this date
-        )
-    )
-    active = ledger.replay(current_date=date(2026, 8, 10))  # within TTL
-    expired = ledger.replay(current_date=date(2026, 9, 1))  # past TTL
-    assert active["boosts"] == [{"customer": "CUST-001", "weight_mult": 3.0}]
-    assert expired["boosts"] == [], "TTL-expired entry still contributed on replay"
+def test_override_is_order_independent() -> None:
+    """The override is a set of accumulated instructions, not an ordered log: the
+    same instructions in a different arrangement produce the same plan. (What the
+    ledger's replay order used to guarantee, now trivially true — there is no
+    order to get wrong.)"""
+    snap = flatten(generate(seed=SEED)["pull"])
+    a = {
+        "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
+        "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
+        "lambda": 25,
+    }
+    b = {
+        "lambda": 25,
+        "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
+        "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
+    }
+    assert _plan_json(solve(snap, a, lam=25).plan) == _plan_json(solve(snap, b, lam=25).plan)
 
 
 ALL_TESTS = [
     test_snapshot_reproducible,
     test_solve_deterministic,
-    test_replay_invariant_across_sandbox_discard,
-    test_ttl_entry_drops_from_replay,
+    test_override_invariant_across_sandbox_discard,
+    test_override_is_order_independent,
 ]
 
 

@@ -125,5 +125,5 @@ def test_flatten_command_never_sweeps_the_filesystem_root():
 
 
 def test_same_dataset_same_summary():
-    """The data_snapshot half of plan = pure_function(data_snapshot, skill, ledger)."""
+    """The data_snapshot half of plan = pure_function(data_snapshot, skill, override)."""
     assert call() == call()

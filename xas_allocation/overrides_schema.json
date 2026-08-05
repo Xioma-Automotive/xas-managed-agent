@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "XAS allocation steering override",
-  "description": "The typed object a planner's natural language compiles to (§6). The prompt moves weights and pins; it NEVER edits solver code. Same inputs + same override => byte-identical plan. A ledger entry wraps one of these. All dates are ISO 'YYYY-MM-DD'.",
+  "description": "The typed object a planner's natural language compiles to (§6). One combined override carries all active steering (weights / pins / forbid / lambda / scope / bump); the agent edits it in place and carries it forward each turn. The prompt moves weights and pins; it NEVER edits solver code. Same inputs + same override => byte-identical plan. All dates are ISO 'YYYY-MM-DD'.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -91,11 +91,6 @@
         "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
         "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
       }
-    },
-    "ttl": {
-      "description": "Optional expiry as a date; the entry is skipped on replay once the pull date passes it, so a one-off nudge doesn't linger.",
-      "type": ["string", "null"],
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     }
   }
 }

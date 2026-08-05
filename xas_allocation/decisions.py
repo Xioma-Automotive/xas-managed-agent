@@ -70,15 +70,18 @@ DECISIONS: list[Decision] = [
         key="DECIDE-5",
         title="Managed Agents session-persistence + mid-session-steering API",
         default=(
-            "ledger is a LOCAL application-level artifact (ledger.py); session persistence "
-            "is NOT assumed as a platform primitive in this prototype"
+            "steering is a single combined OVERRIDE object the agent carries forward and "
+            "shows each turn; NO durable, cross-session persistence is assumed as a platform "
+            "primitive in this prototype"
         ),
         rationale=(
-            "Spec §7 flags the ledger schema/replay/TTL as an application pattern, not an "
-            "API primitive. The prototype persists the ledger to a JSON file so replay is "
-            "provable without depending on a beta session-state API. Verify the current "
-            "Managed Agents persistence + mid-session-steering surface against Anthropic "
-            "docs before wiring the ledger to platform session state."
+            "The invariant is plan = f(snapshot, skill, override): same snapshot + same "
+            "override => byte-identical plan, so the override is the only state that must "
+            "survive. In this prototype it lives only in the conversation — the agent recovers "
+            "it from its own last shown object after a sandbox reclaim; there is no ledger. A "
+            "durable host-side store (web.py keyed by session id, shipped in via the pull) is "
+            "the real fix and stays DEFERRED. Verify the current Managed Agents persistence + "
+            "mid-session-steering surface against Anthropic docs before wiring it."
         ),
     ),
     Decision(

@@ -1,0 +1,129 @@
+"""The planner-facing report is jargon-free and tells the truth about what's stuck.
+
+Two things the run analysis flagged and this guards:
+  1. `discrepancy_report` / `planner_report` must classify a broken order that
+     can't be re-slotted (frozen fence, committed vehicle) as **locked in** — the
+     turn-1 truth the live run hid until turn 4.
+  2. the reply must carry NO solver internals (λ, objective, Pareto, incumbent,
+     min-cost) — those are the jargon the planner shouldn't see.
+"""
+
+from datetime import date
+
+from xas_allocation.session import (
+    discrepancy_report,
+    planner_report,
+    repair_and_report,
+    run_cycle,
+)
+from xas_allocation.snapshot import Order, Snapshot, Unit
+from xas_allocation.solver import repairability
+
+NOW = date(2026, 8, 3)
+# MOV: promised far out -> liquid -> movable; FRZ: promised within 14d -> frozen.
+MOV_PROMISED = date(2026, 9, 30)
+FRZ_PROMISED = date(2026, 8, 10)
+UT_PROMISED = date(2026, 9, 30)
+
+# Anything the report might legitimately print is fine; these are the tokens that
+# would mean solver internals leaked into a planner reply.
+JARGON = ["λ", "lambda", "objective", "pareto", "incumbent", "min-cost", "arc", "sweep"]
+
+
+def _order(oid: str, model: str, priority: str, promised: date) -> Order:
+    return Order(
+        order_id=oid,
+        so_id=oid.rsplit("-", 1)[0],
+        customer={"MOV": "Colmobil", "FRZ": "Delek", "UT": "Carasso"}.get(oid.split("-")[0], oid),
+        customer_id=oid,
+        sales_model=model,
+        priority=priority,
+        promised_date=promised,
+        eta_date=promised,
+        price=40000,
+        n_prior_delays=0,
+        days_backordered=0,
+    )
+
+
+def _unit(vid: str, model: str, planned: date, committed: bool = False) -> Unit:
+    return Unit(
+        vehicle_id=vid,
+        kind="vehicle",
+        sales_model=model,
+        planned_delivery_date=planned,
+        location_state="pdi" if committed else "sea",
+        po_ref="PO-151-1-1",
+        pdn="PDN-151",
+        committed=committed,
+    )
+
+
+def _snapshot() -> Snapshot:
+    return Snapshot(
+        orders=[
+            _order("MOV-1", "SM1", "A", MOV_PROMISED),  # disrupted, repairable
+            _order("FRZ-1", "SM2", "A", FRZ_PROMISED),  # disrupted, locked in (frozen)
+            _order("UT-1", "SM3", "C", UT_PROMISED),  # untouched, on time
+        ],
+        units=[
+            _unit("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # MOV's late incumbent
+            _unit("VEH-GOOD", "SM1", date(2026, 9, 14)),  # a spare that rescues MOV
+            _unit("VEH-FRZ-LATE", "SM2", date(2026, 8, 25)),  # FRZ's late incumbent, stuck
+            _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
+        ],
+        incumbent={"MOV-1": "VEH-MOV-LATE", "FRZ-1": "VEH-FRZ-LATE", "UT-1": "VEH-UT-GOOD"},
+        disruption={"po": "PO-151", "delay_days": 30, "disrupted_orders": ["MOV-1", "FRZ-1"]},
+        now=NOW,
+    )
+
+
+def test_repairability_classifies_frozen_and_movable():
+    snap = _snapshot()
+    units = snap.unit_by_id()
+    orders = snap.order_by_id()
+    assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
+    assert repairability(orders["FRZ-1"], NOW, units["VEH-FRZ-LATE"]) == "frozen"
+
+
+def test_discrepancy_report_flags_locked_in_on_turn_1():
+    report = discrepancy_report(_snapshot())
+    assert "locked in" in report.lower()
+    assert "can be repaired" in report.lower()
+    # the frozen order is named on the locked-in side, not sold as fixable
+    assert "FRZ-1" in report
+
+
+def test_planner_report_fixes_movable_and_keeps_frozen_late():
+    snap = _snapshot()
+    cyc = run_cycle(snap)
+    report = planner_report(snap, cyc.chosen, {})
+    # the repairable order got the good car and reads on time...
+    assert "VEH-GOOD" in report
+    assert "1 of 2 delayed orders now on time" in report
+    # ...the frozen one is surfaced as locked-in, still late, needing a call
+    assert "FRZ-1" in report
+    assert "locked in" in report.lower()
+
+
+def test_report_is_jargon_free():
+    report = repair_and_report(_snapshot())
+    low = report.lower()
+    leaked = [t for t in JARGON if t.lower() in low]
+    assert not leaked, f"solver jargon leaked into planner reply: {leaked}"
+
+
+def test_committed_vehicle_is_locked_in_too():
+    """The other stuck reason: a broken order riding a committed (bonded/pdi)
+    vehicle can't be re-slotted even when the fence is liquid."""
+    snap = _snapshot()
+    # make MOV ride a committed vehicle instead of a movable one
+    snap.units = [
+        _unit("VEH-MOV-LATE", "SM1", date(2026, 10, 20), committed=True),
+        _unit("VEH-GOOD", "SM1", date(2026, 9, 14)),
+        _unit("VEH-FRZ-LATE", "SM2", date(2026, 8, 25)),
+        _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),
+    ]
+    orders = snap.order_by_id()
+    units = snap.unit_by_id()
+    assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "committed"
