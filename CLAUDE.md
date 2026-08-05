@@ -20,12 +20,14 @@ platform notes in `docs/managed-agents-adoption.md`.
 If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is gone. Concretely:
 
-- **The fabricated dataset is the data snapshot.** `scenario_engine/` (outside
-  the agent) fabricates `data/pull.json` (PO→PDN→Vehicle, Customer→SO with vehicle
-  order rows); the pull ships it and `flatten` explodes SOs into rows + unions the
-  supply (vehicles ∪ PO-line slots) into the `orders/units/incumbent` snapshot. The
-  *same* bundled dataset backs every turn of a repair cycle — re-applying the same
-  override against different data is not the same turn.
+- **The pull is the data snapshot.** It comes from a callable source
+  (`datasource.py`, host-side): the `scenario_engine/` fake fabricates
+  `data/pull.json` (PO→PDN→Vehicle, Customer→SO with vehicle order rows) by
+  default, or the real XAS endpoint by config (DECIDE-7). `web.py` fetches it and
+  mounts it into the sandbox as a file; `flatten` explodes SOs into rows + unions
+  the supply (vehicles ∪ PO-line slots) into the `orders/units/incumbent` snapshot.
+  The *same* pull backs every turn of a repair cycle — re-applying the same
+  override against a different pull is not the same turn.
 - **The override is the session.** Steering is one combined override object
   (weights / pins / forbid / lambda / scope / bump) the agent edits in place and
   carries forward — no ledger, no replay. Same snapshot + same override →
@@ -54,40 +56,44 @@ exists.
 **A custom tool is answered by the client wherever the sandbox lives.** That is
 the one host-side obligation left: `web.py` runs a `tool_runner` task per session
 answering `pull_allocation_snapshot`, and leaves every other tool name for the
-cloud sandbox. A credentialed XAS API (DECIDE-7) would live here too — and here
-is the right place for it, since the sandbox never sees this process.
+cloud sandbox. The credentialed data pull (DECIDE-7) lives here too — `web.py`
+calls `datasource.get_source()` host-side and mounts the result as a file, so the
+XAS endpoint and its credential never touch the sandbox.
 
 ## Invariants that bite if you change them
 
 - **The tool contract has exactly one definition.** `alloc_tools.py` holds
-  `PULL_TOOL` (what the agent declares) *and* `pull_allocation_snapshot` (what
-  `web.py` registers), both built from the same constants. Splitting them is how
-  you get an `agent.custom_tool_use` nothing answers — which parks the session on
-  a `requires_action` idle that **never times out**, so the failure looks like a
-  hang, not an error. `tests/test_tool_contract.py` guards the wiring.
+  `PULL_TOOL` (what the agent declares) *and* `make_pull_tool` / the module-level
+  `pull_allocation_snapshot` (what `web.py` registers per session), all built from
+  the same constants. Splitting them is how you get an `agent.custom_tool_use`
+  nothing answers — which parks the session on a `requires_action` idle that
+  **never times out**, so the failure looks like a hang, not an error.
+  `tests/test_tool_contract.py` guards the wiring.
 - **The tool answerer is owned by the session, not the browser.** `web.py` starts
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull
   forever.
-- **The skill bundle carries the solver AND the dataset.** `skill_files()` uploads
-  `xas_allocation/` *and* `data/pull.json` under the skill directory, because there
-  is no host workdir to copy them into and having the model retype either from a
-  prompt is the exact determinism leak this design exists to prevent. **Change the
-  package or regenerate the dataset and you must re-run `setup_allocation_agent.py`**,
-  or the sandbox keeps solving with the previous version — with no error to tell you.
-- **The pull ships the bundled dataset, not a seed, and not the rows.** The tool
-  runs here; the agent runs there; everything returned crosses into its context.
-  So the tool returns a summary + a `flatten` command; the rows travel in the
-  bundle (like the solver code), and `flatten` reads them there — nothing dumps
-  ~KBs of JSON into the transcript. The scenario engine's *code* stays out of the
-  sandbox; only its *output* travels in. The summary still carries the
-  customer-name → `customer_id` map, because §6 steering needs it to compile
-  "prefer Colmobil" into an override.
+- **The skill bundle carries the solver, NOT the dataset.** `skill_files()` uploads
+  only `xas_allocation/` + `SKILL.md`. The pull is no longer bundled — `web.py`
+  fetches it from `datasource.get_source()` at session start and mounts it into the
+  sandbox as a file at `alloc_tools.MOUNT_PATH` (`/workspace/pull.json`). **Change
+  the solver package or `SKILL.md` and you must re-run `setup_allocation_agent.py`**;
+  regenerating `data/pull.json` no longer needs a re-deploy (it's fetched live).
+- **The pull mounts a file, not a seed, and not the rows in-band.** The source
+  runs here; the agent runs there; everything the *tool* returns crosses into its
+  context. So the tool returns only a summary + a `flatten` command; the rows
+  travel as the mounted file (fetched host-side, out of the sandbox's sight) and
+  `flatten` reads them there — nothing dumps ~KBs of JSON into the transcript. The
+  scenario engine's *code* (and any XAS credential) stays out of the sandbox; only
+  the fetched *output* travels in. The summary still carries the customer-name →
+  `customer_id` map, because §6 steering needs it to compile "prefer Colmobil" into
+  an override.
 - **`flatten_command` searches from `.`/`/workspace`, never from `/`.** The solver
-  + dataset land wherever the platform puts skills, so the command self-locates
-  `xas_allocation/flatten.py` — but bounded to the sandbox tree. An unbounded
-  `find /` exceeds the 120s bash timeout and kills the agent's shell; that is not
-  hypothetical, it happened on the self-hosted build.
+  lands wherever the platform puts skills, so the command self-locates
+  `xas_allocation/flatten.py` — but bounded to the sandbox tree. (The pull is *not*
+  searched for: it's read from the known `MOUNT_PATH` the host mounted it at.) An
+  unbounded `find /` exceeds the 120s bash timeout and kills the agent's shell;
+  that is not hypothetical, it happened on the self-hosted build.
 - **`agents.update()` preserves omitted array fields.** `setup_allocation_agent.py`
   always sends `tools` and `skills` explicitly. Changing `PULL_TOOL` without
   re-running setup does nothing.
@@ -99,8 +105,9 @@ is the right place for it, since the sandbox never sees this process.
 
 `DECIDE-1..13` are stubbed defaults, not settled answers. Run
 `uv run python -m xas_allocation.decisions` for the live list. The big ones for
-anyone touching this: DECIDE-7 (no real XAS API — `scenario_engine/` fabricates
-PDN/Vehicle/SO data shaped per `docs/xasdatamodel.md`), DECIDE-3 (which
+anyone touching this: DECIDE-7 (no real XAS API yet — the pull is a callable
+`datasource.py`, the `scenario_engine/` fake by default, real XAS by config,
+shaped per `docs/xasdatamodel.md`), DECIDE-3 (which
 `location_state` counts as committed), DECIDE-9 (the solver lives in-repo; it
 moves to a version-pinned repo before real dealer data), DECIDE-5 (no durable
 session persistence assumed — steering is one combined override carried in the

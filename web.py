@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 import alloc_tools
+import datasource
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
@@ -69,6 +70,12 @@ client = AsyncAnthropic()
 _active: str | None = None
 _answering: asyncio.Task | None = None
 _lock = asyncio.Lock()
+
+# The rich pull we fetched and mounted for each session, so the tool answerer can
+# summarize it without re-reading. A convenience cache: the mounted file is the
+# durable copy, rebuilt from it after a restart (see _pull_for).
+_pull_by_session: dict[str, dict] = {}
+MOUNTED_PULL_FILENAME = "pull.json"
 
 
 class NewSession(BaseModel):
@@ -109,20 +116,44 @@ def _digest(call) -> str:
     )
 
 
+async def _download_pull(session_id: str) -> dict:
+    """Rebuild a session's rich pull from the file we mounted into its sandbox.
+
+    The mounted ``pull.json`` is the durable copy; used when ``_pull_by_session``
+    is cold (this process restarted while the session lived on)."""
+    listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
+    for f in listing.data:
+        if os.path.basename(f.filename or "") == MOUNTED_PULL_FILENAME:
+            content = await client.beta.files.download(f.id)
+            return json.loads(await content.read())
+    raise RuntimeError(f"no mounted {MOUNTED_PULL_FILENAME} for session {session_id}")
+
+
+async def _pull_for(session_id: str) -> dict:
+    """The rich pull for this session: the in-process cache, or the mounted file
+    after a restart. This is what the tool answerer summarizes."""
+    cached = _pull_by_session.get(session_id)
+    if cached is not None:
+        return cached
+    rich = await _download_pull(session_id)
+    _pull_by_session[session_id] = rich
+    return rich
+
+
 async def _answer_custom_tools(session_id: str) -> None:
     """Answer this session's custom tool calls for as long as it lives.
 
-    Registers exactly one tool. A tool name the runner does not own is left
-    unanswered, which is what lets the cloud sandbox keep serving bash and the
-    file tools while we serve the data pull over the same session.
+    Registers exactly one tool, built over this session's fetched-and-mounted
+    pull. A tool name the runner does not own is left unanswered, which is what
+    lets the cloud sandbox keep serving bash and the file tools while we serve the
+    data pull over the same session.
 
     Runs as a background task owned by the session, not by the browser: the
     session idles on ``requires_action`` while a custom call is pending and never
     times out, so an unanswered call is a hang rather than an error.
     """
-    runner = client.beta.sessions.events.tool_runner(
-        session_id, tools=[alloc_tools.pull_allocation_snapshot]
-    )
+    tool = alloc_tools.make_pull_tool(lambda: _pull_for(session_id))
+    runner = client.beta.sessions.events.tool_runner(session_id, tools=[tool])
     try:
         async for call in runner:
             # Log the arguments and a digest of the answer, not just the name.
@@ -270,6 +301,16 @@ async def new_session(body: NewSession) -> dict:
             previous, _active = _active, None
             await _detach(previous)
 
+        # Fetch the pull HERE, on the host, from the configured data source (the
+        # scenario fake or real XAS), then mount it into the sandbox as a file.
+        # The sandbox never calls the source and never sees a credential; it only
+        # finds the rows waiting as a file the flatten command reads. One pull
+        # backs the whole repair cycle — the invariant "same snapshot every turn".
+        rich = datasource.get_source().pull()
+        file_meta = await client.beta.files.upload(
+            file=(MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"),
+            betas=[MANAGED_AGENTS_BETA],
+        )
         session = await client.beta.sessions.create(
             agent={
                 "type": "agent_with_overrides",
@@ -278,8 +319,12 @@ async def new_session(body: NewSession) -> dict:
             },
             environment_id=ALLOC_ENV_ID,
             title=body.title or "XAS allocation repair",
+            resources=[
+                {"type": "file", "file_id": file_meta.id, "mount_path": alloc_tools.MOUNT_PATH}
+            ],
         )
         _active = session.id
+        _pull_by_session[session.id] = rich
         # Start answering before the planner can send anything: a pull that
         # arrives with no runner attached parks the session indefinitely.
         _answering = asyncio.create_task(_answer_custom_tools(session.id))

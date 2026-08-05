@@ -32,8 +32,10 @@ Supply-first: `PO → PDN → Vehicle (pool)`, `Customer → SO`. A **Sales Orde
 (one customer) groups **vehicle order rows**; the **row** is the allocatable
 unit. Each row is allocated to a piece of **supply** that is one of two kinds: a
 concrete **Vehicle** (a VIN) or a **PO-line slot** (a future car, keyed
-`PO-model-row` e.g. `PO-150-1-5`). The pull is fabricated by `scenario_engine/`
-(outside the agent) and `xas_allocation.flatten` maps it — **pure code, no
+`PO-model-row` e.g. `PO-150-1-5`). The pull comes from a callable data source
+resolved host-side (`datasource.py` — the `scenario_engine/` fake by default, the
+real XAS endpoint by config; DECIDE-7), which `web.py` fetches and mounts into
+your sandbox as a file. `xas_allocation.flatten` maps it — **pure code, no
 judgment** — into the three arrays the solver reads:
 
 - **`orders[]`** (vehicle order rows): `order_id · so_id · customer ·
@@ -103,9 +105,11 @@ tests**, never as live-session code.
 
 1. Confirm MCP liveness (DECIDE-6). *Prototype: synthetic data, skipped.*
 2. **Pull** with `pull_allocation_snapshot`, then run the returned **`flatten`
-   command** verbatim to write `snapshot.json`. `flatten` (in
-   `xas_allocation.flatten`) maps the rich pull into `orders/units/incumbent` —
-   pure code; never re-shape the data by reasoning. This is the data-prep step;
+   command** verbatim to write `snapshot.json`. The host has already fetched the
+   pull and mounted it in your sandbox as a file; the command reads that file
+   (never a bundled copy). `flatten` (in `xas_allocation.flatten`) maps the rich
+   pull into `orders/units/incumbent` — pure code; never re-shape the data by
+   reasoning. This is the data-prep step;
    `xas_allocation.session.data_prep_flowchart` draws it as a mermaid flow chart.
 3. **Map discrepancies** — print `session.discrepancy_report(snapshot)`. It lists
    the SO rows whose allocated supply now delivers past its `promised_date` **and
@@ -294,11 +298,14 @@ upgrade, deferred.
 ```bash
 uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
 uv run python -m xas_allocation.flatten          # rich pull -> snapshot (sanity check)
-uv run python -m xas_allocation.session          # full §8 loop over the bundled dataset
+uv run python -m xas_allocation.session          # full §8 loop over the repo dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
 PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof
 ```
 
-`scenario_engine/` lives OUTSIDE the skill bundle — only its output
-(`data/pull.json`) ships in and `flatten` reads it. Regenerate the data and you
-must re-run `setup_allocation_agent.py`.
+The dataset is **no longer bundled in the skill**: `web.py` fetches the pull from
+a callable source (`datasource.py`) at session start and mounts it into the
+sandbox as a file. The skill carries only this SKILL.md + the solver package, so
+regenerating `data/pull.json` no longer requires a re-deploy — only a change to
+the solver package or this file does. `scenario_engine/`'s *code* still stays
+OUTSIDE the sandbox; only its *output* travels in, now as a mounted file.

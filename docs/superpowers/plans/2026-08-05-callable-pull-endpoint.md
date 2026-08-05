@@ -29,7 +29,7 @@ policy** — the security boundary is preserved by construction.
 `sessions.create(resources=[...])` accepts a file resource:
 
 ```python
-{ "type": "file", "file_id": "<id>", "mount_path": "/workspace/pull.json" }
+{"type": "file", "file_id": "<id>", "mount_path": "/workspace/pull.json"}
 ```
 
 `files.upload(file=(name, bytes, "application/json"))` → `file_id`; the session

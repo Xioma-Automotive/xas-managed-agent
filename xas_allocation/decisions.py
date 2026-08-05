@@ -94,13 +94,17 @@ DECISIONS: list[Decision] = [
         key="DECIDE-7",
         title="XAS API data contract (fields + endpoints)",
         default=(
-            "PDN -> Vehicle -> SO, fabricated by scenario_engine/ and flattened to the "
-            "orders/units/incumbent snapshot; field shapes per docs/xasdatamodel.md"
+            "pull comes from a callable DataSource resolved HOST-SIDE (datasource.py): the "
+            "scenario-engine fake by default, the real XAS endpoint by config. Either returns "
+            "the rich {meta, pos, sos, supply, disruption} contract; field shapes per "
+            "docs/xasdatamodel.md"
         ),
         rationale=(
-            "The real XAS API does not exist yet. scenario_engine/ + xas_allocation.snapshot "
-            "define the field shapes this prototype assumes (PDN/Vehicle/SO, dates, "
-            "sales_model); treat them as the proposed contract, not a confirmed one."
+            "The real XAS API does not exist yet, so ScenarioEngineSource fabricates the "
+            "contract and XASApiSource is a documented stub. web.py calls the source host-side "
+            "at session start and mounts the result into the sandbox as a file (the agent never "
+            "calls XAS, never holds a credential). Flip XAS_DATA_SOURCE=xas and implement the "
+            "response->contract mapping when a sample lands; nothing downstream changes."
         ),
     ),
     Decision(

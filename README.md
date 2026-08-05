@@ -45,8 +45,10 @@ override, get the same plan.
 
 This build is a **runnable prototype against fabricated data** shaped like XAS
 (`PO → PDN → Vehicle`, `Customer → SO` with vehicle order **rows**, supply =
-vehicles ∪ PO-line slots, real dates; see `docs/xasdatamodel.md`). A standalone
-`scenario_engine/` fabricates the world; the agent can work the whole book or a
+vehicles ∪ PO-line slots, real dates; see `docs/xasdatamodel.md`). The pull comes
+from a callable data source (`datasource.py`) — a standalone `scenario_engine/`
+fabricates the world by default, the real XAS endpoint by config; the agent can
+work the whole book or a
 **scope** (a customer/month/PO slice — a localized fix that leaves the rest
 pinned). Every unresolved choice from the spec is a marked `DECIDE-n` — stubbed
 with a labelled default (see below).
@@ -66,6 +68,7 @@ before real dealer data (DECIDE-9).
 | `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map (fixable vs locked-in), data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
 | `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the rich PO→PDN→Vehicle / SO-with-rows dataset (good → disrupted). |
+| `../datasource.py`      | —     | **Host-side pull interface** (DECIDE-7): `ScenarioEngineSource` (the fake, default) / `XASApiSource` (real, stubbed), selected by `XAS_DATA_SOURCE`. `web.py` calls it and mounts the result into the sandbox. |
 | `tests/test_invariant.py` | §11.7 | Determinism invariant: same plan across two runs **and** across sandbox discard. |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
@@ -76,7 +79,7 @@ contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
 ```bash
 uv sync
 uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
-uv run python -m xas_allocation.session          # full §8 loop over the bundled dataset
+uv run python -m xas_allocation.session          # full §8 loop over the repo dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
 PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4)
 ```
@@ -112,33 +115,36 @@ for a worker that will never arrive.
 
 ### How the solver reaches a sandbox we don't run
 
-Both the solver and the dataset ship **inside the skill**. `skill_files()` uploads
-`xas_allocation/` *and* `data/pull.json` under the skill directory alongside
-`SKILL.md`, and the platform materializes skills into the sandbox. Both stay at
-the repo root — the bundle is synthesized at upload time, so the tests and the
-sandbox run the same source and data.
+The solver ships **inside the skill**. `skill_files()` uploads `xas_allocation/`
+alongside `SKILL.md`, and the platform materializes skills into the sandbox. The
+package stays at the repo root — the bundle is synthesized at upload time, so the
+tests and the sandbox run the same source.
 
-The consequence to remember: **edit the solver or regenerate the dataset and you
-must re-run `setup_allocation_agent.py`**, or the sandbox keeps using the previous
-version with nothing to tell you.
+The dataset is **not** bundled (it used to be). The pull comes from a callable
+data source, fetched host-side per session and mounted into the sandbox as a file
+(next section). The consequence to remember: **edit the solver package or
+`SKILL.md` and you must re-run `setup_allocation_agent.py`**; regenerating
+`data/pull.json` no longer needs a re-deploy, because it's fetched live.
 
-### Why the pull ships the bundled dataset instead of the rows
+### Why the pull mounts a file instead of returning the rows
 
-The tool runs here; the agent runs in Anthropic's sandbox. Everything the tool
-returns crosses into the agent's context, so dumping the rows would push the
-whole dataset through the context window every pull — and the solver reads it
-from disk anyway.
+The data source runs here; the agent runs in Anthropic's sandbox. Everything the
+*tool* returns crosses into the agent's context, so dumping the rows would push
+the whole dataset through the context window every pull.
 
-So the tool returns a summary plus a `flatten` command. The rows travel in the
-skill bundle (exactly like the solver code); the agent runs the command to
-`flatten` that bundled rich pull (PDN/Vehicle/SO) into `snapshot.json` in its own
-sandbox — the same transport as before, transforming rich→snapshot instead of
-seed→snapshot. The scenario engine's *code* stays out of the sandbox; only its
-*output* travels in. The tool is still the pull interface — it is where a real
-XAS API plugs in.
+So on session start `web.py` calls `datasource.get_source().pull()` **host-side**,
+uploads the result, and mounts it into the sandbox as a file at
+`alloc_tools.MOUNT_PATH` (`/workspace/pull.json`). The tool then returns only a
+summary plus a `flatten` command that reads that mounted file into
+`snapshot.json`. The rows travel as a file, out of the sandbox's sight when
+fetched and out of the transcript when read. The scenario engine's *code* (and any
+XAS credential) stays out of the sandbox; only the fetched *output* travels in.
 
-When the real XAS pull exists (DECIDE-7) the tool reads it instead of a bundled
-file; the summary + `flatten` contract stays, only the source of the rows changes.
+`datasource.py` is the pull interface. `XAS_DATA_SOURCE=scenario` (default) uses
+the fabricated dataset — offline, no credentials; `XAS_DATA_SOURCE=xas` uses the
+real endpoint (DECIDE-7, stubbed until it exists). Either way the `flatten`
+contract is unchanged; only the source of the rows differs. Because the endpoint
+is called host-side, the sandbox's zero-egress policy is untouched.
 
 ### One session at a time
 
@@ -172,7 +178,7 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | 4 | Pin mechanism | inf-cost (soft) for instruction pins; pre-commit for data pins |
 | 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred |
 | 6 | xas-code MCP liveness pattern | single `directory_tree` at start (skipped in prototype) |
-| 7 | XAS API data contract | `scenario_engine/` fabricates PDN/Vehicle/SO (see `docs/xasdatamodel.md`) |
+| 7 | XAS API data contract | callable `datasource.py` (host-side): `scenario_engine/` fake by default, real XAS by config (see `docs/xasdatamodel.md`) |
 | 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) |
 | 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION` |
 | 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |

@@ -10,31 +10,35 @@ answers parks the session on a ``requires_action`` idle, which never times out.
 **Cloud sandbox.** The tool runs on *our* host; the agent runs in Anthropic's.
 Everything this returns crosses into the agent's context.
 
-**Pull ships data, not a seed.** The rich dataset is fabricated by the standalone
-``scenario_engine/`` (outside the agent), whose code does NOT live in the
-sandbox — so the agent cannot regenerate it from a seed. Instead the dataset file
-is bundled INTO the skill (like the solver package), and the tool returns a
-summary plus a self-locating ``flatten`` command. The agent runs that command to
-flatten the bundled rich data into ``snapshot.json`` — the same transport shape
-as before, transforming rich→snapshot instead of seed→snapshot. The rows never
-pass through the context window.
+**Pull ships a file, not the rows.** The rich pull comes from a callable data
+source (``datasource.get_source()`` — the scenario-engine fake, or the real XAS
+endpoint), resolved HOST-SIDE. ``web.py`` fetches it at session start and mounts
+it into the sandbox as a file at ``MOUNT_PATH``; this tool returns only a summary
+plus a self-locating ``flatten`` command that reads that mounted file. The agent
+runs the command to flatten the rich data into ``snapshot.json``. The rows travel
+as a mounted file, never through the context window.
 
-DECIDE-7: when the real XAS pull exists this reads it instead of a bundled file;
-the summary + flatten contract stays, only the source of the rows changes.
+DECIDE-7: the source of the rows (bundled file → callable endpoint) is the only
+thing that changed; the summary + flatten contract is unchanged.
 """
 
 from __future__ import annotations
 
+import inspect
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from anthropic.lib.tools import beta_async_tool
 
 REPO_ROOT = Path(__file__).resolve().parent
-DATASET_PATH = REPO_ROOT / "data" / "pull.json"
 
 SNAPSHOT_FILENAME = "snapshot.json"
+
+# Where web.py mounts the live pull inside the sandbox. The flatten command reads
+# the rich data from here; web.py mounts the uploaded pull at the same path.
+MOUNT_PATH = "/workspace/pull.json"
 
 TOOL_NAME = "pull_allocation_snapshot"
 
@@ -44,11 +48,11 @@ TOOL_DESCRIPTION = (
     "Returns a summary plus the exact `flatten` command to materialize the full "
     "snapshot as snapshot.json in your sandbox — run that command before solving, "
     "then read the file from your solver code, never into this conversation. Call "
-    "once at the start of a repair cycle; the same bundled dataset backs every "
-    "turn, so re-applying the same combined override is what makes a turn "
-    "reproducible. Prototype "
-    "(DECIDE-7): the real XAS pull does not exist yet, so the rows are fabricated "
-    "by the scenario engine and shipped inside the skill."
+    "once at the start of a repair cycle; the same pull backs every turn, so "
+    "re-applying the same combined override is what makes a turn reproducible. "
+    "Prototype (DECIDE-7): the real XAS pull does not exist yet, so the rows come "
+    "from the scenario-engine fake by default; either way the host mounts them as "
+    "a file the flatten command reads."
 )
 
 # The pull takes no parameters: the scenario is pre-fabricated and bundled, so
@@ -70,19 +74,21 @@ PULL_TOOL: dict[str, Any] = {
 }
 
 
-def flatten_command() -> str:
-    """The one-liner that flattens the bundled dataset inside the sandbox.
+def flatten_command(pull_path: str = MOUNT_PATH) -> str:
+    """The one-liner that flattens the mounted pull inside the sandbox.
 
-    Self-locating on purpose, exactly like the old materialize command: the
-    solver + dataset ship in the skill bundle, so they land wherever the platform
-    materializes skills — not a path we can name from here. The search bases are
-    **explicit and never** ``/`` (an unbounded ``rglob`` from ``/`` once swept the
-    whole container and killed the shell). We locate ``xas_allocation/flatten.py``,
-    put its skill dir on the path, and call ``flatten_default()`` — which finds the
-    bundled ``data/pull.json`` relative to its own location.
+    Two locations, both handled explicitly:
+      * the **solver package** ships in the skill bundle, landing wherever the
+        platform materializes skills — so we self-locate ``xas_allocation/
+        flatten.py``. Search bases are **explicit and never** ``/`` (an unbounded
+        ``rglob`` from ``/`` once swept the whole container and killed the shell).
+      * the **rich pull** is mounted by the host at ``pull_path`` (a path WE
+        choose), so we read it directly rather than searching for it.
 
-    ``snapshot.json`` is written in the working directory and the command prints
-    its absolute path. Single line, single quoting level for a clean paste.
+    The command fails fast with a message if either is missing — a silent miss
+    would let the sandbox solve against the wrong (or no) data. ``snapshot.json``
+    is written in the working directory; single line, single quoting for a clean
+    paste.
     """
     return (
         'python -c "'
@@ -93,9 +99,11 @@ def flatten_command() -> str:
         "hit = next((h for b in bases for h in b.rglob('xas_allocation/flatten.py')), None); "
         "sys.exit('xas_allocation not found under ' + str(bases)) if hit is None else None; "
         "sys.path.insert(0, str(hit.parent.parent)); "
-        "from xas_allocation.flatten import flatten_default; "
+        "from xas_allocation.flatten import flatten_path; "
+        f"src = pathlib.Path('{pull_path}'); "
+        "sys.exit('pull data not found at ' + str(src)) if not src.exists() else None; "
         f"out = pathlib.Path.cwd() / '{SNAPSHOT_FILENAME}'; "
-        "json.dump(flatten_default().as_dict(), open(out,'w'), indent=2, sort_keys=True); "
+        "json.dump(flatten_path(src).as_dict(), open(out,'w'), indent=2, sort_keys=True); "
         "print('wrote ' + str(out))"
         '"'
     )
@@ -141,18 +149,43 @@ def summarize(rich: dict) -> dict[str, Any]:
     }
 
 
-def load_dataset(path: Path = DATASET_PATH) -> dict:
-    return json.loads(path.read_text())
+RichProvider = Callable[[], dict | Awaitable[dict]]
 
 
-@beta_async_tool(
-    name=TOOL_NAME,
-    description=TOOL_DESCRIPTION,
-    input_schema=PULL_TOOL_INPUT_SCHEMA,
-)
-async def pull_allocation_snapshot() -> str:
-    """Read the bundled rich dataset here, return the summary + flatten command.
+def make_pull_tool(get_rich: RichProvider):
+    """Build the pull tool over a per-session data provider.
 
-    Async because the session tool runner is async-only.
+    ``get_rich`` returns the rich pull for this session (sync or async) — web.py
+    closes it over the session's fetched-and-mounted data. The tool answers with
+    only the summary + flatten command; the rows never cross the transcript.
+
+    The name / description / schema come from the module constants, so the
+    declared ``PULL_TOOL`` and this implementation stay ONE contract — a drift
+    there is a custom tool nothing answers, which parks the session forever.
     """
-    return json.dumps(summarize(load_dataset()), indent=2)
+
+    async def pull_allocation_snapshot() -> str:
+        rich = get_rich()
+        if inspect.isawaitable(rich):
+            rich = await rich
+        return json.dumps(summarize(rich), indent=2)
+
+    return beta_async_tool(
+        pull_allocation_snapshot,
+        name=TOOL_NAME,
+        description=TOOL_DESCRIPTION,
+        input_schema=PULL_TOOL_INPUT_SCHEMA,
+    )
+
+
+def _default_rich() -> dict:
+    """Host-side default provider: the configured data source (the scenario-engine
+    fake unless XAS_DATA_SOURCE=xas). Used by the module-level tool for tests and
+    local runs; web.py builds per-session tools via ``make_pull_tool``."""
+    import datasource
+
+    return datasource.get_source().pull()
+
+
+# A ready-to-use instance over the default source, for host-side tests/local runs.
+pull_allocation_snapshot = make_pull_tool(_default_rich)

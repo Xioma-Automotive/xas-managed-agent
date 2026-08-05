@@ -95,8 +95,15 @@ def load_rich(path: str | Path = DATA_PATH) -> dict:
 
 
 def flatten_default() -> Snapshot:
-    """Flatten the bundled dataset — what the agent's solve driver calls."""
+    """Flatten the repo dataset — host-side dev/tests. The bundled data path is
+    kept for offline use; the live pull is read via ``flatten_path`` instead."""
     return flatten(load_rich())
+
+
+def flatten_path(src: str | Path) -> Snapshot:
+    """Flatten the rich pull at ``src`` — the path the host mounts the live pull
+    into the sandbox at (see ``alloc_tools.flatten_command`` / ``MOUNT_PATH``)."""
+    return flatten(load_rich(src))
 
 
 def flatten_file(out: str | Path, src: str | Path = DATA_PATH) -> Path:

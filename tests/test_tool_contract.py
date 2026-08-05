@@ -33,7 +33,7 @@ def test_declared_as_a_custom_tool():
 
 
 def test_pull_takes_no_parameters():
-    """The scenario is pre-fabricated and bundled — nothing for the agent to tune."""
+    """The pull takes no input yet — a fetch scope is a documented follow-up."""
     assert alloc_tools.PULL_TOOL_INPUT_SCHEMA["properties"] == {}
     assert alloc_tools.PULL_TOOL_INPUT_SCHEMA["required"] == []
 
@@ -65,13 +65,12 @@ def test_summary_stays_small():
 
 
 def test_flatten_command_reproduces_the_snapshot(tmp_path):
-    """The command handed to the agent must actually flatten the bundled dataset.
+    """The command handed to the agent must actually flatten the MOUNTED pull.
 
     It is the transport: if it drifts, the sandbox solves against different data
-    than the summary describes, silently. Run against a copy of the skill layout
-    (package + data under skills/xas-allocation/) because that is where the bundle
-    puts it, and a command that only works from the repo root would pass here and
-    fail in every real session.
+    than the summary describes, silently. Stage the two things a real session has
+    — the solver package under a skill layout (self-located) and the pull mounted
+    at an explicit path (read directly) — and point the command at that path.
     """
     import shutil
     import subprocess
@@ -86,11 +85,13 @@ def test_flatten_command_reproduces_the_snapshot(tmp_path):
         skill_dir / "xas_allocation",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
-    (skill_dir / "data").mkdir()
-    shutil.copy(repo / "data" / "pull.json", skill_dir / "data" / "pull.json")
+    # The mounted pull — a path we choose, exactly as web.py mounts it.
+    mounted = tmp_path / "pull.json"
+    shutil.copy(repo / "data" / "pull.json", mounted)
 
     summary = call()
-    command = summary["flatten"].replace("python ", f"{sys.executable} ", 1)
+    command = alloc_tools.flatten_command(pull_path=str(mounted))
+    command = command.replace("python ", f"{sys.executable} ", 1)
     subprocess.run(command, shell=True, cwd=tmp_path, check=True)
 
     written = tmp_path / alloc_tools.SNAPSHOT_FILENAME

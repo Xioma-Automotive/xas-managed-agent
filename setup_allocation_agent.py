@@ -124,16 +124,10 @@ def skill_files() -> list[tuple[str, bytes]]:
         if path.is_file() and "__pycache__" not in path.parts:
             files.append((f"{SKILL_DIR.name}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
 
-    # The fabricated dataset ships alongside the package: the scenario engine's
-    # CODE stays out of the sandbox, but its OUTPUT must travel in so `flatten`
-    # has something to read. flatten.DATA_PATH resolves to <skill>/data/pull.json.
-    dataset = REPO_ROOT / "data" / "pull.json"
-    if not dataset.exists():
-        sys.exit(
-            f"No dataset at {dataset}. Fabricate one first:\n"
-            "  uv run python -m scenario_engine.generate"
-        )
-    files.append((f"{SKILL_DIR.name}/data/pull.json", dataset.read_bytes()))
+    # The dataset is NO LONGER bundled: the pull comes from a callable data source
+    # (datasource.get_source()), fetched host-side by web.py and mounted into the
+    # sandbox as a file at alloc_tools.MOUNT_PATH. The skill carries only the
+    # solver package + SKILL.md; the rows arrive per-session, live.
     return files
 
 
