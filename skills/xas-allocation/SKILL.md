@@ -1,13 +1,12 @@
 ---
 name: xas-allocation
 description: >-
-  Repair a vehicle-to-order allocation after a disruption (delayed shipment,
-  changed inbound, manual steering). Translate the situation + planner
-  instructions into inputs for a deterministic min-cost-flow solver, run the λ
-  sweep, self-check hard constraints, and emit a reason-coded change list. Use
-  whenever a planner asks to re-allocate, defer/pin/boost orders, or explain an
-  allocation change. Does NOT allocate by reasoning — it drives the reference
-  solver.
+  Repair a vehicle-to-order allocation after a disruption (delayed PDN, changed
+  inbound, manual steering). Translate the situation + planner instructions into
+  inputs for a deterministic min-cost-flow solver, run the λ sweep, self-check
+  hard constraints, and emit a reason-coded change list. Use whenever a planner
+  asks to re-allocate, defer/pin/boost orders, or explain an allocation change.
+  Does NOT allocate by reasoning — it drives the reference solver.
 ---
 
 # XAS allocation repair skill
@@ -21,16 +20,40 @@ inputs, state has leaked into model memory and determinism is lost. That is the
 bug to guard against everywhere. You do **not** decide allocations; you build the
 network and call the solver, then explain the result.
 
-Reference solver version pinned by this skill: **0.1.0-prototype**
+Reference solver version pinned by this skill: **0.2.0-prototype**
 (`xas_allocation/` package; DECIDE-9 — canonical version moves to a tested repo
 before real dealer data).
+
+## The data model (dates, XAS-shaped — DECIDE-7, `docs/xasdatamodel.md`)
+
+Supply-first: `PDN → Vehicle (pool)`, `Customer → SO`, allocation binds an SO
+line to a pool Vehicle. The pull is fabricated by `scenario_engine/` (outside
+the agent) and `xas_allocation.flatten` maps it — **pure code, no judgment** —
+into the three arrays the solver reads:
+
+- **`orders[]`** (SO lines): `order_id · customer · customer_id · sales_model ·
+  priority · promised_date · eta_date · price · n_prior_delays · days_backordered`
+- **`units[]`** (Vehicles): `vehicle_id · sales_model · planned_delivery_date ·
+  location_state · pdn · committed`
+- **`incumbent[]`**: `order_id → vehicle_id` (the current allocation)
+
+Everything is **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
+`planned_delivery_date` is the one field a disruption moves. `promised_date` is
+the commitment tardiness is measured against; `eta_date` is the originally-
+expected delivery (a discrepancy = the allocated vehicle now delivers past it).
+
+**Eligibility (the sparse arc rule) — computed, never stored:** an arc
+`order → vehicle` exists iff `order.sales_model == vehicle.sales_model`. It is a
+hard equality, not a fuzzy match — there is no LLM spec-residual anymore.
+Lateness is **priced**, not forbidden, so a slightly-late vehicle can still be
+placed instead of backordering.
 
 ## The cost model (verbatim — §2)
 
 ```
-cost(o → u) = W(o) · tardiness(o,u)^1.5  +  λ(fence) · [week(u) ≠ promised_week(o)]
+cost(o → u) = W(o) · tardiness_days(o,u)^1.5  +  λ(fence) · [date(u) ≠ promised_date(o)]
 
-W(o) = w_base(o) · priority · (1 + α · n_prior_delays)   [+ β·days_backordered]
+W(o) = priority · (1 + α · n_prior_delays)   [+ β·days_backordered]
 ```
 
 Encodings — every business factor maps to exactly one lever:
@@ -40,8 +63,8 @@ Encodings — every business factor maps to exactly one lever:
 | customer priority | multiplicative weight on W                           |
 | delayed before    | `(1 + α·n_prior_delays)` multiplier — escalating     |
 | back-order aging   | `β · days_backordered` (DECIDE-1: additive default) |
-| don't recall      | HARD pin — unit removed from choice, no cost        |
-| minimal changes   | `λ` step penalty on changed-week arcs               |
+| don't recall      | HARD pin — vehicle removed from choice, no cost     |
+| minimal changes   | `λ` step penalty on changed-date arcs               |
 | convex lateness   | exponent `1.5` so delay never dumps on one order    |
 | time fence        | frozen / slushy / liquid → `λ` varies by horizon    |
 
@@ -53,9 +76,11 @@ problem stays a pure linear min-cost flow.
 **The λ sweep is the highest-value output.** Re-solve for λ ∈ {0,5,10,25,50,100}
 (same network, only some arc costs change) and hand the planner a Pareto frontier
 ("12 changes → 340 weighted late-days" vs "31 → 210"), not one opaque answer.
+When the frontier is flat (all rows identical), don't table it — say so in a line
+(see Planner-facing output).
 
-**Time fence (DECIDE-2):** promised ≤2 wks = frozen (hard pin); 3–6 wks = slushy
-(`λ` applies); beyond = liquid (week changes free).
+**Time fence (DECIDE-2):** promised ≤14 days out = frozen (hard pin); 15–42 days
+= slushy (`λ` applies); beyond = liquid (date changes free).
 
 ## Solver (§3)
 
@@ -67,20 +92,26 @@ tests**, never as live-session code.
 
 ## Procedure (§8) — each turn
 
-1. Confirm MCP liveness (DECIDE-6). *Prototype: synthetic generator, skipped.*
-2. Pull orders / inbound / current allocation (DECIDE-7 — synthetic in prototype).
-3. Reconcile spec compatibility: rule-driven `is_compatible(unit, order)`. The
-   model handles only the residual ambiguity rules can't resolve, and **any such
-   judgment MUST be written back to the residual cache** so a replay inherits it.
-4. Build index tables + graph (§4), apply the combined override from the ledger
-   replay (§7), run the **λ sweep**.
-5. **Self-check hard constraints:** no frozen/committed unit moved, no spec
-   violation, every order has exactly one unit (or a surfaced backorder).
+1. Confirm MCP liveness (DECIDE-6). *Prototype: synthetic data, skipped.*
+2. **Pull** with `pull_allocation_snapshot`, then run the returned **`flatten`
+   command** verbatim to write `snapshot.json`. `flatten` (in
+   `xas_allocation.flatten`) maps the rich pull into `orders/units/incumbent` —
+   pure code; never re-shape the data by reasoning. This is the data-prep step;
+   `xas_allocation.session.data_prep_flowchart` draws it as a mermaid flow chart.
+3. **Detect discrepancies** (`session.find_discrepancies`): SO lines whose
+   allocated vehicle now delivers past its `promised_date`. Map them for the
+   planner **before** solving — this is what the disruption actually broke.
+4. Apply the combined override from the ledger replay (§7), build the graph
+   (§4), run the **λ sweep**.
+5. **Self-check hard constraints:** no frozen/committed vehicle moved, no
+   sales_model violation, every order has exactly one vehicle (or a surfaced
+   backorder), no vehicle double-booked.
 6. **Emit a reason-coded change list** — not a bare new plan. This is the hard
    part; spend the effort here. The internal line carries everything
-   (`order 4471: W32 → W34 (promised W33, 1w late); unit 9a→9b; priority A,
-   delayed 1× before`) — but that is the *source*, not the reply. Render it for
-   the planner per **Planner-facing output** below.
+   (`order SO-4471: 2026-09-01 → 2026-09-14 (promised 2026-09-07, 7d late);
+   vehicle VEH-9a→VEH-9b; priority A, delayed 1× before`) — but that is the
+   *source*, not the reply. Render it for the planner per **Planner-facing
+   output** below.
 7. Human approves → write back via MCP (approval-gated). Steering → append a new
    ledger entry → back to step 4.
 
@@ -100,9 +131,9 @@ the first fact is what happened to Colmobil.
 change list is the deliverable. Trimming jargon must never mean omitting the
 allocation changes. Render every changed order as a table, in plain columns:
 
-| Order | Dealer (priority) | Was arriving | Now arrives | Promised | Result |
-|-------|-------------------|--------------|-------------|----------|--------|
-| 4001  | Colmobil (A)      | W41          | **W38**     | W38      | ✅ on time |
+| Order   | Dealer (priority) | Was arriving | Now arrives    | Promised   | Result |
+|---------|-------------------|--------------|----------------|------------|--------|
+| SO-4001 | Colmobil (A)      | 2026-10-05   | **2026-08-24** | 2026-08-24 | ✅ on time |
 
 Then a second table for orders **still late / unfilled** under a "needs your
 call" heading — these are the decisions the planner owns. Close with the count
@@ -115,10 +146,10 @@ boosted dealer had one order in play), if a high-priority order is still late, i
 a pin cost extra changes — say so in a single plain sentence. Don't bury it under
 the table.
 
-**Weeks:** show as `W38` (or `2026-W38`), consistently. **Late:** say "2 wks
-late", not a tardiness number. **End** with the natural next steering options in
-the planner's words ("defer the late Delek order", "protect Colmobil next
-cycle") — not internal levers.
+**Dates:** show as `2026-08-24`, consistently. **Late:** say "21 days late", not
+a raw tardiness number. **End** with the natural next steering options in the
+planner's words ("defer the late Delek order", "protect Colmobil next cycle") —
+not internal levers.
 
 ### Stays internal — never in the planner reply
 
@@ -136,9 +167,9 @@ carries a decision:
 - **Self-check field dumps** (`every_order_placed`, `unfilled_count`,
   double-booked). Report it as one word — "checks passed" — or, on a violation,
   the plain-English violation only.
-- **Unit IDs** (`9001→9169`), node indices, objective-in-micros, solver status.
-  A unit swap is real, but the ID means nothing to a planner; mention a physical
-  unit only if they track VINs, and never in the headline.
+- **Vehicle IDs** (`VEH-9001→VEH-9169`), node indices, objective-in-micros,
+  solver status. A vehicle swap is real, but the ID means nothing to a planner;
+  mention a physical vehicle only if they track VINs, and never in the headline.
 - **Internal vocabulary:** λ, Pareto frontier, weighted late-days, slushy/frozen
   fence, incumbent, mid-frontier default, arc, min-cost flow. Translate or omit.
 
@@ -148,15 +179,15 @@ Planner natural language → a typed override object (see
 `xas_allocation/overrides_schema.json`). Same inputs + same override →
 byte-identical plan. Your job is the **translation**: resolve "Colmobil" → its
 customer_id, "these orders" → real keys from the previous turn's change list,
-"next cycle" → a week label. **Show the override object back to the planner
+"next cycle" → a date. **Show the override object back to the planner
 before running.**
 
 Review gate:
 
-| Request                                        | Handling                          |
-|------------------------------------------------|-----------------------------------|
-| "delay 4471", "prefer Colmobil", "more churn"  | Runtime override. Instant, safe.  |
-| "never split a dealer's units across weeks"    | New constraint → **PR with tests**, not a live mutation. |
+| Request                                             | Handling                          |
+|-----------------------------------------------------|-----------------------------------|
+| "delay SO-4471", "prefer Colmobil", "more churn"    | Runtime override. Instant, safe.  |
+| "never split a dealer's vehicles across weeks"      | New constraint → **PR with tests**, not a live mutation. |
 
 The prompt moves weights and pins; a human moves the model.
 
@@ -185,7 +216,13 @@ upgrade, deferred.
 ## Running the reference solver
 
 ```bash
-uv run python -m xas_allocation.session          # full §8 loop over synthetic data
+uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
+uv run python -m xas_allocation.flatten          # rich pull -> snapshot (sanity check)
+uv run python -m xas_allocation.session          # full §8 loop over the bundled dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
 PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof
 ```
+
+`scenario_engine/` lives OUTSIDE the skill bundle — only its output
+(`data/pull.json`) ships in and `flatten` reads it. Regenerate the data and you
+must re-run `setup_allocation_agent.py`.

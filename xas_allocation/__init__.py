@@ -4,11 +4,14 @@ Core invariant:  plan = pure_function(data_snapshot, skill, ledger)
 
 Modules:
   decisions   — every <<DECIDE>> stub, surfaced at runtime.
-  synth_data  — synthetic XAS-shaped pull (orders, units, incumbent, disruption).
-  spec_match  — rule-driven is_compatible() + residual resolution with caching.
+  snapshot    — the flattened, date-based solver snapshot (orders/units/incumbent).
+  flatten     — pure rich-pull -> snapshot mapping (the "flatten + freeze" hop).
   solver      — OR-Tools min-cost-flow repair, cost model §2, pins §5, λ sweep.
   ledger      — append-only override store, replay-with-TTL fold.
-  session     — the §8 per-turn loop; reason-coded change list.
+  session     — the §8 per-turn loop; discrepancy map, flow chart, change list.
+
+The rich relational data (PDN/Vehicle/SO) is fabricated by the standalone
+`scenario_engine/` package, OUTSIDE the agent; only its output crosses in.
 """
 
 from .decisions import SOLVER_VERSION

@@ -30,7 +30,7 @@ DECISIONS: list[Decision] = [
         title="Aging term: additive vs multiplicative on the effective weight W(o)",
         default="additive",
         rationale=(
-            "W(o) = w_base·priority·(1+alpha·n_prior_delays) + beta·days_backordered. "
+            "W(o) = priority · (1+alpha·n_prior_delays) + beta·days_backordered. "
             "Additive keeps an old back-order from compounding with high priority into a "
             "runaway weight. Flip AGING_MODE to 'multiplicative' to make age and priority "
             "reinforce."
@@ -38,20 +38,22 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-2",
-        title="Time-fence boundaries (weeks)",
-        default="frozen <= 2 wks, slushy 3-6 wks, liquid > 6 wks",
+        title="Time-fence boundaries (days from the pull date)",
+        default="frozen <= 14d, slushy 15-42d, liquid > 42d",
         rationale=(
-            "Classic MPS split. Frozen = hard pin, slushy = movable only at high lambda, "
-            "liquid = free. Constants FROZEN_MAX_WEEKS / SLUSHY_MAX_WEEKS."
+            "Classic MPS split, restated in days now the model is date-based. Frozen = "
+            "hard pin, slushy = movable only at high lambda, liquid = free. Constants "
+            "FROZEN_MAX_DAYS / SLUSHY_MAX_DAYS."
         ),
     ),
     Decision(
         key="DECIDE-3",
-        title="Commit-point unit states that force a recall/hard pin",
-        default="{'shipped', 'in_prep'}",
+        title="Vehicle location_state that counts as committed (recall/hard pin)",
+        default="{'bonded', 'pdi'}",
         rationale=(
-            "A unit in these states is physically committed and cannot be reassigned. "
-            "See COMMIT_POINT_STATES."
+            "Pipeline future->sea->port->transfer->bonded->pdi; warmer/later = harder to "
+            "move. A vehicle at bonded/pdi is physically committed and cannot be reassigned. "
+            "'committed' is DERIVED from location_state at flatten time. See COMMIT_POINT_STATES."
         ),
     ),
     Decision(
@@ -88,11 +90,14 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-7",
         title="XAS API data contract (fields + endpoints)",
-        default="synthetic generator; invented field schema in synth_data.py stands in",
+        default=(
+            "PDN -> Vehicle -> SO, fabricated by scenario_engine/ and flattened to the "
+            "orders/units/incumbent snapshot; field shapes per docs/xasdatamodel.md"
+        ),
         rationale=(
-            "The real XAS API does not exist yet. synth_data.py defines the field shapes "
-            "(orders + inbound units) this prototype assumes; treat them as the proposed "
-            "contract, not a confirmed one."
+            "The real XAS API does not exist yet. scenario_engine/ + xas_allocation.snapshot "
+            "define the field shapes this prototype assumes (PDN/Vehicle/SO, dates, "
+            "sales_model); treat them as the proposed contract, not a confirmed one."
         ),
     ),
     Decision(
@@ -117,21 +122,35 @@ DECISIONS: list[Decision] = [
             "SOLVER_VERSION is that pin point."
         ),
     ),
+    Decision(
+        key="DECIDE-10",
+        title="reserved_for_customer eligibility",
+        default="ignored (a reserved vehicle is eligible for anyone) — DEFERRED, not in the minimal build",
+        rationale=(
+            "docs/xasdatamodel + the data-model diagram flag a reserved_for_customer field: a "
+            "vehicle earmarked for a dealer should be eligible only for that dealer's orders. "
+            "Not modelled in the minimal 30-customer build; when added, it becomes an extra "
+            "term in the sparse-arc eligibility rule."
+        ),
+    ),
 ]
 
 
 # --- Load-bearing defaults referenced by the solver / session -----------------
 # These are the concrete values behind the decisions above. Change them HERE.
 
+# Customer priority letter -> multiplicative weight on W(o) (§2).
+PRIORITY_WEIGHT: dict[str, float] = {"A": 3.0, "B": 2.0, "C": 1.0}
+
 # DECIDE-1
 AGING_MODE = "additive"  # "additive" | "multiplicative"
 
-# DECIDE-2  (tardiness measured in whole weeks from the promised week)
-FROZEN_MAX_WEEKS = 2
-SLUSHY_MAX_WEEKS = 6
+# DECIDE-2  (tardiness measured in whole days from the promised date)
+FROZEN_MAX_DAYS = 14
+SLUSHY_MAX_DAYS = 42
 
-# DECIDE-3
-COMMIT_POINT_STATES = frozenset({"shipped", "in_prep"})
+# DECIDE-3  (vehicle location_state values that mean "committed / cannot move")
+COMMIT_POINT_STATES = frozenset({"bonded", "pdi"})
 
 # DECIDE-4 / DECIDE-8
 # Large finite penalty used for soft instruction pins/forbids/defers. Big enough
@@ -141,12 +160,12 @@ COMMIT_POINT_STATES = frozenset({"shipped", "in_prep"})
 SOFT_PIN_COST = 1_000_000
 
 # DECIDE-9
-SOLVER_VERSION = "0.1.0-prototype"
+SOLVER_VERSION = "0.2.0-prototype"
 
 # Cost-model coefficients (§2). Fixed formula, tunable coefficients.
 CONVEX_EXPONENT = 1.5  # >1 so lateness never dumps entirely on one order
-ALPHA = 0.5            # prior-delay escalation:  (1 + ALPHA * n_prior_delays)
-BETA = 0.1            # back-order aging per day (see AGING_MODE)
+ALPHA = 0.5  # prior-delay escalation:  (1 + ALPHA * n_prior_delays)
+BETA = 0.1  # back-order aging per day (see AGING_MODE)
 
 # The lambda sweep (§2, "highest-value output").
 LAMBDA_SWEEP = (0, 5, 10, 25, 50, 100)

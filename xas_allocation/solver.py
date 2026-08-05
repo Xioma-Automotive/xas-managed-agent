@@ -2,34 +2,35 @@
 
 The agent NEVER implements the algorithm — it builds the network and calls
 ``ortools.graph.SimpleMinCostFlow`` (§3). Everything here is a pure function of
-(snapshot, combined_override, residual_cache, lambda): same inputs -> byte-
-identical plan (the core invariant).
+(snapshot, combined_override, lambda): same inputs -> byte-identical plan (the
+core invariant).
 
 Design highlights, mapped to the spec:
-- §4  Integer node positions from a FIXED sort (order_id / unit_id asc); real
+- §4  Integer node positions from a FIXED sort (order_id / vehicle_id asc); real
       keys recovered through explicit lookup tables before anything leaves here.
 - §1  Repair, don't re-solve: pin the whole incumbent, free ONLY the disrupted
-      (planned) orders, re-match just those. Change count is structural.
-- §2  cost(o->u) = W(o)·tardiness^1.5 + λ(fence)·[week(u)≠promised_week(o)].
-- §5  Data pins (frozen orders, committed units) are pre-committed OUT of the
+      orders, re-match just those. Change count is structural.
+- §2  cost(o->u) = W(o)·tardiness_days^1.5 + λ(fence)·[date(u) ≠ promised_date(o)].
+- §5  Data pins (frozen orders, committed vehicles) are pre-committed OUT of the
       graph; instruction pins/defers/forbids are large finite soft penalties
       (DECIDE-4 / DECIDE-8) so a conflict surfaces as a cost line, never a crash.
 - A per-order dummy "backorder" arc keeps the flow always feasible; an order
   routed to it is an explicitly surfaced unfilled order, not a silent drop.
+
+Eligibility (the sparse arc rule) is a HARD ``sales_model`` equality, computed
+here and never stored — the old fuzzy spec-match + LLM residual is gone. There
+is no model judgment left in the data path.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from datetime import date
 
 from ortools.graph.python import min_cost_flow
 
 from . import decisions as D
-from .spec_match import PRIORITY_WEIGHT, ResidualCache, resolve_compatibility
-from .synth_data import Order, Snapshot, Unit, parse_week_label
-
-NOW_WEEK = 32  # "this cycle" — the front of the horizon (see synth_data.HORIZON_START_WEEK)
+from .snapshot import Order, Snapshot, Unit, days_late, parse_date
 
 # Float costs are scaled to ints for the integer-only min-cost-flow.
 COST_SCALE = 1000
@@ -40,12 +41,13 @@ BACKORDER_COST = D.SOFT_PIN_COST * 10.0
 
 # --- Fence + cost model -------------------------------------------------------
 
-def fence_of(order: Order, now_week: int = NOW_WEEK) -> str:
-    """DECIDE-2 time fence by weeks-until-promised: frozen / slushy / liquid."""
-    weeks_out = order.promised_week - now_week
-    if weeks_out <= D.FROZEN_MAX_WEEKS:
+
+def fence_of(order: Order, now: date) -> str:
+    """DECIDE-2 time fence by days-until-promised: frozen / slushy / liquid."""
+    days_out = (order.promised_date - now).days
+    if days_out <= D.FROZEN_MAX_DAYS:
         return "frozen"
-    if weeks_out <= D.SLUSHY_MAX_WEEKS:
+    if days_out <= D.SLUSHY_MAX_DAYS:
         return "slushy"
     return "liquid"
 
@@ -54,9 +56,9 @@ def effective_weight(order: Order, boosts: dict[str, float]) -> float:
     """W(o) per §2, with DECIDE-1 controlling how back-order aging enters.
 
     boosts maps customer_id -> multiplier (from ledger override 'boosts')."""
-    w = 1.0 * PRIORITY_WEIGHT[order.priority] * (1 + D.ALPHA * order.n_prior_delays)
+    w = D.PRIORITY_WEIGHT[order.priority] * (1 + D.ALPHA * order.n_prior_delays)
     if D.AGING_MODE == "multiplicative":
-        w *= (1 + D.BETA * order.days_backordered)
+        w *= 1 + D.BETA * order.days_backordered
     else:  # additive (default)
         w += D.BETA * order.days_backordered
     w *= boosts.get(order.customer_id, 1.0)
@@ -64,42 +66,55 @@ def effective_weight(order: Order, boosts: dict[str, float]) -> float:
 
 
 def tardiness(order: Order, unit: Unit) -> int:
-    return max(0, unit.arrival_week - order.promised_week)
+    """Days late = how far the vehicle's planned delivery runs past the promise."""
+    return days_late(unit.planned_delivery_date, order.promised_date)
 
 
 def arc_cost_float(
     order: Order,
     unit: Unit,
     lam: int,
+    now: date,
     boosts: dict[str, float],
-    not_before_week: Optional[int],
+    not_before: date | None,
 ) -> float:
     """§2 cost for one order->unit arc, in float space (scaled to int later)."""
     late = tardiness(order, unit)
-    cost = effective_weight(order, boosts) * (late ** D.CONVEX_EXPONENT)
+    cost = effective_weight(order, boosts) * (late**D.CONVEX_EXPONENT)
 
-    # λ additive term, gated by the fence (liquid => free to change week).
-    if unit.arrival_week != order.promised_week and fence_of(order) == "slushy":
+    # λ additive term, gated by the fence (liquid => free to change the date).
+    if unit.planned_delivery_date != order.promised_date and fence_of(order, now) == "slushy":
         cost += lam
 
     # Soft instruction pin: 'defer'/not_before violated by an early arrival.
-    if not_before_week is not None and unit.arrival_week < not_before_week:
+    if not_before is not None and unit.planned_delivery_date < not_before:
         cost += D.SOFT_PIN_COST
     return cost
 
 
+def eligible(order: Order, unit: Unit) -> bool:
+    """The sparse arc rule (computed, never stored): hard sales_model equality.
+
+    DECIDE-10: a reserved_for_customer term would AND in here once modelled.
+    Lateness is NOT a feasibility gate — it is priced in ``arc_cost_float`` so a
+    slightly-late vehicle can still be placed instead of forcing a backorder."""
+    return order.sales_model == unit.sales_model
+
+
 # --- Repair problem partition (§1, §5) ---------------------------------------
+
 
 @dataclass
 class RepairPlan:
     """The pinned/free partition + the combined override, resolved once."""
-    pinned: dict[int, int]          # order_id -> unit_id (hard, kept as-is)
-    free_orders: list[int]          # order_ids to (re)match
-    free_units: list[int]           # unit_ids available to the free orders
-    boosts: dict[str, float]        # customer_id -> weight multiplier
-    lam_default: Optional[int]      # ledger-supplied λ (sweep still explores all)
-    not_before: dict[int, int]      # order_id -> earliest allowed arrival week
-    forbid_no_move: set[int]        # orders explicitly pinned by instruction
+
+    pinned: dict[str, str]  # order_id -> vehicle_id (hard, kept as-is)
+    free_orders: list[str]  # order_ids to (re)match
+    free_units: list[str]  # vehicle_ids available to the free orders
+    boosts: dict[str, float]  # customer_id -> weight multiplier
+    lam_default: int | None  # ledger-supplied λ (sweep still explores all)
+    not_before: dict[str, date]  # order_id -> earliest allowed delivery date
+    forbid_no_move: set[str]  # orders explicitly pinned by instruction
 
 
 def _combined_boosts(override: dict) -> dict[str, float]:
@@ -117,59 +132,49 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     orders = snapshot.order_by_id()
     units = snapshot.unit_by_id()
     incumbent = dict(snapshot.incumbent)
-    disrupted = set(snapshot.disruption["disrupted_orders"])
+    disrupted = set(snapshot.disruption.get("disrupted_orders", []))
 
     # Instruction-driven sets from the combined override.
     boosts = _combined_boosts(override)
     lam_default = override.get("lambda")
-    not_before: dict[int, int] = {}
-    deferred: set[int] = set()
+    not_before: dict[str, date] = {}
+    deferred: set[str] = set()
     for p in override.get("pins", []):
         if p.get("action") == "defer":
-            oid = int(p["order"])
+            oid = str(p["order"])
             deferred.add(oid)
             if p.get("not_before"):
-                not_before[oid] = parse_week_label(p["not_before"])
+                not_before[oid] = parse_date(p["not_before"])
     forbid_no_move = {
-        int(f["order"]) for f in override.get("forbid", []) if f.get("action") == "no_move"
+        str(f["order"]) for f in override.get("forbid", []) if f.get("action") == "no_move"
     }
-
-    # A unit is committed (physically fixed) if its state is a commit point.
-    def committed(uid: int) -> bool:
-        return units[uid].state in D.COMMIT_POINT_STATES
-
-    incumbent_unit = incumbent  # order_id -> unit_id
 
     # Free orders: disrupted or actively deferred, EXCEPT
     #   - frozen orders (can't move, §2 time fence),
     #   - orders explicitly pinned no_move,
-    #   - orders riding a committed unit (can't recall an in-prep/shipped unit).
-    # Plus any order the incumbent left unassigned (must get a unit).
-    free_orders: list[int] = []
+    #   - orders riding a committed vehicle (can't recall a bonded/pdi unit).
+    # Plus any order the incumbent left unassigned (must get a vehicle).
+    free_orders: list[str] = []
     for oid, o in orders.items():
-        assigned = incumbent_unit.get(oid)
+        assigned = incumbent.get(oid)
         wants_move = (oid in disrupted) or (oid in deferred)
         if oid in forbid_no_move:
             continue
-        if fence_of(o) == "frozen":
+        if fence_of(o, snapshot.now) == "frozen":
             continue
-        if assigned is not None and committed(assigned):
+        if assigned is not None and units[assigned].committed:
             continue
         if wants_move or assigned is None:
             free_orders.append(oid)
     free_orders.sort()  # §4 fixed key
 
     free_set = set(free_orders)
-    # Pinned = everyone else keeps their incumbent unit (if any).
+    # Pinned = everyone else keeps their incumbent vehicle (if any).
     pinned = {oid: uid for oid, uid in incumbent.items() if oid not in free_set}
 
-    # Free units: not consumed by a pinned assignment, and not committed.
+    # Free vehicles: not consumed by a pinned assignment, and not committed.
     consumed = set(pinned.values())
-    free_units = [
-        uid
-        for uid, u in units.items()
-        if uid not in consumed and u.state not in D.COMMIT_POINT_STATES
-    ]
+    free_units = [uid for uid, u in units.items() if uid not in consumed and not u.committed]
     free_units.sort()  # §4 fixed key
 
     return RepairPlan(
@@ -185,24 +190,20 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
 
 # --- Solve one λ --------------------------------------------------------------
 
+
 @dataclass
 class SolveResult:
     lam: int
-    plan: dict[int, int]                 # order_id -> unit_id (full: pinned+free)
-    unfilled: list[int]                  # free orders routed to backorder
-    node_index: dict[int, object]        # position -> ('order'|'unit', real_id)
-    n_changes: int                       # free orders whose unit differs from incumbent
-    weighted_late_days: float            # Σ W(o)·tardiness over ALL orders
-    objective_micro: int                 # solver objective in scaled int space
+    plan: dict[str, str]  # order_id -> vehicle_id (full: pinned+free)
+    unfilled: list[str]  # free orders routed to backorder
+    node_index: dict[int, object]  # position -> ('order'|'unit', real_id)
+    n_changes: int  # free orders whose vehicle differs from incumbent
+    weighted_late_days: float  # Σ W(o)·tardiness over ALL orders
+    objective_micro: int  # solver objective in scaled int space
     self_check: dict
 
 
-def _solve_one(
-    snapshot: Snapshot,
-    rp: RepairPlan,
-    lam: int,
-    cache: ResidualCache,
-) -> SolveResult:
+def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
     orders = snapshot.order_by_id()
     units = snapshot.unit_by_id()
 
@@ -210,8 +211,8 @@ def _solve_one(
     # 0=S, 1=T, 2=D(backorder); orders then units follow.
     S, T, DUMMY = 0, 1, 2
     node_index: dict[int, object] = {}
-    order_pos: dict[int, int] = {}
-    unit_pos: dict[int, int] = {}
+    order_pos: dict[str, int] = {}
+    unit_pos: dict[str, int] = {}
     pos = 3
     for oid in rp.free_orders:
         order_pos[oid] = pos
@@ -229,23 +230,23 @@ def _solve_one(
     for oid in rp.free_orders:
         smcf.add_arc_with_capacity_and_unit_cost(S, order_pos[oid], 1, 0)
 
-    # order -> compatible free unit (cap 1, §2 cost) ; order -> backorder dummy
+    # order -> compatible free vehicle (cap 1, §2 cost) ; order -> backorder dummy
     for oid in rp.free_orders:
         o = orders[oid]
         nb = rp.not_before.get(oid)
         for uid in rp.free_units:
             u = units[uid]
-            if not resolve_compatibility(u.spec, o.spec, cache):
+            if not eligible(o, u):
                 continue  # incompatible -> no arc (keeps graph sparse, §4)
-            c = arc_cost_float(o, u, lam, rp.boosts, nb)
+            c = arc_cost_float(o, u, lam, snapshot.now, rp.boosts, nb)
             smcf.add_arc_with_capacity_and_unit_cost(
-                order_pos[oid], unit_pos[uid], 1, int(round(c * COST_SCALE))
+                order_pos[oid], unit_pos[uid], 1, round(c * COST_SCALE)
             )
         smcf.add_arc_with_capacity_and_unit_cost(
-            order_pos[oid], DUMMY, 1, int(round(BACKORDER_COST * COST_SCALE))
+            order_pos[oid], DUMMY, 1, round(BACKORDER_COST * COST_SCALE)
         )
 
-    # free unit -> T (cap 1) ; backorder dummy -> T (cap N)
+    # free vehicle -> T (cap 1) ; backorder dummy -> T (cap N)
     for uid in rp.free_units:
         smcf.add_arc_with_capacity_and_unit_cost(unit_pos[uid], T, 1, 0)
     smcf.add_arc_with_capacity_and_unit_cost(DUMMY, T, N, 0)
@@ -258,9 +259,9 @@ def _solve_one(
         raise RuntimeError(f"min-cost-flow did not solve to optimality: status={status}")
 
     # Read back flow -> real keys (§4).
-    plan: dict[int, int] = dict(rp.pinned)
-    unfilled: list[int] = []
-    assigned_free: dict[int, int] = {}
+    plan: dict[str, str] = dict(rp.pinned)
+    unfilled: list[str] = []
+    assigned_free: dict[str, str] = {}
     for arc in range(smcf.num_arcs()):
         if smcf.flow(arc) <= 0:
             continue
@@ -274,11 +275,7 @@ def _solve_one(
     plan.update(assigned_free)
     unfilled.sort()
 
-    n_changes = sum(
-        1
-        for oid in rp.free_orders
-        if snapshot.incumbent.get(oid) != plan.get(oid)
-    )
+    n_changes = sum(1 for oid in rp.free_orders if snapshot.incumbent.get(oid) != plan.get(oid))
 
     weighted_late = 0.0
     for oid, o in orders.items():
@@ -286,7 +283,7 @@ def _solve_one(
         if uid is not None:
             weighted_late += effective_weight(o, rp.boosts) * tardiness(o, units[uid])
 
-    check = _self_check(snapshot, rp, plan, unfilled, cache)
+    check = _self_check(snapshot, plan, unfilled)
     return SolveResult(
         lam=lam,
         plan=plan,
@@ -299,29 +296,26 @@ def _solve_one(
     )
 
 
-def _self_check(snapshot, rp, plan, unfilled, cache) -> dict:
+def _self_check(snapshot: Snapshot, plan: dict, unfilled: list) -> dict:
     """§8.5 hard-constraint self-check. Returns findings; never silently relaxes."""
     orders = snapshot.order_by_id()
     units = snapshot.unit_by_id()
     violations: list[str] = []
 
-    # No committed/frozen unit reassigned away from its incumbent order.
+    # No committed vehicle reassigned away from its incumbent order.
     for oid, uid in snapshot.incumbent.items():
-        if units[uid].state in D.COMMIT_POINT_STATES and plan.get(oid) != uid:
-            violations.append(f"committed unit {uid} moved off order {oid}")
-    # No spec violation on any assignment.
+        if units[uid].committed and plan.get(oid) != uid:
+            violations.append(f"committed vehicle {uid} moved off order {oid}")
+    # No sales_model violation on any assignment.
     for oid, uid in plan.items():
-        if not resolve_compatibility(units[uid].spec, orders[oid].spec, cache):
-            violations.append(f"order {oid} assigned incompatible unit {uid}")
-    # Every order has exactly one unit (or is a surfaced backorder).
-    every_order_placed = all(
-        (oid in plan) or (oid in unfilled) for oid in orders
-    )
-    # No unit double-booked.
-    used = [uid for uid in plan.values()]
-    double_booked = len(used) != len(set(used))
-    if double_booked:
-        violations.append("a unit is assigned to more than one order")
+        if not eligible(orders[oid], units[uid]):
+            violations.append(f"order {oid} assigned incompatible vehicle {uid}")
+    # Every order has exactly one vehicle (or is a surfaced backorder).
+    every_order_placed = all((oid in plan) or (oid in unfilled) for oid in orders)
+    # No vehicle double-booked.
+    used = list(plan.values())
+    if len(used) != len(set(used)):
+        violations.append("a vehicle is assigned to more than one order")
 
     return {
         "ok": not violations and every_order_placed,
@@ -333,6 +327,7 @@ def _self_check(snapshot, rp, plan, unfilled, cache) -> dict:
 
 # --- λ sweep (§2, highest-value output) --------------------------------------
 
+
 @dataclass
 class SweepPoint:
     lam: int
@@ -343,35 +338,31 @@ class SweepPoint:
 
 def solve(
     snapshot: Snapshot,
-    override: Optional[dict] = None,
-    cache: Optional[ResidualCache] = None,
-    lam: Optional[int] = None,
+    override: dict | None = None,
+    lam: int | None = None,
 ) -> SolveResult:
     """Single deterministic solve at one λ (default: ledger λ, else first sweep value)."""
     override = override or {}
-    cache = cache or ResidualCache.load(None)
     rp = partition(snapshot, override)
     if lam is None:
         lam = rp.lam_default if rp.lam_default is not None else D.LAMBDA_SWEEP[0]
-    return _solve_one(snapshot, rp, int(lam), cache)
+    return _solve_one(snapshot, rp, int(lam))
 
 
 def lambda_sweep(
     snapshot: Snapshot,
-    override: Optional[dict] = None,
-    cache: Optional[ResidualCache] = None,
+    override: dict | None = None,
     lambdas=D.LAMBDA_SWEEP,
 ) -> tuple[list[SweepPoint], dict[int, SolveResult]]:
     """Re-solve across λ (same network, only some arc costs change) -> Pareto
     frontier of (changes vs weighted late-days). Returns the frontier points and
     the full per-λ results keyed by λ."""
     override = override or {}
-    cache = cache or ResidualCache.load(None)
     rp = partition(snapshot, override)
     points: list[SweepPoint] = []
     results: dict[int, SolveResult] = {}
     for lam in lambdas:
-        res = _solve_one(snapshot, rp, int(lam), cache)
+        res = _solve_one(snapshot, rp, int(lam))
         results[int(lam)] = res
         points.append(
             SweepPoint(int(lam), res.n_changes, res.weighted_late_days, len(res.unfilled))

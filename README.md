@@ -41,10 +41,11 @@ inputs, state has leaked into model memory and determinism is lost. That's the
 bug guarded against everywhere. `tests/test_invariant.py` proves it holds even
 after the sandbox is discarded and the ledger is replayed from disk.
 
-This build is a **runnable prototype against synthetic data** shaped like XAS
-bins. Real MCP data wiring and the production solver repo come later. Every
-unresolved choice from the spec is a marked `DECIDE-n` — not guessed, but stubbed
-with a clearly-labelled default and surfaced (see below).
+This build is a **runnable prototype against fabricated data** shaped like XAS
+(`PDN → Vehicle`, `Customer → SO`, real dates; see `docs/xasdatamodel.md`). A
+standalone `scenario_engine/` fabricates the world; real MCP data wiring and the
+production solver repo come later. Every unresolved choice from the spec is a
+marked `DECIDE-n` — not guessed, but stubbed with a labelled default (see below).
 
 ## Reference-solver package (the deterministic core)
 
@@ -54,13 +55,14 @@ before real dealer data (DECIDE-9).
 
 | Module | Deliverable | Role |
 | ------ | ----------- | ---- |
-| `decisions.py`   | —      | Every `DECIDE-1..9` stub + its labelled default, surfaced at runtime. |
-| `synth_data.py`  | §11.1  | Seeded synthetic pull: orders, inbound units, a complete incumbent plan, and a disruption to repair. |
-| `spec_match.py`  | §11.3  | Rule-driven `is_compatible()` + residual-resolution hook with **cached-decision write-back** (the one place LLM judgment can leak). |
+| `decisions.py`   | —      | Every `DECIDE-1..10` stub + its labelled default, surfaced at runtime. |
+| `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/units/incumbent`) + JSON (de)serialization. |
+| `flatten.py`     | §11.3  | Pure rich-pull → snapshot mapping (the "flatten + freeze" hop). Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, data/instruction pins (§5), the **λ sweep**, deterministic read-back. |
 | `ledger.py`      | §11.4  | Append-only override store; replay-with-TTL fold into one combined override. The ledger **is** the session. |
-| `session.py`     | §11.5  | The §8 per-turn loop; emits a **reason-coded change list**, not a bare plan. |
+| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, data-prep flow chart, **reason-coded change list**. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
+| `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the rich PDN/Vehicle/SO dataset (good → disrupted). |
 | `tests/test_invariant.py` | §11.7 | Determinism invariant: same plan across two runs **and** across sandbox discard. |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
@@ -70,14 +72,17 @@ contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
 
 ```bash
 uv sync
-uv run python -m xas_allocation.session          # full §8 loop over synthetic data
+uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
+uv run python -m xas_allocation.session          # full §8 loop over the bundled dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
-PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (5/5)
+PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4)
 ```
 
-`session.py` prints the λ-sweep Pareto frontier (changes vs weighted late-days),
-the hard-constraint self-check, and a reason-coded change list — first for a base
-repair, then after a steering turn (defer an order, prefer Colmobil, set λ).
+`session.py` prints the discrepancy map (what the disruption broke), the
+data-prep flow chart, the λ-sweep Pareto frontier, the hard-constraint
+self-check, and a reason-coded change list — first for a base repair, then after
+a steering turn (defer an order, prefer Colmobil, set λ). `data/pull.json` is
+committed, so nothing above needs the engine re-run.
 
 ## Run it as a Managed Agent (Anthropic-hosted)
 
@@ -104,30 +109,33 @@ for a worker that will never arrive.
 
 ### How the solver reaches a sandbox we don't run
 
-It ships **inside the skill**. `skill_files()` uploads `xas_allocation/` under
-the skill directory alongside `SKILL.md`, and the platform materializes skills
-into the sandbox. The package stays at the repo root — the bundle is synthesized
-at upload time, so the tests and the sandbox run the same source.
+Both the solver and the dataset ship **inside the skill**. `skill_files()` uploads
+`xas_allocation/` *and* `data/pull.json` under the skill directory alongside
+`SKILL.md`, and the platform materializes skills into the sandbox. Both stay at
+the repo root — the bundle is synthesized at upload time, so the tests and the
+sandbox run the same source and data.
 
-The consequence to remember: **edit the solver and you must re-run
-`setup_allocation_agent.py`**, or the sandbox keeps using the previous version
-with nothing to tell you.
+The consequence to remember: **edit the solver or regenerate the dataset and you
+must re-run `setup_allocation_agent.py`**, or the sandbox keeps using the previous
+version with nothing to tell you.
 
-### Why the pull returns a seed instead of rows
+### Why the pull ships the bundled dataset instead of the rows
 
 The tool runs here; the agent runs in Anthropic's sandbox. Everything the tool
-returns crosses into the agent's context, and a 120-order snapshot is ~100 KB of
-JSON the agent never reads directly — the solver reads it.
+returns crosses into the agent's context, so dumping the rows would push the
+whole dataset through the context window every pull — and the solver reads it
+from disk anyway.
 
-So the tool returns a summary plus a `materialize` command, and the agent runs
-that command to rebuild the snapshot in its own sandbox. The generator is seeded,
-so the result is byte-identical to what the tool generated here; the same
-determinism argument the core invariant rests on is what makes the shortcut
-sound. The tool is still the pull interface — it decides the parameters and is
-where a real XAS API plugs in. Only the transport differs.
+So the tool returns a summary plus a `flatten` command. The rows travel in the
+skill bundle (exactly like the solver code); the agent runs the command to
+`flatten` that bundled rich pull (PDN/Vehicle/SO) into `snapshot.json` in its own
+sandbox — the same transport as before, transforming rich→snapshot instead of
+seed→snapshot. The scenario engine's *code* stays out of the sandbox; only its
+*output* travels in. The tool is still the pull interface — it is where a real
+XAS API plugs in.
 
-When the real XAS pull exists (DECIDE-7) the rows stop being reproducible from a
-seed, and the payload question comes back wanting a real answer.
+When the real XAS pull exists (DECIDE-7) the tool reads it instead of a bundled
+file; the summary + `flatten` contract stays, only the source of the rows changes.
 
 ### One session at a time
 
@@ -155,14 +163,15 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | # | Decision | Prototype default |
 |---|----------|-------------------|
 | 1 | Aging term: additive vs multiplicative | additive into W(o) |
-| 2 | Time-fence boundaries | frozen ≤2w, slushy 3–6w, liquid >6w |
-| 3 | Commit-point unit states | `{shipped, in_prep}` |
+| 2 | Time-fence boundaries | frozen ≤14d, slushy 15–42d, liquid >42d |
+| 3 | Committed `location_state` | `{bonded, pdi}` |
 | 4 | Pin mechanism | inf-cost (soft) for instruction pins; pre-commit for data pins |
 | 5 | Managed Agents session-persistence API | ledger is a local JSON artifact; platform persistence not assumed |
-| 6 | xas-code MCP liveness pattern | single `directory_tree` at start (skipped in synthetic prototype) |
-| 7 | XAS API data contract | synthetic generator; invented field schema stands in |
+| 6 | xas-code MCP liveness pattern | single `directory_tree` at start (skipped in prototype) |
+| 7 | XAS API data contract | `scenario_engine/` fabricates PDN/Vehicle/SO (see `docs/xasdatamodel.md`) |
 | 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) |
 | 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION` |
+| 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

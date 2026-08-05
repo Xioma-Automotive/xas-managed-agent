@@ -1,41 +1,41 @@
-"""The per-turn session loop (§8), wired over synthetic data.
+"""The per-turn session loop (§8), over the flattened date-based snapshot.
 
 Each turn:
-  1. (DECIDE-6) MCP liveness check — SKIPPED in the prototype (synthetic data);
-     wired to a directory_tree probe once xas-code MCP is connected.
-  2. Pull orders / inbound / incumbent — synthetic generator (DECIDE-7).
-  3. Reconcile spec compatibility — rule-driven, with the LLM residual hook and
-     cached-decision write-back handled inside the solver's arc build (§8.3).
-  4. Replay the ledger -> combined override, build the graph, run the λ sweep.
+  1. (DECIDE-6) MCP liveness check — SKIPPED in the prototype (synthetic data).
+  2. Pull the rich dataset and ``flatten`` it -> the orders/units/incumbent
+     snapshot (pure code; see flatten.py). This IS the data-prep step the flow
+     chart draws.
+  3. Detect discrepancies: SO lines whose allocated vehicle now delivers after
+     the promised date. Map them for the planner BEFORE solving.
+  4. Replay the ledger -> combined override, run the λ sweep.
   5. Self-check hard constraints (§8.5).
-  6. Emit a CHANGE LIST with reason codes (§8.6) — not a bare new plan.
-  7. Human approves -> write back (synthetic no-op here). Steering -> new ledger
-     entry -> back to step 4.
+  6. Emit a reason-coded CHANGE LIST (§8.6) — rendered planner-facing per the
+     SKILL.md "Planner-facing output" section, not a bare new plan.
+  7. Human approves -> write back. Steering -> new ledger entry -> back to 4.
 
-The change list (step 6) is the genuinely hard part, per the spec — 12 date
-changes each with a one-line justification get accepted where 12 bare changes
-get rejected. That's where the design effort goes.
+The change list (step 6) is the genuinely hard part, per the spec. Eligibility
+is a hard ``sales_model`` equality now — there is no LLM judgment in the data
+path, so a residual cache is no longer needed.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
+from datetime import date
 
 from . import decisions as D
+from .flatten import flatten_default
 from .ledger import Ledger, LedgerEntry
+from .snapshot import Order, Snapshot, add_days, date_label
 from .solver import (
-    NOW_WEEK,
     SolveResult,
     SweepPoint,
-    effective_weight,
     lambda_sweep,
     partition,
+    solve,
+    tardiness,
 )
-from .spec_match import ResidualCache
-from .synth_data import Snapshot, generate_snapshot, week_label
 
 
 @dataclass
@@ -46,6 +46,116 @@ class CycleResult:
     chosen_lambda: int
     chosen: SolveResult
     change_list: list[str]
+
+
+# --- Discrepancy detection (step 3 — the "map") ------------------------------
+
+
+@dataclass
+class Discrepancy:
+    order_id: str
+    customer: str
+    priority: str
+    sales_model: str
+    vehicle_id: str
+    promised: date
+    now_arriving: date
+    days_late: int
+
+
+def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
+    """SO lines whose currently-allocated vehicle now delivers past the promise.
+
+    This is what the disruption actually broke — computed straight from the
+    snapshot (allocated vehicle's planned_delivery_date vs promised_date), not
+    read from the manifest, so it stays true even under manual steering."""
+    orders = snapshot.order_by_id()
+    units = snapshot.unit_by_id()
+    out: list[Discrepancy] = []
+    for oid, uid in snapshot.incumbent.items():
+        o, u = orders[oid], units[uid]
+        late = tardiness(o, u)
+        if late > 0:
+            out.append(
+                Discrepancy(
+                    order_id=oid,
+                    customer=o.customer,
+                    priority=o.priority,
+                    sales_model=o.sales_model,
+                    vehicle_id=uid,
+                    promised=o.promised_date,
+                    now_arriving=u.planned_delivery_date,
+                    days_late=late,
+                )
+            )
+    out.sort(key=lambda d: (-d.days_late, d.order_id))
+    return out
+
+
+def format_discrepancies(discs: list[Discrepancy]) -> str:
+    if not discs:
+        return "No discrepancies: every allocated vehicle still meets its promised date."
+    lines = [
+        f"{len(discs)} order(s) now late because their allocated vehicle slipped:",
+        "  order    | customer            | model  | promised   | now arriving | late",
+        "  ---------+---------------------+--------+------------+--------------+------",
+    ]
+    for d in discs:
+        lines.append(
+            f"  {d.order_id:<8} | {d.customer:<19} | {d.sales_model:<6} | "
+            f"{date_label(d.promised)} | {date_label(d.now_arriving)}   | {d.days_late}d"
+        )
+    return "\n".join(lines)
+
+
+# --- Data-prep flow chart (the "flow chart" the planner asked for) -----------
+
+
+def data_prep_flowchart(snapshot: Snapshot) -> str:
+    """Mermaid of how the rich pull became solver inputs — the data-prep hop.
+
+    Not the allocation; the *pipeline*: rich PDN/Vehicle/SO -> flatten/freeze ->
+    the three arrays -> the sparse sales_model arcs -> the solver."""
+    n_orders = len(snapshot.orders)
+    n_units = len(snapshot.units)
+    n_incumbent = len(snapshot.incumbent)
+    n_pdn = len({u.pdn for u in snapshot.units if u.pdn})
+    n_models = len({o.sales_model for o in snapshot.orders})
+    d = snapshot.disruption
+    n_disrupted = len(d.get("disrupted_orders", []))
+    return "\n".join(
+        [
+            "```mermaid",
+            "flowchart LR",
+            f'  SRC["rich pull<br/>{n_pdn} PDNs · {n_units} vehicles · {n_orders} SO lines"]',
+            (
+                f'  DIS["disruption<br/>PDN {d.get("pdn", "?")} +{d.get("delay_days", 0)}d<br/>'
+                f'{n_disrupted} orders freed"]'
+            ),
+            '  FL["flatten + freeze<br/>(pure code, no model judgment)"]',
+            f'  ORD["orders[]<br/>{n_orders} rows"]',
+            f'  UNI["units[]<br/>{n_units} rows"]',
+            f'  INC["incumbent[]<br/>{n_incumbent} pairs"]',
+            (
+                f'  ARC["eligibility arcs<br/>sales_model equality · {n_models} models<br/>'
+                '(computed, never stored)"]'
+            ),
+            '  SOLVE["min-cost-flow<br/>λ sweep"]',
+            "  SRC --> FL",
+            "  DIS --> FL",
+            "  FL --> ORD",
+            "  FL --> UNI",
+            "  FL --> INC",
+            "  ORD --> ARC",
+            "  UNI --> ARC",
+            "  INC --> SOLVE",
+            "  ARC --> SOLVE",
+            "```",
+        ]
+    )
+
+
+# --- Solve + change list -----------------------------------------------------
 
 
 def _choose_lambda(combined: dict, sweep: list[SweepPoint]) -> int:
@@ -62,12 +172,12 @@ def build_change_list(
     snapshot: Snapshot,
     result: SolveResult,
     ledger: Ledger,
-    current_week: int,
+    current_date: date,
 ) -> list[str]:
     """Reason-coded diff of the chosen plan vs the incumbent (§8.6)."""
     orders = snapshot.order_by_id()
     units = snapshot.unit_by_id()
-    rp = partition(snapshot, ledger.replay(current_week))
+    rp = partition(snapshot, ledger.replay(current_date))
     boosts = rp.boosts
     lines: list[str] = []
 
@@ -77,35 +187,32 @@ def build_change_list(
         new_uid = result.plan.get(oid)
 
         if oid in result.unfilled:
-            reasons = _order_reasons(o, ledger, current_week, boosts)
-            lines.append(
-                f"order {oid}: UNFILLED (backorder) — no compatible unit; {reasons}"
-            )
+            reasons = _order_reasons(o, ledger, current_date, boosts)
+            lines.append(f"order {oid}: UNFILLED (backorder) — no compatible vehicle; {reasons}")
             continue
         if new_uid == old_uid:
             continue  # unchanged, don't clutter the list
 
-        old_week = units[old_uid].arrival_week if old_uid is not None else None
-        new_week = units[new_uid].arrival_week
-        old_lbl = week_label(old_week) if old_week is not None else "unassigned"
-        promised = week_label(o.promised_week)
-        late = max(0, new_week - o.promised_week)
-        timing = "on time" if late == 0 else f"{late}w late"
+        old_date = date_label(units[old_uid].planned_delivery_date) if old_uid else "unassigned"
+        new_date = units[new_uid].planned_delivery_date
+        promised = date_label(o.promised_date)
+        late = tardiness(o, units[new_uid])
+        timing = "on time" if late == 0 else f"{late}d late"
 
-        reasons = _order_reasons(o, ledger, current_week, boosts)
-        moved_unit = (
-            f"unit {new_uid} off {units[new_uid].shipment}"
+        reasons = _order_reasons(o, ledger, current_date, boosts)
+        moved = (
+            f"vehicle {new_uid} off {units[new_uid].pdn}"
             if old_uid is None
-            else f"unit {old_uid}→{new_uid}"
+            else f"vehicle {old_uid}→{new_uid}"
         )
         lines.append(
-            f"order {oid}: {old_lbl} → {week_label(new_week)} (promised {promised}, {timing}); "
-            f"{moved_unit}; {reasons}"
+            f"order {oid}: {old_date} → {date_label(new_date)} (promised {promised}, {timing}); "
+            f"{moved}; {reasons}"
         )
     return lines
 
 
-def _order_reasons(o, ledger: Ledger, current_week: int, boosts: dict) -> str:
+def _order_reasons(o: Order, ledger: Ledger, current_date: date, boosts: dict) -> str:
     """The 'why' half of a change line: data factors + ledger attribution."""
     bits = [f"priority {o.priority}"]
     if o.n_prior_delays:
@@ -114,16 +221,18 @@ def _order_reasons(o, ledger: Ledger, current_week: int, boosts: dict) -> str:
         bits.append(f"back-ordered {o.days_backordered}d")
     if o.customer_id in boosts and boosts[o.customer_id] != 1.0:
         bits.append(f"boosted ×{boosts[o.customer_id]:g} ({o.customer})")
-    trail = ledger.who_touched(o.order_id, current_week)
+    trail = ledger.who_touched(o.order_id, current_date)
     if trail:
         bits.append("steered: " + "; ".join(trail))
     return ", ".join(bits)
 
 
 def format_sweep(sweep: list[SweepPoint]) -> str:
-    lines = ["λ sweep (Pareto frontier — changes vs weighted late-days):",
-             "   λ  | changes | weighted-late-days | unfilled",
-             "  ----+---------+--------------------+---------"]
+    lines = [
+        "λ sweep (Pareto frontier — changes vs weighted late-days):",
+        "   λ  | changes | weighted-late-days | unfilled",
+        "  ----+---------+--------------------+---------",
+    ]
     for p in sweep:
         lines.append(
             f"  {p.lam:>3} | {p.n_changes:>7} | {p.weighted_late_days:>18} | {p.unfilled:>8}"
@@ -134,30 +243,30 @@ def format_sweep(sweep: list[SweepPoint]) -> str:
 def run_cycle(
     snapshot: Snapshot,
     ledger: Ledger,
-    cache: Optional[ResidualCache] = None,
-    current_week: int = NOW_WEEK,
+    current_date: date | None = None,
 ) -> CycleResult:
     """One deterministic turn: replay ledger -> sweep -> choose -> change list."""
-    cache = cache or ResidualCache.load(None)
-    combined = ledger.replay(current_week)
-    sweep, results = lambda_sweep(snapshot, combined, cache)
+    current_date = current_date or snapshot.now
+    combined = ledger.replay(current_date)
+    sweep, results = lambda_sweep(snapshot, combined)
     chosen_lambda = _choose_lambda(combined, sweep)
     if chosen_lambda not in results:
         # λ outside the sweep grid: solve it explicitly so the ledger value holds.
-        from .solver import solve
-        results[chosen_lambda] = solve(snapshot, combined, cache, lam=chosen_lambda)
+        results[chosen_lambda] = solve(snapshot, combined, lam=chosen_lambda)
     chosen = results[chosen_lambda]
-    changes = build_change_list(snapshot, chosen, ledger, current_week)
+    changes = build_change_list(snapshot, chosen, ledger, current_date)
     return CycleResult(combined, sweep, results, chosen_lambda, chosen, changes)
 
 
 def _print_cycle(title: str, snapshot: Snapshot, cyc: CycleResult) -> None:
     print(f"\n{'=' * 70}\n{title}\n{'=' * 70}")
     print(format_sweep(cyc.sweep))
-    print(f"\nchosen λ = {cyc.chosen_lambda}   "
-          f"(changes={cyc.chosen.n_changes}, "
-          f"weighted-late-days={cyc.chosen.weighted_late_days}, "
-          f"unfilled={len(cyc.chosen.unfilled)})")
+    print(
+        f"\nchosen λ = {cyc.chosen_lambda}   "
+        f"(changes={cyc.chosen.n_changes}, "
+        f"weighted-late-days={cyc.chosen.weighted_late_days}, "
+        f"unfilled={len(cyc.chosen.unfilled)})"
+    )
     sc = cyc.chosen.self_check
     print(f"self-check: {'OK' if sc['ok'] else 'VIOLATIONS: ' + '; '.join(sc['violations'])}")
     print("\nchange list (reason-coded):")
@@ -168,49 +277,45 @@ def _print_cycle(title: str, snapshot: Snapshot, cyc: CycleResult) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="XAS allocation session demo (synthetic).")
-    ap.add_argument("--seed", type=int, default=20)
-    ap.add_argument("--spare-ratio", type=float, default=0.2,
-                    help="inbound spare units per order; lower = more contention "
-                         "so the λ sweep trades off visibly")
-    ap.add_argument("--delay-weeks", type=int, default=2)
+    ap = argparse.ArgumentParser(description="XAS allocation session demo (date-based).")
     ap.add_argument("--ledger", default=None, help="path to persist the ledger JSON")
     args = ap.parse_args()
 
     print(D.format_decisions())
     print(f"\nsolver version: {D.SOLVER_VERSION}")
 
-    # Step 1: liveness check — skipped (synthetic). Step 2: pull.
-    snap = generate_snapshot(
-        seed=args.seed, spare_ratio=args.spare_ratio, delay_weeks=args.delay_weeks
-    )
+    # Steps 1-2: liveness (skipped) then pull + flatten the bundled dataset.
+    snap = flatten_default()
     d = snap.disruption
     print(
-        f"\nsnapshot seed={snap.seed}: {len(snap.orders)} orders, {len(snap.units)} units. "
-        f"Disruption: shipment {d['shipment']} delayed {d['delay_weeks']}w, "
-        f"{len(d['disrupted_orders'])} orders to repair: {d['disrupted_orders']}"
+        f"\nsnapshot now={date_label(snap.now)}: {len(snap.orders)} orders, "
+        f"{len(snap.units)} vehicles. Disruption: PDN {d.get('pdn')} delayed "
+        f"{d.get('delay_days')}d, {len(d.get('disrupted_orders', []))} orders to repair."
     )
 
+    # Step 3: the discrepancy map + the data-prep flow chart.
+    print("\n" + format_discrepancies(find_discrepancies(snap)))
+    print("\ndata-prep flow chart:\n" + data_prep_flowchart(snap))
+
     ledger = Ledger.load(args.ledger)
-    cache = ResidualCache.load(None)
 
     # --- Turn 1: base repair, empty ledger --------------------------------
-    cyc1 = run_cycle(snap, ledger, cache)
+    cyc1 = run_cycle(snap, ledger)
     _print_cycle("TURN 1 — base repair (no steering)", snap, cyc1)
 
-    # --- Turn 2: planner steers. Defer one disrupted order past the delay,
-    #     and prefer Colmobil. NL -> override object -> ledger entry (§6/§7).
-    steer_order = d["disrupted_orders"][0] if d["disrupted_orders"] else sorted(
-        o.order_id for o in snap.orders
-    )[0]
+    # --- Turn 2: planner steers. Defer one disrupted order, prefer Colmobil.
+    disrupted = d.get("disrupted_orders", [])
+    steer_order = disrupted[0] if disrupted else min(o.order_id for o in snap.orders)
+    not_before = date_label(add_days(snap.now, 45))
     override = {
-        "pins": [{"order": steer_order, "action": "defer", "not_before": "2026-W38"}],
+        "pins": [{"order": steer_order, "action": "defer", "not_before": not_before}],
         "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],  # Colmobil
         "lambda": 25,
         "ttl": None,
     }
-    print(f"\n>>> planner steering (turn 2): defer {steer_order} to ≥2026-W38, "
-          f"prefer Colmobil ×3, λ=25")
+    print(
+        f"\n>>> planner steering (turn 2): defer {steer_order} to ≥{not_before}, prefer Colmobil ×3, λ=25"
+    )
     print(f">>> override object shown back before running:\n    {override}")
     ledger.append(
         LedgerEntry(
@@ -221,11 +326,13 @@ def main() -> None:
             ttl=None,
         )
     )
-    cyc2 = run_cycle(snap, ledger, cache)
+    cyc2 = run_cycle(snap, ledger)
     _print_cycle("TURN 2 — after steering", snap, cyc2)
 
-    print("\n(ledger is the session: replay it against a fresh pull to reproduce "
-          "this exact plan — see tests/test_invariant.py)")
+    print(
+        "\n(ledger is the session: replay it against a fresh pull to reproduce "
+        "this exact plan — see tests/test_invariant.py)"
+    )
 
 
 if __name__ == "__main__":

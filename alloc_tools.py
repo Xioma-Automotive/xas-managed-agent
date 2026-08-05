@@ -8,91 +8,54 @@ the failure this arrangement invites: a custom tool call whose name nothing
 answers parks the session on a ``requires_action`` idle, which never times out.
 
 **Cloud sandbox.** The tool runs on *our* host; the agent runs in Anthropic's.
-Nothing this function writes to disk is visible to the agent, and everything it
-returns crosses into the agent's context. A 120-order snapshot is ~100 KB of
-JSON — perhaps 30k tokens per pull, most of it rows the agent never reads
-directly because the solver reads them.
+Everything this returns crosses into the agent's context.
 
-So the tool returns the *seed*, not the rows. The data is a seeded generator, so
-regenerating it inside the sandbox is byte-identical to generating it here — the
-determinism argument that makes this sound is the same one the core invariant
-rests on. The tool remains the pull interface: it decides the parameters, it is
-where a real XAS API plugs in, and it returns the summary the agent needs to
-reason. Only the transport differs.
+**Pull ships data, not a seed.** The rich dataset is fabricated by the standalone
+``scenario_engine/`` (outside the agent), whose code does NOT live in the
+sandbox — so the agent cannot regenerate it from a seed. Instead the dataset file
+is bundled INTO the skill (like the solver package), and the tool returns a
+summary plus a self-locating ``flatten`` command. The agent runs that command to
+flatten the bundled rich data into ``snapshot.json`` — the same transport shape
+as before, transforming rich→snapshot instead of seed→snapshot. The rows never
+pass through the context window.
 
-DECIDE-7: when the real XAS pull exists the rows are no longer reproducible from
-a seed, and the tool result has to carry them — at which point the payload
-question comes back and wants a real answer (paging, a file resource, or a
-sandbox-side fetch through a credentialed proxy).
+DECIDE-7: when the real XAS pull exists this reads it instead of a bundled file;
+the summary + flatten contract stays, only the source of the rows changes.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from anthropic.lib.tools import beta_async_tool
 
-from xas_allocation.synth_data import (
-    CUSTOMERS,
-    HORIZON_START_WEEK,
-    HORIZON_WEEKS,
-    YEAR,
-    generate_snapshot,
-    week_label,
-)
+REPO_ROOT = Path(__file__).resolve().parent
+DATASET_PATH = REPO_ROOT / "data" / "pull.json"
 
 SNAPSHOT_FILENAME = "snapshot.json"
 
 TOOL_NAME = "pull_allocation_snapshot"
 
 TOOL_DESCRIPTION = (
-    "Pull the current allocation snapshot: open orders, inbound units, the "
-    "complete incumbent plan, and the disruption to repair. Returns a summary "
-    "plus the exact command to materialize the full snapshot as snapshot.json in "
-    "your sandbox — run that command before solving. Call this once at the start "
-    "of a repair cycle and reuse the same seed for every turn of that cycle; the "
-    "seed identifies the data snapshot, and a replay against a different seed is "
-    "not a replay. Prototype (DECIDE-7): the real XAS pull does not exist yet, so "
-    "this is a seeded synthetic generator shaped like XAS bins."
+    "Pull the current allocation snapshot: sales orders, the pool of planned "
+    "vehicles, the complete incumbent allocation, and the disruption to repair. "
+    "Returns a summary plus the exact `flatten` command to materialize the full "
+    "snapshot as snapshot.json in your sandbox — run that command before solving, "
+    "then read the file from your solver code, never into this conversation. Call "
+    "once at the start of a repair cycle; the same bundled dataset backs every "
+    "turn, so the ledger replay is what makes a turn reproducible. Prototype "
+    "(DECIDE-7): the real XAS pull does not exist yet, so the rows are fabricated "
+    "by the scenario engine and shipped inside the skill."
 )
 
+# The pull takes no parameters: the scenario is pre-fabricated and bundled, so
+# there is nothing for the agent to tune. (A future multi-scenario build would
+# add a 'scenario' selector here.)
 PULL_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {
-        "seed": {
-            "type": "integer",
-            "description": (
-                "Seed for the synthetic pull. Identifies the data snapshot: "
-                "reuse the same seed for every turn of one repair cycle."
-            ),
-            "default": 42,
-        },
-        "n_orders": {
-            "type": "integer",
-            "description": "Number of open orders to generate.",
-            "minimum": 1,
-            "maximum": 2000,
-            "default": 120,
-        },
-        "spare_ratio": {
-            "type": "number",
-            "description": (
-                "Unassigned inbound units as a fraction of orders. Higher means "
-                "more slack for a repair to use."
-            ),
-            "minimum": 0,
-            "maximum": 5,
-            "default": 0.6,
-        },
-        "delay_weeks": {
-            "type": "integer",
-            "description": "Weeks by which the disrupted shipment is delayed.",
-            "minimum": 0,
-            "maximum": 12,
-            "default": 3,
-        },
-    },
+    "properties": {},
     "required": [],
     "additionalProperties": False,
 }
@@ -106,84 +69,78 @@ PULL_TOOL: dict[str, Any] = {
 }
 
 
-def materialize_command(seed: int, n_orders: int, spare_ratio: float, delay_weeks: int) -> str:
-    """The one-liner that reproduces this exact snapshot inside the sandbox.
+def flatten_command() -> str:
+    """The one-liner that flattens the bundled dataset inside the sandbox.
 
-    Self-locating on purpose. The solver ships in the skill bundle, so it lands
-    wherever the platform materializes skills — in practice inside the sandbox
-    workspace, but not at a path we can name from here.
+    Self-locating on purpose, exactly like the old materialize command: the
+    solver + dataset ship in the skill bundle, so they land wherever the platform
+    materializes skills — not a path we can name from here. The search bases are
+    **explicit and never** ``/`` (an unbounded ``rglob`` from ``/`` once swept the
+    whole container and killed the shell). We locate ``xas_allocation/flatten.py``,
+    put its skill dir on the path, and call ``flatten_default()`` — which finds the
+    bundled ``data/pull.json`` relative to its own location.
 
-    The search bases are **explicit and never** ``/``. An earlier version globbed
-    from ``.`` and trusted the caller's working directory; the agent ran it from
-    ``/`` and swept the whole container before retrying. A bound the caller can
-    opt out of is not a bound. The candidates are the working directory (unless
-    that *is* ``/``) and then the workspace root, first hit wins.
-
-    ``snapshot.json`` is written next to whichever base matched and the command
-    prints the absolute path, so there is no ambiguity about where it landed.
-
-    Single line, single quoting level, so the agent can paste it into bash
-    verbatim.
+    ``snapshot.json`` is written in the working directory and the command prints
+    its absolute path. Single line, single quoting level for a clean paste.
     """
-    call = (
-        f"generate_snapshot(seed={seed}, n_orders={n_orders}, "
-        f"spare_ratio={spare_ratio}, delay_weeks={delay_weeks})"
-    )
     return (
         'python -c "'
         "import sys, json, pathlib; "
         "root = pathlib.Path('/'); "
         "bases = [p for p in (pathlib.Path.cwd(), pathlib.Path('/workspace')) "
         "if p.is_dir() and p != root]; "
-        "found = next(((b, h) for b in bases "
-        "for h in b.rglob('xas_allocation/synth_data.py')), None); "
-        "sys.exit('xas_allocation not found under ' + str(bases)) if found is None else None; "
-        "base, hit = found; "
+        "hit = next((h for b in bases for h in b.rglob('xas_allocation/flatten.py')), None); "
+        "sys.exit('xas_allocation not found under ' + str(bases)) if hit is None else None; "
         "sys.path.insert(0, str(hit.parent.parent)); "
-        "from xas_allocation.synth_data import generate_snapshot; "
-        f"out = base / '{SNAPSHOT_FILENAME}'; "
-        f"json.dump({call}.as_dict(), open(out,'w'), indent=2, sort_keys=True); "
+        "from xas_allocation.flatten import flatten_default; "
+        f"out = pathlib.Path.cwd() / '{SNAPSHOT_FILENAME}'; "
+        "json.dump(flatten_default().as_dict(), open(out,'w'), indent=2, sort_keys=True); "
         "print('wrote ' + str(out))"
         '"'
     )
 
 
-def summarize(snapshot: Any, params: dict[str, Any]) -> dict[str, Any]:
+def summarize(rich: dict) -> dict[str, Any]:
     """The part of the pull that crosses into the agent's context."""
-    disruption = snapshot.disruption
-    units_by_state: dict[str, int] = {}
-    for unit in snapshot.units:
-        units_by_state[unit.state] = units_by_state.get(unit.state, 0) + 1
+    meta = rich.get("meta", {})
+    vehicles = rich.get("vehicles", [])
+    sos = rich.get("sos", [])
+    disruption = rich.get("disruption", {}) or {}
+
+    by_location: dict[str, int] = {}
+    for v in vehicles:
+        by_location[v["location_state"]] = by_location.get(v["location_state"], 0) + 1
+
+    # §6 steering contract: resolve a dealer name in the planner's instruction to
+    # the customer_id the override object carries. Built from the SO lines in play.
+    customers: dict[str, dict] = {}
+    for so in sos:
+        customers.setdefault(
+            so["customer"], {"customer_id": so["customer_id"], "priority": so["priority"]}
+        )
 
     return {
-        "materialize": materialize_command(**params),
+        "flatten": flatten_command(),
         "snapshot_path": SNAPSHOT_FILENAME,
-        "seed": snapshot.seed,
-        "orders": len(snapshot.orders),
-        "units": len(snapshot.units),
-        "incumbent_assignments": len(snapshot.incumbent),
-        "units_by_state": dict(sorted(units_by_state.items())),
-        "horizon": {
-            "year": YEAR,
-            "start_week": HORIZON_START_WEEK,
-            "weeks": HORIZON_WEEKS,
-            "first": week_label(HORIZON_START_WEEK),
-            "last": week_label(HORIZON_START_WEEK + HORIZON_WEEKS - 1),
-        },
+        "now": meta.get("now"),
+        "orders": len(sos),
+        "vehicles": len(vehicles),
+        "incumbent_assignments": sum(1 for so in sos if so.get("current_vehicle_id")),
+        "vehicles_by_location": dict(sorted(by_location.items())),
+        "sales_models": meta.get("sales_models", []),
         "disruption": {
-            "shipment": disruption["shipment"],
-            "delay_weeks": disruption["delay_weeks"],
-            "delayed_units": len(disruption["delayed_units"]),
+            "pdn": disruption.get("pdn"),
+            "delay_days": disruption.get("delay_days"),
+            "delayed_vehicles": len(disruption.get("delayed_vehicles", [])),
         },
-        "disrupted_orders": len(disruption["disrupted_orders"]),
-        "disrupted_order_ids": disruption["disrupted_orders"],
-        # The §6 steering contract needs this to resolve a dealer name in the
-        # planner's instruction to the id the override object carries.
-        "customers": {
-            name: {"customer_id": cid, "priority": priority}
-            for name, (cid, priority) in CUSTOMERS.items()
-        },
+        "disrupted_orders": len(disruption.get("disrupted_orders", [])),
+        "disrupted_order_ids": disruption.get("disrupted_orders", []),
+        "customers": dict(sorted(customers.items())),
     }
+
+
+def load_dataset(path: Path = DATASET_PATH) -> dict:
+    return json.loads(path.read_text())
 
 
 @beta_async_tool(
@@ -191,21 +148,9 @@ def summarize(snapshot: Any, params: dict[str, Any]) -> dict[str, Any]:
     description=TOOL_DESCRIPTION,
     input_schema=PULL_TOOL_INPUT_SCHEMA,
 )
-async def pull_allocation_snapshot(
-    seed: int = 42,
-    n_orders: int = 120,
-    spare_ratio: float = 0.6,
-    delay_weeks: int = 3,
-) -> str:
-    """Generate the snapshot here, return the summary and the seed that reproduces it.
+async def pull_allocation_snapshot() -> str:
+    """Read the bundled rich dataset here, return the summary + flatten command.
 
     Async because the session tool runner is async-only.
     """
-    params = {
-        "seed": seed,
-        "n_orders": n_orders,
-        "spare_ratio": spare_ratio,
-        "delay_weeks": delay_weeks,
-    }
-    snapshot = generate_snapshot(**params)
-    return json.dumps(summarize(snapshot, params), indent=2)
+    return json.dumps(summarize(load_dataset()), indent=2)

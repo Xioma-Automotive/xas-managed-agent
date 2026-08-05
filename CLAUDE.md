@@ -20,13 +20,16 @@ platform notes in `docs/managed-agents-adoption.md`.
 If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is gone. Concretely:
 
-- **`seed` is the data snapshot.** `pull_allocation_snapshot` is a seeded
-  generator, so one seed must be reused for every turn of a repair cycle. A
-  replay against a different seed is not a replay.
+- **The fabricated dataset is the data snapshot.** `scenario_engine/` (outside
+  the agent) fabricates `data/pull.json`; the pull ships it and `flatten` maps it
+  to the `orders/units/incumbent` snapshot. The *same* bundled dataset backs every
+  turn of a repair cycle — a replay against different data is not a replay.
 - **The ledger is the session.** Steering instructions are appended and replayed;
   the sandbox is a performance convenience.
-- **Residual spec-compat judgments are cached and written back**, so a replay
-  inherits the judgment rather than re-making it.
+- **Flatten is pure code, not judgment.** Eligibility is a hard `sales_model`
+  equality — there is no LLM spec-residual left to cache. If the rich→snapshot
+  mapping were re-derived by the model each turn, that is the leak this guards
+  against; `flatten.py` keeps it deterministic.
 
 `tests/test_invariant.py` proves this holds across a sandbox discard. It runs
 host-side and needs no API key.
@@ -60,23 +63,25 @@ is the right place for it, since the sandbox never sees this process.
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull
   forever.
-- **The skill bundle carries the solver.** `skill_files()` uploads
-  `xas_allocation/` under the skill directory, because there is no host workdir
-  to copy it into and having the model retype it from a prompt is the exact
-  determinism leak this design exists to prevent. **Change the package and you
-  must re-run `setup_allocation_agent.py`**, or the sandbox keeps solving with
-  the previous version — with no error to tell you.
-- **The pull returns a seed, not rows.** The tool runs here; the agent runs
-  there; everything returned crosses into its context. 120 orders is ~100 KB of
-  JSON. Since the generator is seeded, the `materialize` command rebuilds the
-  snapshot in the sandbox byte-identically. The summary still carries the
+- **The skill bundle carries the solver AND the dataset.** `skill_files()` uploads
+  `xas_allocation/` *and* `data/pull.json` under the skill directory, because there
+  is no host workdir to copy them into and having the model retype either from a
+  prompt is the exact determinism leak this design exists to prevent. **Change the
+  package or regenerate the dataset and you must re-run `setup_allocation_agent.py`**,
+  or the sandbox keeps solving with the previous version — with no error to tell you.
+- **The pull ships the bundled dataset, not a seed, and not the rows.** The tool
+  runs here; the agent runs there; everything returned crosses into its context.
+  So the tool returns a summary + a `flatten` command; the rows travel in the
+  bundle (like the solver code), and `flatten` reads them there — nothing dumps
+  ~KBs of JSON into the transcript. The scenario engine's *code* stays out of the
+  sandbox; only its *output* travels in. The summary still carries the
   customer-name → `customer_id` map, because §6 steering needs it to compile
   "prefer Colmobil" into an override.
-- **`materialize_command` searches from `.`, never from `/`.** The solver lands
-  wherever the platform puts skills, so the command self-locates — but bounded to
-  the sandbox tree. An unbounded `find /` exceeds the 120s bash timeout and kills
-  the agent's shell; that is not hypothetical, it happened on the self-hosted
-  build.
+- **`flatten_command` searches from `.`/`/workspace`, never from `/`.** The solver
+  + dataset land wherever the platform puts skills, so the command self-locates
+  `xas_allocation/flatten.py` — but bounded to the sandbox tree. An unbounded
+  `find /` exceeds the 120s bash timeout and kills the agent's shell; that is not
+  hypothetical, it happened on the self-hosted build.
 - **`agents.update()` preserves omitted array fields.** `setup_allocation_agent.py`
   always sends `tools` and `skills` explicitly. Changing `PULL_TOOL` without
   re-running setup does nothing.
@@ -86,12 +91,14 @@ is the right place for it, since the sandbox never sees this process.
 
 ## Open decisions
 
-`DECIDE-1..9` are stubbed defaults, not settled answers. Run
+`DECIDE-1..10` are stubbed defaults, not settled answers. Run
 `uv run python -m xas_allocation.decisions` for the live list. The big ones for
-anyone touching this: DECIDE-7 (no real XAS API — synthetic stands in), DECIDE-9
-(the solver lives in-repo; it moves to a version-pinned repo before real dealer
-data), DECIDE-5 (no platform session persistence assumed — the ledger is a JSON
-artifact).
+anyone touching this: DECIDE-7 (no real XAS API — `scenario_engine/` fabricates
+PDN/Vehicle/SO data shaped per `docs/xasdatamodel.md`), DECIDE-3 (which
+`location_state` counts as committed), DECIDE-9 (the solver lives in-repo; it
+moves to a version-pinned repo before real dealer data), DECIDE-5 (no platform
+session persistence assumed — the ledger is a JSON artifact), DECIDE-10
+(reserved_for_customer eligibility, deferred).
 
 Not in the prototype, per spec: the CP-SAT + LNS escape hatch for *coupled*
 orders, and any new hard constraint. **The prompt moves weights and pins; a human
@@ -101,12 +108,15 @@ live-session mutation.
 ## Verifying a change
 
 ```bash
-uv run pytest                                       # tool contract + determinism
-PYTHONPATH=. uv run python tests/test_invariant.py  # the invariant, standalone (5/5)
+uv run python -m scenario_engine.generate           # (re)fabricate data/pull.json
+uv run pytest                                       # engine, flatten, contract, determinism
+PYTHONPATH=. uv run python tests/test_invariant.py  # the invariant, standalone (4/4)
 uv run ruff format . && uv run ruff check .
 ```
 
-Tests need no credentials and no network — the tool is exercised in-process.
+Tests need no credentials and no network — the tool and flatten are exercised
+in-process, and `data/pull.json` is committed so the suite runs without the
+engine. Regenerating the dataset means re-running `setup_allocation_agent.py`.
 
 The sandbox being Anthropic's is worth confirming once by hand: ask the agent to
 run `whoami; ls ~; cat /proc/1/environ | tr "\0" "\n"` and check that what comes

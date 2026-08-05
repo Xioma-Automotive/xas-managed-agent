@@ -6,13 +6,14 @@ RUN ONCE, re-runnable. Creates the persistent resources — an **Anthropic-hoste
 into .env. Re-running with those IDs already set updates the agent and pushes a
 new skill version instead of creating duplicates.
 
-The skill bundle carries the reference solver, which is how the solver reaches a
-sandbox we do not run. Change anything under xas_allocation/ and you must re-run
-this, or the sandbox keeps solving with the previous version.
+The skill bundle carries the reference solver AND the fabricated dataset, which
+is how both reach a sandbox we do not run. Change anything under xas_allocation/
+or regenerate data/pull.json and you must re-run this, or the sandbox keeps
+solving with the previous version.
 
-There is no vault. The prototype's data is a seeded synthetic generator answered
-by web.py on our side (DECIDE-7), so there is no credential to store and nothing
-for a vault to hold.
+There is no vault. The prototype's data is a dataset fabricated by
+scenario_engine/ and shipped in the skill (DECIDE-7), so there is no credential
+to store and nothing for a vault to hold.
 
 Anti-pattern warning: never call environments/agents/skills create() in the
 per-conversation path — that accumulates orphaned resources and pays create
@@ -69,31 +70,31 @@ Environment
 
 The reference solver ships INSIDE the `xas-allocation` skill, as the `xas_allocation` package in that skill's directory. Locate the skill directory with a shallow `ls` of your working directory and its `skills/` subdirectory, then run from there (or set PYTHONPATH to it) so `import xas_allocation` resolves. Run it; never reimplement, rewrite, re-derive, or approximate it. If an import fails, look in the skill directory — do NOT search the filesystem. `find /` exceeds the 120s bash timeout and kills your shell.
 Run `pip install ortools` once per session; the solver needs it.
-Call pull_allocation_snapshot to get data. It returns a summary plus a `materialize` command — run that command verbatim to write snapshot.json into your sandbox, then read the file from your solver code, never into this conversation.
+Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (PDN/Vehicle/SO) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
 No network access — everything is local.
 
 Determinism (the core invariant)
 plan = pure_function(data_snapshot, skill, ledger). You hold no plan state in memory. Persist every steering instruction to the append-only ledger and re-derive the plan by replaying it. Consequences:
 
-Reuse ONE seed for every turn of a repair cycle — the seed identifies the snapshot, and a replay against different data is not a replay.
-Any residual spec-compatibility judgment must be cached and written back, so a replay inherits it rather than re-judging.
+The same bundled dataset backs every turn of a repair cycle — the ledger replay is the only thing that changes a turn, and a replay against different data is not a replay.
+Flattening the pull into the snapshot is pure code (eligibility is a hard sales_model equality — no model judgment, no residual). Never re-shape the data by reasoning.
 
 Hard rules (never violate)
 
 The plan comes from the solver, not from you.
 A runtime request is a typed override object (weights + pins) applied at solve time. A new CONSTRAINT is a model change — a reviewed PR with tests, never a live-session mutation.
-Never move a frozen-fence order or a committed (shipped/in-prep) unit.
+Never move a frozen-fence order or a committed (bonded/pdi) vehicle.
 Write back to XAS only on explicit human approval.
-If the solver returns infeasible, or an override conflicts with a hard rule (e.g. touches a frozen/committed unit), stop and report. Never relax a constraint to force a solution.
+If the solver returns infeasible, or an override conflicts with a hard rule (e.g. touches a frozen/committed vehicle), stop and report. Never relax a constraint to force a solution.
 
-Every turn, produce (concise — no full data dumps):
+Every turn, produce (concise — planner-facing, no full data dumps; see the skill's "Planner-facing output"):
 
+The discrepancy map — which orders the disruption broke.
 The override object, shown back to the planner before running.
-The λ-sweep frontier.
-The self-check result.
+The self-check result and, when it carries a decision, the λ-sweep frontier.
 A reason-coded change list — never a bare new plan.
 
-Prototype scope: the XAS pull/write-back MCP doesn't exist yet, so you work against a synthetic generator shaped like XAS bins. Open decisions are marked DECIDE-1..9 in the skill and code — surface them, never silently guess.
+Prototype scope: the XAS pull/write-back MCP doesn't exist yet, so you work against a fabricated dataset shaped like XAS (PDN/Vehicle/SO, dates). Open decisions are marked DECIDE-1..10 in the skill and code — surface them, never silently guess.
 """
 
 # Both entries matter on every update: agents.update() PRESERVES omitted array
@@ -126,6 +127,17 @@ def skill_files() -> list[tuple[str, bytes]]:
     for path in sorted(package.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts:
             files.append((f"{SKILL_DIR.name}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
+
+    # The fabricated dataset ships alongside the package: the scenario engine's
+    # CODE stays out of the sandbox, but its OUTPUT must travel in so `flatten`
+    # has something to read. flatten.DATA_PATH resolves to <skill>/data/pull.json.
+    dataset = REPO_ROOT / "data" / "pull.json"
+    if not dataset.exists():
+        sys.exit(
+            f"No dataset at {dataset}. Fabricate one first:\n"
+            "  uv run python -m scenario_engine.generate"
+        )
+    files.append((f"{SKILL_DIR.name}/data/pull.json", dataset.read_bytes()))
     return files
 
 

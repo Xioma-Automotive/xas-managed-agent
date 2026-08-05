@@ -103,8 +103,8 @@ def _digest(call) -> str:
         return f"{len(body)} chars"
     disruption = d.get("disruption") or {}
     return (
-        f"seed={d.get('seed')} orders={d.get('orders')} units={d.get('units')} "
-        f"disruption={disruption.get('shipment')}+{disruption.get('delay_weeks')}w "
+        f"now={d.get('now')} orders={d.get('orders')} vehicles={d.get('vehicles')} "
+        f"disruption={disruption.get('pdn')}+{disruption.get('delay_days')}d "
         f"freed={d.get('disrupted_orders')}"
     )
 
