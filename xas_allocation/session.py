@@ -108,6 +108,62 @@ def format_discrepancies(discs: list[Discrepancy]) -> str:
     return "\n".join(lines)
 
 
+# --- Bump candidates (DECIDE-13: the agent ASKS before displacing anyone) -----
+
+
+def bump_candidates(snapshot: Snapshot, result: SolveResult) -> list[dict]:
+    """Untouched rows the planner *could* authorize bumping to rescue a row the
+    disruption left late — so the agent can ask "may I bump one of these?" with a
+    concrete list instead of guessing. A candidate is an untouched, non-committed
+    row on an on-time, same-model vehicle that would let a still-late disrupted
+    row meet its promise; lower priority first (the natural bump target)."""
+    orders = snapshot.order_by_id()
+    units = snapshot.unit_by_id()
+    disrupted = set(snapshot.disruption.get("disrupted_orders", []))
+    prio_rank = {"C": 0, "B": 1, "A": 2}
+
+    still_late = [
+        oid
+        for oid in disrupted
+        if result.plan.get(oid) and tardiness(orders[oid], units[result.plan[oid]]) > 0
+    ]
+    cands: dict[str, dict] = {}
+    for lid in still_late:
+        lo = orders[lid]
+        for oid, o in orders.items():
+            if oid in disrupted or oid in cands:
+                continue
+            uid = snapshot.incumbent.get(oid)
+            if not uid:
+                continue
+            u = units[uid]
+            if u.committed or u.sales_model != lo.sales_model:
+                continue
+            if u.planned_delivery_date <= lo.promised_date:
+                cands[oid] = {
+                    "row": oid,
+                    "customer": o.customer,
+                    "priority": o.priority,
+                    "vehicle": uid,
+                    "arrives": date_label(u.planned_delivery_date),
+                    "would_rescue": lid,
+                    "rescue_customer": lo.customer,
+                }
+    return sorted(cands.values(), key=lambda c: (prio_rank.get(c["priority"], 9), c["row"]))
+
+
+def format_bump_candidates(cands: list[dict]) -> str:
+    if not cands:
+        return "No bump would help — no untouched, movable vehicle fits a still-late order."
+    lines = ["Bumping one of these UNTOUCHED orders could rescue a late one — may I? (name who):"]
+    for c in cands:
+        lines.append(
+            f"  {c['row']} ({c['customer']}, {c['priority']}) on {c['vehicle']} "
+            f"arriving {c['arrives']} → could free it for {c['would_rescue']} ({c['rescue_customer']})"
+        )
+    return "\n".join(lines)
+
+
 # --- Data-prep flow chart (the "flow chart" the planner asked for) -----------
 
 
@@ -183,6 +239,7 @@ def build_change_list(
     units = snapshot.unit_by_id()
     rp = partition(snapshot, ledger.replay(current_date))
     boosts = rp.boosts
+    disrupted = set(snapshot.disruption.get("disrupted_orders", []))
     lines: list[str] = []
 
     for oid in sorted(orders):
@@ -192,7 +249,7 @@ def build_change_list(
 
         if oid in result.unfilled:
             reasons = _order_reasons(o, ledger, current_date, boosts)
-            lines.append(f"order {oid}: UNFILLED (backorder) — no compatible vehicle; {reasons}")
+            lines.append(f"order {oid}: UNFILLED (backorder) — no compatible supply; {reasons}")
             continue
         if new_uid == old_uid:
             continue  # unchanged, don't clutter the list
@@ -203,14 +260,25 @@ def build_change_list(
         late = tardiness(o, units[new_uid])
         timing = "on time" if late == 0 else f"{late}d late"
 
+        # The actual allocation change, in real supply ids (VIN or PO-line ref) —
+        # "gets X instead of Y" — so the planner sees exactly what moved.
+        new_kind = "slot" if units[new_uid].kind == "po_line" else "vehicle"
+        if old_uid is None:
+            allocation = (
+                f"now {new_uid} [{new_kind}] off {units[new_uid].pdn or units[new_uid].po_ref}"
+            )
+        else:
+            allocation = f"now {new_uid} [{new_kind}] (was {old_uid})"
+
+        # A changed row that the disruption did NOT touch and that had a vehicle
+        # is a BUMP — flag it so a displacement is never silent.
+        bumped = old_uid is not None and oid not in disrupted
+        tag = " — BUMPED (freed its vehicle for a disrupted order)" if bumped else ""
+
         reasons = _order_reasons(o, ledger, current_date, boosts)
-        src = units[new_uid].pdn or units[new_uid].po_ref or units[new_uid].kind
-        moved = (
-            f"vehicle {new_uid} off {src}" if old_uid is None else f"vehicle {old_uid}→{new_uid}"
-        )
         lines.append(
-            f"order {oid}: {old_date} → {date_label(new_date)} (promised {promised}, {timing}); "
-            f"{moved}; {reasons}"
+            f"order {oid} ({o.customer}): {old_date} → {date_label(new_date)} "
+            f"(promised {promised}, {timing}); {allocation}{tag}; {reasons}"
         )
     return lines
 

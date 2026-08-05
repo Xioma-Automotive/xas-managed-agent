@@ -99,7 +99,14 @@ class Ledger:
     def replay(self, current_date: date) -> dict:
         """Fold the ledger (skipping TTL-expired entries) into one combined
         override. Top-to-bottom; later λ wins, everything else accumulates."""
-        combined: dict = {"pins": [], "boosts": [], "forbid": [], "lambda": None, "scope": None}
+        combined: dict = {
+            "pins": [],
+            "boosts": [],
+            "forbid": [],
+            "lambda": None,
+            "scope": None,
+            "bump": None,
+        }
         for e in self.entries:
             if not _entry_active(e, current_date):
                 continue
@@ -111,6 +118,8 @@ class Ledger:
                 combined["lambda"] = ov["lambda"]
             if ov.get("scope") is not None:
                 combined["scope"] = ov["scope"]  # latest scope wins
+            if ov.get("bump") is not None:
+                combined["bump"] = ov["bump"]  # latest bump authorization wins
         return combined
 
     # --- attribution (§7) ----------------------------------------------------

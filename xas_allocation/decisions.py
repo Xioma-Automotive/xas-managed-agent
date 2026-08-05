@@ -134,6 +134,18 @@ DECISIONS: list[Decision] = [
         ),
     ),
     Decision(
+        key="DECIDE-13",
+        title="Bumping an untouched order requires explicit planner authorization",
+        default="never bump an untouched row unless the planner names who may be bumped (override 'bump')",
+        rationale=(
+            "By default the repair frees only disrupted rows, so an untouched order is never "
+            "displaced. When a good fix requires bumping one, the agent must ASK the planner "
+            "which orders/customers/POs may be bumped and compile the answer into the 'bump' "
+            "filter; the solver then displaces one only if it lowers total cost (low-priority, "
+            "not-already-rescheduled targets first). No uninvited bumps."
+        ),
+    ),
+    Decision(
         key="DECIDE-12",
         title="PO-line slot committed-ness",
         default="a PO-line slot is location_state='future' -> never committed until it explodes into vehicles",

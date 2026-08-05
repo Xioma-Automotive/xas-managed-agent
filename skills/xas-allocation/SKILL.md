@@ -138,9 +138,14 @@ the first fact is what happened to Colmobil.
 change list is the deliverable. Trimming jargon must never mean omitting the
 allocation changes. Render every changed order as a table, in plain columns:
 
-| Order   | Dealer (priority) | Was arriving | Now arrives    | Promised   | Result |
-|---------|-------------------|--------------|----------------|------------|--------|
-| SO-4001 | Colmobil (A)      | 2026-10-05   | **2026-08-24** | 2026-08-24 | ✅ on time |
+| Order   | Dealer (priority) | Was arriving | Now arrives    | Promised   | Allocation (actual change) | Result |
+|---------|-------------------|--------------|----------------|------------|----------------------------|--------|
+| SO-4001 | Colmobil (A)      | 2026-10-05   | **2026-08-24** | 2026-08-24 | now `VEH-9044` (was `VEH-9001`) | ✅ on time |
+
+**Always name the actual allocation change** — the concrete supply the row now
+gets vs. what it had (`now PO-152-1-3 [slot] (was VEH-9001)`). The planner
+allocates by these references; "moved to an earlier car" without the id is not
+actionable. Flag any **bump** (an untouched order displaced) in its own line.
 
 Then a second table for orders **still late / unfilled** under a "needs your
 call" heading — these are the decisions the planner owns. Close with the count
@@ -174,9 +179,10 @@ carries a decision:
 - **Self-check field dumps** (`every_order_placed`, `unfilled_count`,
   double-booked). Report it as one word — "checks passed" — or, on a violation,
   the plain-English violation only.
-- **Vehicle IDs** (`VEH-9001→VEH-9169`), node indices, objective-in-micros,
-  solver status. A vehicle swap is real, but the ID means nothing to a planner;
-  mention a physical vehicle only if they track VINs, and never in the headline.
+- **Node indices, objective-in-micros, solver status, λ internals.** (NOT the
+  supply ids — the VIN / PO-line ref of the actual swap DOES belong in the change
+  table; the planner allocates by them. Keep them out of the one-line *headline*,
+  but always in the table.)
 - **Internal vocabulary:** λ, Pareto frontier, weighted late-days, slushy/frozen
   fence, incumbent, mid-frontier default, arc, min-cost flow. Translate or omit.
 
@@ -215,6 +221,25 @@ everything else stays pinned. One mechanism, two everyday jobs:
   pins the rest; scope makes the bound explicit and auditable.
 
 With no scope, the free set is the disrupted rows (the default repair).
+
+### Bumping an untouched order — ASK first (§6, DECIDE-13)
+
+By default the repair frees only disrupted rows, so an **untouched** order is
+never displaced — a good vehicle it holds stays its. Sometimes the only way to
+get a high-priority disrupted row on time is to **bump** an untouched
+lower-priority row off its on-time vehicle. You must **never do this uninvited**:
+
+1. Solve the plain repair first. If a high-priority row is still late, call
+   `session.bump_candidates(snapshot, result)` — it lists the untouched,
+   movable rows whose vehicle would rescue it, lowest priority first.
+2. **Ask the planner explicitly** who may be bumped (show the candidates).
+3. Compile their answer into the `bump` filter (same shape as scope, plus an
+   `orders` list). The solver then frees exactly those rows and displaces one
+   **only when it lowers total cost** — so it takes the low-priority,
+   not-already-rescheduled target, never gratuitously.
+
+Every bump is flagged in the change list (`— BUMPED …`), so a displacement is
+never silent.
 
 ## The override ledger (§7)
 

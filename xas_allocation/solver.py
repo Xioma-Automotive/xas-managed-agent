@@ -134,11 +134,12 @@ def _combined_boosts(override: dict) -> dict[str, float]:
     return boosts
 
 
-def _scope_active(scope: dict) -> bool:
-    """A scope with at least one dimension set bounds the working set."""
-    return bool(scope) and any(
-        scope.get(k) for k in ("customers", "models", "po", "from_date", "to_date")
-    )
+_FILTER_DIMS = ("customers", "models", "po", "orders", "from_date", "to_date")
+
+
+def _filter_active(filt: dict) -> bool:
+    """A filter with at least one dimension set is in effect (used by scope + bump)."""
+    return bool(filt) and any(filt.get(k) for k in _FILTER_DIMS)
 
 
 def _po_of(po_ref: str) -> str:
@@ -147,24 +148,27 @@ def _po_of(po_ref: str) -> str:
     return parts[0] if len(parts) == 3 else po_ref
 
 
-def _in_scope(order: Order, assigned_unit: Unit | None, scope: dict) -> bool:
-    """AND across whichever scope dimensions are set. Empty dimension = no filter.
+def _matches(order: Order, assigned_unit: Unit | None, filt: dict) -> bool:
+    """AND across whichever filter dimensions are set. Empty dimension = no filter.
 
-    Customers match by id OR display name; a date range is against promised_date;
-    a PO filter matches the order's currently-allocated supply's purchase order.
-    This is the general filter behind 'allocate all Colmobil orders for August'
-    and behind a localized fix that leaves everything out of scope pinned."""
-    customers = scope.get("customers")
+    Customers match by id OR display name; `orders` by row id; a date range is
+    against promised_date; `po` matches the order's currently-allocated supply's
+    purchase order. Used by both `scope` (defines the working set) and `bump`
+    (authorizes which untouched rows the solver may displace)."""
+    customers = filt.get("customers")
     if customers and order.customer_id not in customers and order.customer not in customers:
         return False
-    models = scope.get("models")
+    models = filt.get("models")
     if models and order.sales_model not in models:
         return False
-    if scope.get("from_date") and order.promised_date < parse_date(scope["from_date"]):
+    orders = filt.get("orders")
+    if orders and order.order_id not in orders and order.so_id not in orders:
         return False
-    if scope.get("to_date") and order.promised_date > parse_date(scope["to_date"]):
+    if filt.get("from_date") and order.promised_date < parse_date(filt["from_date"]):
         return False
-    po = scope.get("po")
+    if filt.get("to_date") and order.promised_date > parse_date(filt["to_date"]):
+        return False
+    po = filt.get("po")
     if po:
         ref = assigned_unit.po_ref if assigned_unit else ""
         if _po_of(ref) not in po:
@@ -194,19 +198,27 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
         str(f["order"]) for f in override.get("forbid", []) if f.get("action") == "no_move"
     }
     scope = override.get("scope") or {}
-    scoped = _scope_active(scope)
+    scoped = _filter_active(scope)
+    bump = override.get("bump") or {}
+    bumpable = _filter_active(bump)
 
-    # Free orders — what the solver may re-allocate. Two ways to define the set:
+    # Free orders — what the solver may re-allocate. The base set is either:
     #   - SCOPED: exactly the rows matching the scope filter (a deliberate slice,
     #     e.g. "all Colmobil orders for August"); everything else stays pinned so
     #     the fix doesn't disturb the rest of the book.
     #   - UNSCOPED (default): disrupted or actively-deferred rows, plus any the
     #     incumbent left unassigned.
-    # In BOTH cases these can never move: frozen-fence rows, explicit no_move
+    # PLUS the `bump` set: untouched rows the planner has EXPLICITLY authorized
+    # the solver to displace (DECIDE-13). The solver only moves a bumpable row if
+    # doing so lowers total cost — so it bumps a low-priority row to rescue a
+    # higher-priority one, never gratuitously, and the fairness term protects
+    # already-rescheduled rows. Nothing is ever bumped without this authorization.
+    # In ALL cases these can never move: frozen-fence rows, explicit no_move
     # pins, and rows riding a committed (bonded/pdi) vehicle.
     free_orders: list[str] = []
     for oid, o in orders.items():
         assigned = incumbent.get(oid)
+        unit = units.get(assigned) if assigned else None
         if oid in forbid_no_move:
             continue
         if fence_of(o, snapshot.now) == "frozen":
@@ -214,9 +226,11 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
         if assigned is not None and units[assigned].committed:
             continue
         if scoped:
-            include = _in_scope(o, units.get(assigned) if assigned else None, scope)
+            include = _matches(o, unit, scope)
         else:
             include = (oid in disrupted) or (oid in deferred) or (assigned is None)
+        if not include and bumpable:
+            include = _matches(o, unit, bump)
         if include:
             free_orders.append(oid)
     free_orders.sort()  # §4 fixed key

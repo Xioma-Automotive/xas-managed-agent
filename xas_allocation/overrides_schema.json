@@ -70,8 +70,26 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "orders": {
+          "description": "explicit row ids or SO ids to include, e.g. ['SO-4000-1'] or ['SO-4000'].",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest promised_date in scope, inclusive." },
         "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Latest promised_date in scope, inclusive." }
+      }
+    },
+    "bump": {
+      "description": "Which UNTOUCHED rows the planner has EXPLICITLY authorized the solver to displace to rescue a disrupted row (DECIDE-13). Same dimensions as scope. Never bump an untouched order without this — ASK the planner who may be bumped first. The solver only moves a bumpable row when it lowers total cost, so it prefers low-priority, not-already-rescheduled targets. Omit/null = nobody may be bumped (the default).",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "customers": { "type": "array", "items": { "type": "string" } },
+        "models": { "type": "array", "items": { "type": "string" } },
+        "po": { "type": "array", "items": { "type": "string" } },
+        "orders": { "type": "array", "items": { "type": "string" } },
+        "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
       }
     },
     "ttl": {

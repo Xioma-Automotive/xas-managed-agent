@@ -63,6 +63,28 @@
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   button.danger { background: var(--err); color: #fff; border-color: var(--err); }
   #send { min-width: 76px; }
+
+  /* Rendered markdown inside an agent message (tables, code, diagrams). */
+  .msg.agent.md { white-space: normal; }
+  .msg.agent.md > :first-child { margin-top: 0; }
+  .msg.agent.md > :last-child { margin-bottom: 0; }
+  .msg.agent.md h1, .msg.agent.md h2, .msg.agent.md h3 { margin: .5em 0 .3em; font-size: 1.05em; }
+  .msg.agent.md p { margin: .4em 0; }
+  .msg.agent.md ul, .msg.agent.md ol { margin: .3em 0; padding-left: 1.3em; }
+  .msg.agent.md code { background: #eef1f5; border: 1px solid var(--line); border-radius: 4px;
+                       padding: 0 3px; font-family: ui-monospace, monospace; font-size: .92em; }
+  .msg.agent.md pre.code { background: #f2f4f8; border: 1px solid var(--line); border-radius: 6px;
+                           padding: 8px; overflow-x: auto; }
+  .msg.agent.md pre.code code { background: none; border: none; padding: 0; }
+  .msg.agent.md table { border-collapse: collapse; margin: .5em 0; font-size: .92em;
+                        display: block; overflow-x: auto; }
+  .msg.agent.md th, .msg.agent.md td { border: 1px solid var(--line); padding: 5px 9px;
+                                       text-align: left; white-space: nowrap; }
+  .msg.agent.md thead th { background: #eef1f5; }
+  .msg.agent.md pre.mermaid { background: transparent; text-align: center; border: 0; }
+  .msg.agent.md pre.mermaid.mermaid-fallback { background: #f2f4f8; border: 1px solid var(--line);
+      border-radius: 6px; padding: 8px; text-align: left; white-space: pre; overflow-x: auto;
+      font-family: ui-monospace, monospace; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -135,10 +157,119 @@ function add(kind, html) {
   $("transcript").scrollTop = $("transcript").scrollHeight;
 }
 
+// --- Minimal, dependency-free Markdown -> safe HTML (tables, code, headings,
+//     lists, bold/inline-code). Everything is escaped first, so only our own
+//     tags reach innerHTML. ```mermaid blocks become <pre class="mermaid">. ---
+function mdInline(s) {  // s is already HTML-escaped
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+?)`/g, "<code>$1</code>");
+}
+function splitRow(line) {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((c) => c.trim());
+}
+function renderMarkdown(src) {
+  const lines = (src || "").split("\n");
+  const isTable = (i) =>
+    i + 1 < lines.length && lines[i].includes("|") &&
+    lines[i + 1].includes("-") && /^[\s:|-]+$/.test(lines[i + 1]);
+  const blockStart = (i) => {
+    if (i >= lines.length) return true;
+    const l = lines[i];
+    return l.trim() === "" || l.startsWith("```") || /^#{1,6}\s/.test(l)
+      || /^\s*([-*]|\d+\.)\s+/.test(l) || isTable(i);
+  };
+  let html = "", i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const fence = line.match(/^```(\w*)/);
+    if (fence) {
+      const body = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) { body.push(lines[i]); i++; }
+      i++;
+      const code = escape(body.join("\n"));
+      html += fence[1] === "mermaid"
+        ? `<pre class="mermaid">${code}</pre>`
+        : `<pre class="code"><code>${code}</code></pre>`;
+      continue;
+    }
+    if (isTable(i)) {
+      const header = splitRow(line);
+      i += 2;
+      let t = "<table><thead><tr>" + header.map((h) => `<th>${mdInline(escape(h))}</th>`).join("")
+        + "</tr></thead><tbody>";
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        t += "<tr>" + splitRow(lines[i]).map((c) => `<td>${mdInline(escape(c))}</td>`).join("") + "</tr>";
+        i++;
+      }
+      html += t + "</tbody></table>";
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { const n = h[1].length; html += `<h${n}>${mdInline(escape(h[2]))}</h${n}>`; i++; continue; }
+    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
+      const ordered = /^\s*\d+\./.test(line);
+      const tag = ordered ? "ol" : "ul";
+      let l = `<${tag}>`;
+      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) {
+        l += `<li>${mdInline(escape(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, "")))}</li>`;
+        i++;
+      }
+      html += l + `</${tag}>`;
+      continue;
+    }
+    if (line.trim() === "") { i++; continue; }
+    const buf = [line];
+    i++;
+    while (i < lines.length && !blockStart(i)) { buf.push(lines[i]); i++; }
+    html += `<p>${mdInline(escape(buf.join(" ")))}</p>`;
+  }
+  return html;
+}
+
+// Mermaid is optional: loaded lazily from a CDN by the viewer's browser (not
+// bundled). If it can't load, the ```mermaid block stays a readable code block.
+let _mermaidP = null;
+function ensureMermaid() {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  if (_mermaidP) return _mermaidP;
+  _mermaidP = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+    s.onload = () => {
+      try { window.mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "strict" }); }
+      catch (e) { /* ignore */ }
+      res(window.mermaid);
+    };
+    s.onerror = () => rej(new Error("mermaid load failed"));
+    document.head.appendChild(s);
+  });
+  return _mermaidP;
+}
+function runMermaid(container) {
+  const nodes = [...container.querySelectorAll("pre.mermaid")];
+  if (!nodes.length) return;
+  ensureMermaid()
+    .then((m) => m.run({ nodes }))
+    .catch(() => nodes.forEach((n) => n.classList.add("mermaid-fallback")));
+}
+function addAgent(text) {
+  const div = document.createElement("div");
+  div.className = "msg agent md";
+  div.innerHTML = renderMarkdown(text);
+  $("transcript").append(div);
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+  runMermaid(div);
+}
+
 function render(event) {
   switch (event.type) {
     case "user":  return add("user", escape(event.text));
-    case "agent": return add("agent", escape(event.text));
+    case "agent": return addAgent(event.text);
     case "tool":  return add("tool", `<b>${escape(event.name)}</b> ${escape(event.detail)}`);
     case "tool_result":
       return add("tool_result",

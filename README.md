@@ -176,6 +176,7 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |
 | 11 | Reschedule fairness (`times_rescheduled`) | `γ=0.75` escalation on W(o) — protect an already-bumped order from being delayed again |
 | 12 | PO-line slot committed-ness | a slot is `location_state='future'` → never committed until it explodes into vehicles |
+| 13 | Bumping an untouched order | never without explicit planner authorization (the `bump` override); the agent asks who may be bumped |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and
