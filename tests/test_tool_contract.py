@@ -41,8 +41,9 @@ def test_pull_takes_no_parameters():
 def test_summary_carries_the_disruption():
     summary = call()
     assert summary["now"]
-    assert summary["orders"] > 0
-    assert summary["disruption"]["pdn"]
+    assert summary["orders"] > 0  # vehicle order rows
+    assert summary["supply"] > 0  # vehicles ∪ PO-line slots
+    assert summary["disruption"]["po"]
     assert summary["disruption"]["delay_days"] > 0
     assert summary["disrupted_orders"] == len(summary["disrupted_order_ids"])
 
@@ -96,7 +97,7 @@ def test_flatten_command_reproduces_the_snapshot(tmp_path):
     assert written.exists()
     snapshot = json.loads(written.read_text())
     assert len(snapshot["orders"]) == summary["orders"]
-    assert len(snapshot["units"]) == summary["vehicles"]
+    assert len(snapshot["units"]) == summary["supply"]
     assert snapshot["disruption"]["disrupted_orders"] == summary["disrupted_order_ids"]
 
 

@@ -4,24 +4,20 @@ This is the *frozen* half of the core invariant:
 
     plan = pure_function(data_snapshot, skill, ledger)
 
-The rich relational world (PDN → Vehicle, Customer → SO, allocation links) is
-fabricated by the standalone `scenario_engine/` and flattened into the three
-arrays here by `flatten.py`. This module owns only the flattened shape the
-solver consumes and its JSON (de)serialization — no generation, no I/O beyond
-parsing what `flatten` hands it.
+The rich relational world (PO → PDN → Vehicle, Customer → SO → vehicle order
+rows, allocation links) is fabricated by the standalone `scenario_engine/` and
+flattened into the three arrays here by `flatten.py`. This module owns only the
+flattened shape the solver consumes and its JSON (de)serialization.
 
-Everything is keyed on **real dates** (`YYYY-MM-DD`), not ISO weeks; tardiness
-is measured in **days**. `now` is the pull date, carried on the snapshot so the
-time fence is a pure function of the data and never reads a wall clock (a
-wall-clock read would break replay).
+Grain (v2): the allocatable **order** is a **vehicle order row** — one car of
+demand. A Sales Order groups several rows for one customer; the row carries its
+own dates. Supply is a **union of two kinds**: a concrete Vehicle (a VIN) or a
+PO-line slot (a future car, keyed PO-model-row, not yet built). The solver
+matches rows ↔ supply and does not care which kind a unit is — both are
+capacity-1 supply with a `sales_model` and an expected delivery date.
 
-Vocabulary vs. the old week-based model:
-  Unit.arrival_week      → Unit.planned_delivery_date   (the mutable field)
-  Unit.state             → Unit.location_state          (pipeline stage)
-  Unit.shipment          → Unit.pdn                     (supply provenance)
-  Order.promised_week    → Order.promised_date          (commitment; tardiness vs it)
-  Order.spec{...}        → Order.sales_model            (eligibility is equality)
-  (new)                  → Order.eta_date               (originally-expected delivery)
+Everything is keyed on **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
+`now` is the pull date, carried on the snapshot so the fence is pure.
 """
 
 from __future__ import annotations
@@ -55,9 +51,10 @@ def add_days(d: date, n: int) -> date:
 
 @dataclass(frozen=True)
 class Order:
-    """One SO line — the demand side, the 'order' in the bipartite match."""
+    """One vehicle order row — the demand side, the 'order' in the match."""
 
-    order_id: str
+    order_id: str  # the row id, e.g. "SO-4000-1"
+    so_id: str  # parent Sales Order
     customer: str  # dealer display name
     customer_id: str  # stable id the override object carries
     sales_model: str  # the hard eligibility key
@@ -72,6 +69,7 @@ class Order:
     def to_dict(self) -> dict:
         return {
             "order_id": self.order_id,
+            "so_id": self.so_id,
             "customer": self.customer,
             "customer_id": self.customer_id,
             "sales_model": self.sales_model,
@@ -88,6 +86,7 @@ class Order:
     def from_dict(cls, d: dict) -> Order:
         return cls(
             order_id=str(d["order_id"]),
+            so_id=str(d.get("so_id", "")),
             customer=d["customer"],
             customer_id=d["customer_id"],
             sales_model=d["sales_model"],
@@ -103,21 +102,25 @@ class Order:
 
 @dataclass(frozen=True)
 class Unit:
-    """One pool Vehicle — the supply side, the 'unit' in the bipartite match."""
+    """One supply item — a concrete Vehicle OR a PO-line slot (a future car)."""
 
-    vehicle_id: str
+    vehicle_id: str  # supply id: a VIN ("VEH-9000") or a slot ref ("PO-150-1-5")
+    kind: str  # "vehicle" | "po_line"
     sales_model: str
     planned_delivery_date: date  # the ONE mutable field disruptions write
-    location_state: str  # future|sea|port|transfer|bonded|pdi (DECIDE-3)
-    pdn: str  # supply provenance; a PDN delay hits a whole batch
+    location_state: str  # vehicle pipeline stage; "future" for a PO-line slot
+    po_ref: str  # the PO-line this fulfils, e.g. "PO-150-1-5"
+    pdn: str  # PDN batch for a vehicle; "" for a PO-line slot
     committed: bool  # derived from location_state at flatten time
 
     def to_dict(self) -> dict:
         return {
             "vehicle_id": self.vehicle_id,
+            "kind": self.kind,
             "sales_model": self.sales_model,
             "planned_delivery_date": date_label(self.planned_delivery_date),
             "location_state": self.location_state,
+            "po_ref": self.po_ref,
             "pdn": self.pdn,
             "committed": self.committed,
         }
@@ -126,9 +129,11 @@ class Unit:
     def from_dict(cls, d: dict) -> Unit:
         return cls(
             vehicle_id=str(d["vehicle_id"]),
+            kind=d.get("kind", "vehicle"),
             sales_model=d["sales_model"],
             planned_delivery_date=parse_date(d["planned_delivery_date"]),
             location_state=d["location_state"],
+            po_ref=d.get("po_ref", ""),
             pdn=d.get("pdn", ""),
             committed=bool(d["committed"]),
         )
@@ -138,10 +143,10 @@ class Unit:
 class Snapshot:
     """Everything one solve consumes — the flattened, frozen pull."""
 
-    orders: list[Order]
-    units: list[Unit]
-    incumbent: dict[str, str]  # order_id -> vehicle_id (current allocation)
-    disruption: dict  # the delayed PDN + who it touched
+    orders: list[Order]  # vehicle order rows
+    units: list[Unit]  # supply: vehicles ∪ PO-line slots
+    incumbent: dict[str, str]  # row_id -> supply_id (current allocation)
+    disruption: dict  # the delayed PO + who it touched
     now: date  # the pull date; the time fence reads this
 
     def order_by_id(self) -> dict[str, Order]:

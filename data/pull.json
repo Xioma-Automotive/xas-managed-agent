@@ -1,27 +1,27 @@
 {
   "disruption": {
     "delay_days": 21,
-    "delayed_vehicles": [
-      "VEH-9016",
-      "VEH-9017",
-      "VEH-9018",
-      "VEH-9019",
-      "VEH-9020",
-      "VEH-9021",
-      "VEH-9022",
-      "VEH-9023"
+    "delayed_supply": [
+      "PO-151-1-2",
+      "PO-151-1-3",
+      "PO-151-1-5",
+      "PO-151-1-6",
+      "VEH-9004",
+      "VEH-9005",
+      "VEH-9006",
+      "VEH-9007"
     ],
     "disrupted_orders": [
-      "SO-4016",
-      "SO-4017",
-      "SO-4018",
-      "SO-4019",
-      "SO-4020",
-      "SO-4021",
-      "SO-4022",
-      "SO-4023"
+      "SO-4004-3",
+      "SO-4005-1",
+      "SO-4005-2",
+      "SO-4005-3",
+      "SO-4006-1",
+      "SO-4006-2",
+      "SO-4007-1",
+      "SO-4008-1"
     ],
-    "pdn": "PDN-002"
+    "po": "PO-151"
   },
   "meta": {
     "horizon_weeks": 13,
@@ -37,1004 +37,1204 @@
     "seed": 20,
     "state": "disrupted"
   },
-  "pdns": [
+  "pos": [
     {
       "delayed_days": 0,
-      "pdn_id": "PDN-000",
+      "po_id": "PO-150",
+      "quantity": 8,
+      "sales_model": "SM2"
+    },
+    {
+      "delayed_days": 21,
+      "po_id": "PO-151",
       "quantity": 8,
       "sales_model": "SM2"
     },
     {
       "delayed_days": 0,
-      "pdn_id": "PDN-001",
+      "po_id": "PO-152",
       "quantity": 8,
       "sales_model": "SM4"
     },
     {
-      "delayed_days": 21,
-      "pdn_id": "PDN-002",
+      "delayed_days": 0,
+      "po_id": "PO-153",
       "quantity": 8,
       "sales_model": "SM2"
     },
     {
       "delayed_days": 0,
-      "pdn_id": "PDN-003",
+      "po_id": "PO-154",
+      "quantity": 8,
+      "sales_model": "SM5"
+    },
+    {
+      "delayed_days": 0,
+      "po_id": "PO-SPARE-5",
       "quantity": 8,
       "sales_model": "SM3"
     },
     {
       "delayed_days": 0,
-      "pdn_id": "PDN-004",
+      "po_id": "PO-SPARE-6",
       "quantity": 8,
-      "sales_model": "SM1"
-    },
-    {
-      "delayed_days": 0,
-      "pdn_id": "PDN-SPARE-000",
-      "quantity": 8,
-      "sales_model": "SM3"
-    },
-    {
-      "delayed_days": 0,
-      "pdn_id": "PDN-SPARE-001",
-      "quantity": 8,
-      "sales_model": "SM1"
+      "sales_model": "SM4"
     }
   ],
   "sos": [
     {
-      "current_vehicle_id": "VEH-9000",
       "customer": "Dealer 29",
       "customer_id": "CUST-029",
-      "days_backordered": 0,
-      "eta_date": "2026-08-31",
-      "n_prior_delays": 1,
-      "order_id": "SO-4000",
-      "price": 32000,
-      "priority": "C",
-      "promised_date": "2026-08-31",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "PO-150-1-1",
+          "days_backordered": 0,
+          "eta_date": "2026-08-31",
+          "n_prior_delays": 1,
+          "price": 32000,
+          "priority": "C",
+          "promised_date": "2026-08-31",
+          "row_id": "SO-4000-1",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-150-1-2",
+          "days_backordered": 0,
+          "eta_date": "2026-09-14",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "C",
+          "promised_date": "2026-09-14",
+          "row_id": "SO-4000-2",
+          "sales_model": "SM4",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4000"
     },
     {
-      "current_vehicle_id": "VEH-9001",
       "customer": "Dealer 14",
       "customer_id": "CUST-014",
-      "days_backordered": 0,
-      "eta_date": "2026-08-10",
-      "n_prior_delays": 0,
-      "order_id": "SO-4001",
-      "price": 32000,
-      "priority": "A",
-      "promised_date": "2026-08-10",
-      "sales_model": "SM4",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "PO-150-1-3",
+          "days_backordered": 0,
+          "eta_date": "2026-10-12",
+          "n_prior_delays": 0,
+          "price": 45000,
+          "priority": "A",
+          "promised_date": "2026-10-12",
+          "row_id": "SO-4001-1",
+          "sales_model": "SM3",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4001"
     },
     {
-      "current_vehicle_id": "VEH-9002",
-      "customer": "Dealer 14",
-      "customer_id": "CUST-014",
-      "days_backordered": 0,
-      "eta_date": "2026-08-24",
-      "n_prior_delays": 0,
-      "order_id": "SO-4002",
-      "price": 45000,
-      "priority": "A",
-      "promised_date": "2026-08-24",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9003",
-      "customer": "Champion",
-      "customer_id": "CUST-003",
-      "days_backordered": 0,
-      "eta_date": "2026-09-21",
-      "n_prior_delays": 0,
-      "order_id": "SO-4003",
-      "price": 52000,
-      "priority": "B",
-      "promised_date": "2026-09-21",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9004",
-      "customer": "Talcar",
-      "customer_id": "CUST-004",
-      "days_backordered": 0,
-      "eta_date": "2026-08-24",
-      "n_prior_delays": 0,
-      "order_id": "SO-4004",
-      "price": 45000,
-      "priority": "B",
-      "promised_date": "2026-08-24",
-      "sales_model": "SM1",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9005",
-      "customer": "Lubinski",
-      "customer_id": "CUST-006",
-      "days_backordered": 0,
-      "eta_date": "2026-08-10",
-      "n_prior_delays": 0,
-      "order_id": "SO-4005",
-      "price": 32000,
-      "priority": "C",
-      "promised_date": "2026-08-10",
-      "sales_model": "SM5",
-      "times_rescheduled": 1
-    },
-    {
-      "current_vehicle_id": "VEH-9006",
-      "customer": "Dealer 19",
-      "customer_id": "CUST-019",
-      "days_backordered": 0,
-      "eta_date": "2026-08-03",
-      "n_prior_delays": 1,
-      "order_id": "SO-4006",
-      "price": 32000,
-      "priority": "A",
-      "promised_date": "2026-08-03",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9007",
-      "customer": "Dealer 23",
-      "customer_id": "CUST-023",
-      "days_backordered": 14,
-      "eta_date": "2026-10-05",
-      "n_prior_delays": 2,
-      "order_id": "SO-4007",
-      "price": 52000,
-      "priority": "C",
-      "promised_date": "2026-10-05",
-      "sales_model": "SM3",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9008",
       "customer": "Dealer 27",
       "customer_id": "CUST-027",
-      "days_backordered": 0,
-      "eta_date": "2026-08-17",
-      "n_prior_delays": 0,
-      "order_id": "SO-4008",
-      "price": 38000,
-      "priority": "B",
-      "promised_date": "2026-08-17",
-      "sales_model": "SM4",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "VEH-9001",
+          "days_backordered": 0,
+          "eta_date": "2026-08-24",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "B",
+          "promised_date": "2026-08-24",
+          "row_id": "SO-4002-1",
+          "sales_model": "SM1",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4002"
     },
     {
-      "current_vehicle_id": "VEH-9009",
-      "customer": "Carasso",
-      "customer_id": "CUST-005",
-      "days_backordered": 14,
-      "eta_date": "2026-09-14",
-      "n_prior_delays": 0,
-      "order_id": "SO-4009",
-      "price": 45000,
-      "priority": "C",
-      "promised_date": "2026-09-14",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9010",
-      "customer": "Dealer 07",
-      "customer_id": "CUST-007",
-      "days_backordered": 0,
-      "eta_date": "2026-08-17",
-      "n_prior_delays": 1,
-      "order_id": "SO-4010",
-      "price": 38000,
-      "priority": "A",
-      "promised_date": "2026-08-17",
-      "sales_model": "SM4",
-      "times_rescheduled": 1
-    },
-    {
-      "current_vehicle_id": "VEH-9011",
-      "customer": "Colmobil",
-      "customer_id": "CUST-001",
-      "days_backordered": 0,
-      "eta_date": "2026-10-12",
-      "n_prior_delays": 2,
-      "order_id": "SO-4011",
-      "price": 52000,
-      "priority": "A",
-      "promised_date": "2026-10-12",
-      "sales_model": "SM3",
-      "times_rescheduled": 1
-    },
-    {
-      "current_vehicle_id": "VEH-9012",
-      "customer": "Delek Motors",
-      "customer_id": "CUST-002",
-      "days_backordered": 0,
-      "eta_date": "2026-08-10",
-      "n_prior_delays": 0,
-      "order_id": "SO-4012",
-      "price": 52000,
-      "priority": "A",
-      "promised_date": "2026-08-10",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9013",
-      "customer": "Talcar",
-      "customer_id": "CUST-004",
-      "days_backordered": 30,
-      "eta_date": "2026-09-07",
-      "n_prior_delays": 0,
-      "order_id": "SO-4013",
-      "price": 45000,
-      "priority": "B",
-      "promised_date": "2026-09-07",
-      "sales_model": "SM1",
-      "times_rescheduled": 1
-    },
-    {
-      "current_vehicle_id": "VEH-9014",
-      "customer": "Dealer 22",
-      "customer_id": "CUST-022",
-      "days_backordered": 0,
-      "eta_date": "2026-08-03",
-      "n_prior_delays": 0,
-      "order_id": "SO-4014",
-      "price": 38000,
-      "priority": "B",
-      "promised_date": "2026-08-03",
-      "sales_model": "SM1",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9015",
-      "customer": "Colmobil",
-      "customer_id": "CUST-001",
-      "days_backordered": 0,
-      "eta_date": "2026-08-17",
-      "n_prior_delays": 1,
-      "order_id": "SO-4015",
-      "price": 45000,
-      "priority": "A",
-      "promised_date": "2026-08-17",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9016",
-      "customer": "Talcar",
-      "customer_id": "CUST-004",
-      "days_backordered": 0,
-      "eta_date": "2026-08-24",
-      "n_prior_delays": 1,
-      "order_id": "SO-4016",
-      "price": 38000,
-      "priority": "B",
-      "promised_date": "2026-08-24",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9017",
-      "customer": "Dealer 13",
-      "customer_id": "CUST-013",
-      "days_backordered": 0,
-      "eta_date": "2026-10-12",
-      "n_prior_delays": 0,
-      "order_id": "SO-4017",
-      "price": 32000,
-      "priority": "A",
-      "promised_date": "2026-10-12",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9018",
-      "customer": "Dealer 21",
-      "customer_id": "CUST-021",
-      "days_backordered": 0,
-      "eta_date": "2026-09-14",
-      "n_prior_delays": 2,
-      "order_id": "SO-4018",
-      "price": 32000,
-      "priority": "B",
-      "promised_date": "2026-09-14",
-      "sales_model": "SM3",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9019",
       "customer": "Dealer 10",
       "customer_id": "CUST-010",
-      "days_backordered": 0,
-      "eta_date": "2026-10-12",
-      "n_prior_delays": 0,
-      "order_id": "SO-4019",
-      "price": 32000,
-      "priority": "B",
-      "promised_date": "2026-10-12",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "VEH-9002",
+          "days_backordered": 0,
+          "eta_date": "2026-10-05",
+          "n_prior_delays": 1,
+          "price": 38000,
+          "priority": "B",
+          "promised_date": "2026-10-05",
+          "row_id": "SO-4003-1",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-150-1-6",
+          "days_backordered": 0,
+          "eta_date": "2026-10-12",
+          "n_prior_delays": 0,
+          "price": 45000,
+          "priority": "B",
+          "promised_date": "2026-10-12",
+          "row_id": "SO-4003-2",
+          "sales_model": "SM1",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4003"
     },
     {
-      "current_vehicle_id": "VEH-9020",
-      "customer": "Dealer 24",
-      "customer_id": "CUST-024",
-      "days_backordered": 0,
-      "eta_date": "2026-09-14",
-      "n_prior_delays": 1,
-      "order_id": "SO-4020",
-      "price": 52000,
-      "priority": "C",
-      "promised_date": "2026-09-14",
-      "sales_model": "SM3",
-      "times_rescheduled": 0
+      "customer": "Dealer 15",
+      "customer_id": "CUST-015",
+      "rows": [
+        {
+          "current_supply_id": "PO-150-1-7",
+          "days_backordered": 14,
+          "eta_date": "2026-09-28",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "B",
+          "promised_date": "2026-09-28",
+          "row_id": "SO-4004-1",
+          "sales_model": "SM3",
+          "times_rescheduled": 1
+        },
+        {
+          "current_supply_id": "VEH-9003",
+          "days_backordered": 0,
+          "eta_date": "2026-10-05",
+          "n_prior_delays": 0,
+          "price": 61000,
+          "priority": "B",
+          "promised_date": "2026-10-05",
+          "row_id": "SO-4004-2",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "VEH-9004",
+          "days_backordered": 7,
+          "eta_date": "2026-08-10",
+          "n_prior_delays": 1,
+          "price": 32000,
+          "priority": "B",
+          "promised_date": "2026-08-10",
+          "row_id": "SO-4004-3",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4004"
     },
     {
-      "current_vehicle_id": "VEH-9021",
-      "customer": "Dealer 30",
-      "customer_id": "CUST-030",
-      "days_backordered": 0,
-      "eta_date": "2026-09-28",
-      "n_prior_delays": 2,
-      "order_id": "SO-4021",
-      "price": 32000,
-      "priority": "C",
-      "promised_date": "2026-09-28",
-      "sales_model": "SM1",
-      "times_rescheduled": 2
-    },
-    {
-      "current_vehicle_id": "VEH-9022",
-      "customer": "Dealer 23",
-      "customer_id": "CUST-023",
-      "days_backordered": 7,
-      "eta_date": "2026-08-17",
-      "n_prior_delays": 0,
-      "order_id": "SO-4022",
-      "price": 45000,
-      "priority": "C",
-      "promised_date": "2026-08-17",
-      "sales_model": "SM1",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9023",
-      "customer": "Delek Motors",
-      "customer_id": "CUST-002",
-      "days_backordered": 0,
-      "eta_date": "2026-08-24",
-      "n_prior_delays": 2,
-      "order_id": "SO-4023",
-      "price": 61000,
-      "priority": "A",
-      "promised_date": "2026-08-24",
-      "sales_model": "SM2",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9024",
-      "customer": "Dealer 28",
-      "customer_id": "CUST-028",
-      "days_backordered": 0,
-      "eta_date": "2026-08-31",
-      "n_prior_delays": 0,
-      "order_id": "SO-4024",
-      "price": 52000,
-      "priority": "B",
-      "promised_date": "2026-08-31",
-      "sales_model": "SM3",
-      "times_rescheduled": 1
-    },
-    {
-      "current_vehicle_id": "VEH-9025",
       "customer": "Dealer 13",
       "customer_id": "CUST-013",
-      "days_backordered": 7,
-      "eta_date": "2026-09-14",
-      "n_prior_delays": 0,
-      "order_id": "SO-4025",
-      "price": 52000,
-      "priority": "A",
-      "promised_date": "2026-09-14",
-      "sales_model": "SM5",
-      "times_rescheduled": 1
+      "rows": [
+        {
+          "current_supply_id": "PO-151-1-2",
+          "days_backordered": 0,
+          "eta_date": "2026-08-03",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "A",
+          "promised_date": "2026-08-03",
+          "row_id": "SO-4005-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-151-1-3",
+          "days_backordered": 0,
+          "eta_date": "2026-10-05",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "A",
+          "promised_date": "2026-10-05",
+          "row_id": "SO-4005-2",
+          "sales_model": "SM1",
+          "times_rescheduled": 2
+        },
+        {
+          "current_supply_id": "VEH-9005",
+          "days_backordered": 0,
+          "eta_date": "2026-10-12",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "A",
+          "promised_date": "2026-10-12",
+          "row_id": "SO-4005-3",
+          "sales_model": "SM3",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4005"
     },
     {
-      "current_vehicle_id": "VEH-9026",
-      "customer": "Champion",
-      "customer_id": "CUST-003",
-      "days_backordered": 0,
-      "eta_date": "2026-09-21",
-      "n_prior_delays": 0,
-      "order_id": "SO-4026",
-      "price": 45000,
-      "priority": "B",
-      "promised_date": "2026-09-21",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9027",
-      "customer": "Dealer 29",
-      "customer_id": "CUST-029",
-      "days_backordered": 0,
-      "eta_date": "2026-09-14",
-      "n_prior_delays": 0,
-      "order_id": "SO-4027",
-      "price": 38000,
-      "priority": "C",
-      "promised_date": "2026-09-14",
-      "sales_model": "SM3",
-      "times_rescheduled": 2
-    },
-    {
-      "current_vehicle_id": "VEH-9028",
-      "customer": "Dealer 24",
-      "customer_id": "CUST-024",
-      "days_backordered": 0,
-      "eta_date": "2026-08-03",
-      "n_prior_delays": 0,
-      "order_id": "SO-4028",
-      "price": 32000,
-      "priority": "C",
-      "promised_date": "2026-08-03",
-      "sales_model": "SM3",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9029",
-      "customer": "Dealer 24",
-      "customer_id": "CUST-024",
-      "days_backordered": 0,
-      "eta_date": "2026-08-17",
-      "n_prior_delays": 0,
-      "order_id": "SO-4029",
-      "price": 45000,
-      "priority": "C",
-      "promised_date": "2026-08-17",
-      "sales_model": "SM1",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9030",
-      "customer": "Dealer 17",
-      "customer_id": "CUST-017",
-      "days_backordered": 0,
-      "eta_date": "2026-08-24",
-      "n_prior_delays": 3,
-      "order_id": "SO-4030",
-      "price": 52000,
-      "priority": "C",
-      "promised_date": "2026-08-24",
-      "sales_model": "SM4",
-      "times_rescheduled": 1
-    },
-    {
-      "current_vehicle_id": "VEH-9031",
       "customer": "Dealer 30",
       "customer_id": "CUST-030",
-      "days_backordered": 30,
-      "eta_date": "2026-09-28",
-      "n_prior_delays": 0,
-      "order_id": "SO-4031",
-      "price": 61000,
-      "priority": "C",
-      "promised_date": "2026-09-28",
-      "sales_model": "SM3",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "PO-151-1-5",
+          "days_backordered": 0,
+          "eta_date": "2026-08-17",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "C",
+          "promised_date": "2026-08-17",
+          "row_id": "SO-4006-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-151-1-6",
+          "days_backordered": 0,
+          "eta_date": "2026-08-24",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "C",
+          "promised_date": "2026-08-24",
+          "row_id": "SO-4006-2",
+          "sales_model": "SM2",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4006"
     },
     {
-      "current_vehicle_id": "VEH-9032",
-      "customer": "Dealer 25",
-      "customer_id": "CUST-025",
-      "days_backordered": 0,
-      "eta_date": "2026-10-12",
-      "n_prior_delays": 0,
-      "order_id": "SO-4032",
-      "price": 52000,
-      "priority": "A",
-      "promised_date": "2026-10-12",
-      "sales_model": "SM1",
-      "times_rescheduled": 0
-    },
-    {
-      "current_vehicle_id": "VEH-9033",
-      "customer": "Dealer 24",
-      "customer_id": "CUST-024",
-      "days_backordered": 14,
-      "eta_date": "2026-09-21",
-      "n_prior_delays": 0,
-      "order_id": "SO-4033",
-      "price": 38000,
-      "priority": "C",
-      "promised_date": "2026-09-21",
-      "sales_model": "SM2",
-      "times_rescheduled": 2
-    },
-    {
-      "current_vehicle_id": "VEH-9034",
       "customer": "Dealer 21",
       "customer_id": "CUST-021",
-      "days_backordered": 0,
-      "eta_date": "2026-08-17",
-      "n_prior_delays": 2,
-      "order_id": "SO-4034",
-      "price": 61000,
-      "priority": "B",
-      "promised_date": "2026-08-17",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "VEH-9006",
+          "days_backordered": 7,
+          "eta_date": "2026-08-03",
+          "n_prior_delays": 0,
+          "price": 45000,
+          "priority": "B",
+          "promised_date": "2026-08-03",
+          "row_id": "SO-4007-1",
+          "sales_model": "SM4",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4007"
     },
     {
-      "current_vehicle_id": "VEH-9035",
+      "customer": "Dealer 10",
+      "customer_id": "CUST-010",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9007",
+          "days_backordered": 14,
+          "eta_date": "2026-08-31",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "B",
+          "promised_date": "2026-08-31",
+          "row_id": "SO-4008-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4008"
+    },
+    {
+      "customer": "Dealer 10",
+      "customer_id": "CUST-010",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9008",
+          "days_backordered": 0,
+          "eta_date": "2026-08-10",
+          "n_prior_delays": 1,
+          "price": 32000,
+          "priority": "B",
+          "promised_date": "2026-08-10",
+          "row_id": "SO-4009-1",
+          "sales_model": "SM4",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4009"
+    },
+    {
+      "customer": "Dealer 18",
+      "customer_id": "CUST-018",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9009",
+          "days_backordered": 30,
+          "eta_date": "2026-08-03",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "C",
+          "promised_date": "2026-08-03",
+          "row_id": "SO-4010-1",
+          "sales_model": "SM3",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-152-1-3",
+          "days_backordered": 7,
+          "eta_date": "2026-10-05",
+          "n_prior_delays": 0,
+          "price": 61000,
+          "priority": "C",
+          "promised_date": "2026-10-05",
+          "row_id": "SO-4010-2",
+          "sales_model": "SM2",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4010"
+    },
+    {
+      "customer": "Dealer 15",
+      "customer_id": "CUST-015",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9010",
+          "days_backordered": 0,
+          "eta_date": "2026-10-05",
+          "n_prior_delays": 0,
+          "price": 52000,
+          "priority": "B",
+          "promised_date": "2026-10-05",
+          "row_id": "SO-4011-1",
+          "sales_model": "SM2",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4011"
+    },
+    {
+      "customer": "Dealer 15",
+      "customer_id": "CUST-015",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9011",
+          "days_backordered": 0,
+          "eta_date": "2026-09-07",
+          "n_prior_delays": 3,
+          "price": 52000,
+          "priority": "B",
+          "promised_date": "2026-09-07",
+          "row_id": "SO-4012-1",
+          "sales_model": "SM4",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4012"
+    },
+    {
       "customer": "Delek Motors",
       "customer_id": "CUST-002",
-      "days_backordered": 0,
-      "eta_date": "2026-08-24",
-      "n_prior_delays": 0,
-      "order_id": "SO-4035",
-      "price": 45000,
-      "priority": "A",
-      "promised_date": "2026-08-24",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "VEH-9012",
+          "days_backordered": 0,
+          "eta_date": "2026-09-07",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "A",
+          "promised_date": "2026-09-07",
+          "row_id": "SO-4013-1",
+          "sales_model": "SM1",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4013"
     },
     {
-      "current_vehicle_id": "VEH-9036",
+      "customer": "Carasso",
+      "customer_id": "CUST-005",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9013",
+          "days_backordered": 14,
+          "eta_date": "2026-09-28",
+          "n_prior_delays": 0,
+          "price": 61000,
+          "priority": "C",
+          "promised_date": "2026-09-28",
+          "row_id": "SO-4014-1",
+          "sales_model": "SM3",
+          "times_rescheduled": 2
+        },
+        {
+          "current_supply_id": "VEH-9014",
+          "days_backordered": 7,
+          "eta_date": "2026-08-31",
+          "n_prior_delays": 0,
+          "price": 45000,
+          "priority": "C",
+          "promised_date": "2026-08-31",
+          "row_id": "SO-4014-2",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4014"
+    },
+    {
+      "customer": "Dealer 09",
+      "customer_id": "CUST-009",
+      "rows": [
+        {
+          "current_supply_id": "PO-153-1-1",
+          "days_backordered": 0,
+          "eta_date": "2026-09-21",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "B",
+          "promised_date": "2026-09-21",
+          "row_id": "SO-4015-1",
+          "sales_model": "SM2",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4015"
+    },
+    {
+      "customer": "Dealer 29",
+      "customer_id": "CUST-029",
+      "rows": [
+        {
+          "current_supply_id": "PO-153-1-2",
+          "days_backordered": 0,
+          "eta_date": "2026-08-17",
+          "n_prior_delays": 2,
+          "price": 61000,
+          "priority": "C",
+          "promised_date": "2026-08-17",
+          "row_id": "SO-4016-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "VEH-9015",
+          "days_backordered": 0,
+          "eta_date": "2026-09-28",
+          "n_prior_delays": 0,
+          "price": 61000,
+          "priority": "C",
+          "promised_date": "2026-09-28",
+          "row_id": "SO-4016-2",
+          "sales_model": "SM1",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4016"
+    },
+    {
+      "customer": "Lubinski",
+      "customer_id": "CUST-006",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9016",
+          "days_backordered": 0,
+          "eta_date": "2026-08-17",
+          "n_prior_delays": 2,
+          "price": 32000,
+          "priority": "C",
+          "promised_date": "2026-08-17",
+          "row_id": "SO-4017-1",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "VEH-9017",
+          "days_backordered": 0,
+          "eta_date": "2026-08-10",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "C",
+          "promised_date": "2026-08-10",
+          "row_id": "SO-4017-2",
+          "sales_model": "SM3",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "VEH-9018",
+          "days_backordered": 0,
+          "eta_date": "2026-09-21",
+          "n_prior_delays": 1,
+          "price": 61000,
+          "priority": "C",
+          "promised_date": "2026-09-21",
+          "row_id": "SO-4017-3",
+          "sales_model": "SM1",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4017"
+    },
+    {
       "customer": "Dealer 27",
       "customer_id": "CUST-027",
-      "days_backordered": 0,
-      "eta_date": "2026-10-12",
-      "n_prior_delays": 2,
-      "order_id": "SO-4036",
-      "price": 38000,
-      "priority": "B",
-      "promised_date": "2026-10-12",
-      "sales_model": "SM4",
-      "times_rescheduled": 0
+      "rows": [
+        {
+          "current_supply_id": "VEH-9019",
+          "days_backordered": 14,
+          "eta_date": "2026-09-28",
+          "n_prior_delays": 0,
+          "price": 52000,
+          "priority": "B",
+          "promised_date": "2026-09-28",
+          "row_id": "SO-4018-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "VEH-9020",
+          "days_backordered": 0,
+          "eta_date": "2026-08-17",
+          "n_prior_delays": 0,
+          "price": 38000,
+          "priority": "B",
+          "promised_date": "2026-08-17",
+          "row_id": "SO-4018-2",
+          "sales_model": "SM2",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4018"
     },
     {
-      "current_vehicle_id": "VEH-9037",
-      "customer": "Colmobil",
-      "customer_id": "CUST-001",
-      "days_backordered": 0,
-      "eta_date": "2026-10-12",
-      "n_prior_delays": 2,
-      "order_id": "SO-4037",
-      "price": 32000,
-      "priority": "A",
-      "promised_date": "2026-10-12",
-      "sales_model": "SM5",
-      "times_rescheduled": 0
+      "customer": "Dealer 28",
+      "customer_id": "CUST-028",
+      "rows": [
+        {
+          "current_supply_id": "PO-154-1-1",
+          "days_backordered": 7,
+          "eta_date": "2026-08-10",
+          "n_prior_delays": 1,
+          "price": 38000,
+          "priority": "B",
+          "promised_date": "2026-08-10",
+          "row_id": "SO-4019-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-154-1-2",
+          "days_backordered": 0,
+          "eta_date": "2026-09-14",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "B",
+          "promised_date": "2026-09-14",
+          "row_id": "SO-4019-2",
+          "sales_model": "SM3",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4019"
     },
     {
-      "current_vehicle_id": "VEH-9038",
-      "customer": "Dealer 25",
-      "customer_id": "CUST-025",
-      "days_backordered": 0,
-      "eta_date": "2026-08-10",
-      "n_prior_delays": 0,
-      "order_id": "SO-4038",
-      "price": 38000,
-      "priority": "A",
-      "promised_date": "2026-08-10",
-      "sales_model": "SM3",
-      "times_rescheduled": 0
+      "customer": "Lubinski",
+      "customer_id": "CUST-006",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9021",
+          "days_backordered": 0,
+          "eta_date": "2026-08-31",
+          "n_prior_delays": 0,
+          "price": 52000,
+          "priority": "C",
+          "promised_date": "2026-08-31",
+          "row_id": "SO-4020-1",
+          "sales_model": "SM3",
+          "times_rescheduled": 1
+        },
+        {
+          "current_supply_id": "VEH-9022",
+          "days_backordered": 0,
+          "eta_date": "2026-09-28",
+          "n_prior_delays": 0,
+          "price": 61000,
+          "priority": "C",
+          "promised_date": "2026-09-28",
+          "row_id": "SO-4020-2",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4020"
     },
     {
-      "current_vehicle_id": "VEH-9039",
-      "customer": "Champion",
-      "customer_id": "CUST-003",
-      "days_backordered": 0,
-      "eta_date": "2026-08-03",
-      "n_prior_delays": 0,
-      "order_id": "SO-4039",
-      "price": 61000,
-      "priority": "B",
-      "promised_date": "2026-08-03",
-      "sales_model": "SM4",
-      "times_rescheduled": 0
+      "customer": "Dealer 14",
+      "customer_id": "CUST-014",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9023",
+          "days_backordered": 14,
+          "eta_date": "2026-09-28",
+          "n_prior_delays": 0,
+          "price": 52000,
+          "priority": "A",
+          "promised_date": "2026-09-28",
+          "row_id": "SO-4021-1",
+          "sales_model": "SM1",
+          "times_rescheduled": 0
+        },
+        {
+          "current_supply_id": "PO-154-1-6",
+          "days_backordered": 0,
+          "eta_date": "2026-08-17",
+          "n_prior_delays": 0,
+          "price": 32000,
+          "priority": "A",
+          "promised_date": "2026-08-17",
+          "row_id": "SO-4021-2",
+          "sales_model": "SM2",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4021"
+    },
+    {
+      "customer": "Dealer 10",
+      "customer_id": "CUST-010",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9024",
+          "days_backordered": 0,
+          "eta_date": "2026-08-24",
+          "n_prior_delays": 0,
+          "price": 61000,
+          "priority": "B",
+          "promised_date": "2026-08-24",
+          "row_id": "SO-4022-1",
+          "sales_model": "SM3",
+          "times_rescheduled": 1
+        }
+      ],
+      "so_id": "SO-4022"
+    },
+    {
+      "customer": "Dealer 18",
+      "customer_id": "CUST-018",
+      "rows": [
+        {
+          "current_supply_id": "VEH-9025",
+          "days_backordered": 0,
+          "eta_date": "2026-08-03",
+          "n_prior_delays": 0,
+          "price": 45000,
+          "priority": "C",
+          "promised_date": "2026-08-03",
+          "row_id": "SO-4023-1",
+          "sales_model": "SM5",
+          "times_rescheduled": 0
+        }
+      ],
+      "so_id": "SO-4023"
     }
   ],
-  "vehicles": [
+  "supply": [
     {
-      "location_state": "sea",
-      "pdn_id": "PDN-000",
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
       "planned_delivery_date": "2026-08-31",
+      "po_ref": "PO-150-1-1",
       "sales_model": "SM2",
-      "vehicle_id": "VEH-9000"
+      "supply_id": "PO-150-1-1"
     },
     {
-      "location_state": "bonded",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-08-10",
-      "sales_model": "SM4",
-      "vehicle_id": "VEH-9001"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-08-24",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9002"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-09-21",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9003"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-08-24",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9004"
-    },
-    {
-      "location_state": "bonded",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-08-10",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9005"
-    },
-    {
-      "location_state": "bonded",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-08-03",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9006"
-    },
-    {
+      "kind": "po_line",
       "location_state": "future",
-      "pdn_id": "PDN-000",
-      "planned_delivery_date": "2026-10-05",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9007"
-    },
-    {
-      "location_state": "transfer",
-      "pdn_id": "PDN-001",
-      "planned_delivery_date": "2026-08-17",
-      "sales_model": "SM4",
-      "vehicle_id": "VEH-9008"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-001",
+      "pdn": "",
       "planned_delivery_date": "2026-09-14",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9009"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-001",
-      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-150-1-2",
       "sales_model": "SM4",
-      "vehicle_id": "VEH-9010"
+      "supply_id": "PO-150-1-2"
     },
     {
+      "kind": "po_line",
       "location_state": "future",
-      "pdn_id": "PDN-001",
+      "pdn": "",
       "planned_delivery_date": "2026-10-12",
+      "po_ref": "PO-150-1-3",
       "sales_model": "SM3",
-      "vehicle_id": "VEH-9011"
+      "supply_id": "PO-150-1-3"
     },
     {
-      "location_state": "pdi",
-      "pdn_id": "PDN-001",
-      "planned_delivery_date": "2026-08-10",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9012"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-001",
-      "planned_delivery_date": "2026-09-07",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9013"
-    },
-    {
-      "location_state": "pdi",
-      "pdn_id": "PDN-001",
-      "planned_delivery_date": "2026-08-03",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9014"
-    },
-    {
+      "kind": "vehicle",
       "location_state": "bonded",
-      "pdn_id": "PDN-001",
-      "planned_delivery_date": "2026-08-17",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9015"
+      "pdn": "PDN-150",
+      "planned_delivery_date": "2026-08-24",
+      "po_ref": "PO-150-1-4",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9001"
     },
     {
-      "location_state": "transfer",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-09-14",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9016"
-    },
-    {
+      "kind": "vehicle",
       "location_state": "sea",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-11-02",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9017"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-002",
+      "pdn": "PDN-150",
       "planned_delivery_date": "2026-10-05",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9018"
+      "po_ref": "PO-150-1-5",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9002"
     },
     {
+      "kind": "po_line",
       "location_state": "future",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-11-02",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9019"
+      "pdn": "",
+      "planned_delivery_date": "2026-10-12",
+      "po_ref": "PO-150-1-6",
+      "sales_model": "SM1",
+      "supply_id": "PO-150-1-6"
     },
     {
-      "location_state": "sea",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-10-05",
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-150-1-7",
       "sales_model": "SM3",
-      "vehicle_id": "VEH-9020"
+      "supply_id": "PO-150-1-7"
     },
     {
+      "kind": "vehicle",
       "location_state": "sea",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-10-19",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9021"
-    },
-    {
-      "location_state": "transfer",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-09-07",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9022"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-002",
-      "planned_delivery_date": "2026-09-14",
+      "pdn": "PDN-150",
+      "planned_delivery_date": "2026-10-05",
+      "po_ref": "PO-150-1-8",
       "sales_model": "SM2",
-      "vehicle_id": "VEH-9023"
+      "supply_id": "VEH-9003"
     },
     {
-      "location_state": "sea",
-      "pdn_id": "PDN-003",
+      "kind": "vehicle",
+      "location_state": "transfer",
+      "pdn": "PDN-151",
       "planned_delivery_date": "2026-08-31",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9024"
+      "po_ref": "PO-151-1-1",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9004"
     },
     {
-      "location_state": "sea",
-      "pdn_id": "PDN-003",
-      "planned_delivery_date": "2026-09-14",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9025"
-    },
-    {
+      "kind": "po_line",
       "location_state": "future",
-      "pdn_id": "PDN-003",
-      "planned_delivery_date": "2026-09-21",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9026"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-003",
-      "planned_delivery_date": "2026-09-14",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9027"
-    },
-    {
-      "location_state": "pdi",
-      "pdn_id": "PDN-003",
-      "planned_delivery_date": "2026-08-03",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9028"
-    },
-    {
-      "location_state": "transfer",
-      "pdn_id": "PDN-003",
-      "planned_delivery_date": "2026-08-17",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9029"
-    },
-    {
-      "location_state": "transfer",
-      "pdn_id": "PDN-003",
+      "pdn": "",
       "planned_delivery_date": "2026-08-24",
-      "sales_model": "SM4",
-      "vehicle_id": "VEH-9030"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-003",
-      "planned_delivery_date": "2026-09-28",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9031"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-10-12",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9032"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-09-21",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9033"
-    },
-    {
-      "location_state": "bonded",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-151-1-2",
       "sales_model": "SM5",
-      "vehicle_id": "VEH-9034"
+      "supply_id": "PO-151-1-2"
     },
     {
-      "location_state": "transfer",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-08-24",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9035"
-    },
-    {
+      "kind": "po_line",
       "location_state": "future",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-10-12",
-      "sales_model": "SM4",
-      "vehicle_id": "VEH-9036"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-10-12",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9037"
-    },
-    {
-      "location_state": "pdi",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-08-10",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9038"
-    },
-    {
-      "location_state": "pdi",
-      "pdn_id": "PDN-004",
-      "planned_delivery_date": "2026-08-03",
-      "sales_model": "SM4",
-      "vehicle_id": "VEH-9039"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-09-28",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9040"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-09-28",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9041"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-09-28",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9042"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-08-31",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9043"
-    },
-    {
-      "location_state": "bonded",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-08-10",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9044"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-10-12",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9045"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-10-19",
-      "sales_model": "SM4",
-      "vehicle_id": "VEH-9046"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-SPARE-000",
-      "planned_delivery_date": "2026-08-17",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9047"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-09-21",
-      "sales_model": "SM1",
-      "vehicle_id": "VEH-9048"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-10-19",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9049"
-    },
-    {
-      "location_state": "port",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-08-24",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9050"
-    },
-    {
-      "location_state": "pdi",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-08-10",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9051"
-    },
-    {
-      "location_state": "future",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-10-05",
-      "sales_model": "SM5",
-      "vehicle_id": "VEH-9052"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-SPARE-001",
+      "pdn": "",
       "planned_delivery_date": "2026-10-26",
-      "sales_model": "SM3",
-      "vehicle_id": "VEH-9053"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-09-28",
-      "sales_model": "SM2",
-      "vehicle_id": "VEH-9054"
-    },
-    {
-      "location_state": "sea",
-      "pdn_id": "PDN-SPARE-001",
-      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-151-1-3",
       "sales_model": "SM1",
-      "vehicle_id": "VEH-9055"
+      "supply_id": "PO-151-1-3"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-151",
+      "planned_delivery_date": "2026-11-02",
+      "po_ref": "PO-151-1-4",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9005"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-07",
+      "po_ref": "PO-151-1-5",
+      "sales_model": "SM5",
+      "supply_id": "PO-151-1-5"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-14",
+      "po_ref": "PO-151-1-6",
+      "sales_model": "SM2",
+      "supply_id": "PO-151-1-6"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "transfer",
+      "pdn": "PDN-151",
+      "planned_delivery_date": "2026-08-24",
+      "po_ref": "PO-151-1-7",
+      "sales_model": "SM4",
+      "supply_id": "VEH-9006"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-151",
+      "planned_delivery_date": "2026-09-21",
+      "po_ref": "PO-151-1-8",
+      "sales_model": "SM5",
+      "supply_id": "VEH-9007"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "bonded",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-08-10",
+      "po_ref": "PO-152-1-1",
+      "sales_model": "SM4",
+      "supply_id": "VEH-9008"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "pdi",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-08-03",
+      "po_ref": "PO-152-1-2",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9009"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-10-05",
+      "po_ref": "PO-152-1-3",
+      "sales_model": "SM2",
+      "supply_id": "PO-152-1-3"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "future",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-10-05",
+      "po_ref": "PO-152-1-4",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9010"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "port",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-09-07",
+      "po_ref": "PO-152-1-5",
+      "sales_model": "SM4",
+      "supply_id": "VEH-9011"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "port",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-09-07",
+      "po_ref": "PO-152-1-6",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9012"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-152-1-7",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9013"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-152",
+      "planned_delivery_date": "2026-08-31",
+      "po_ref": "PO-152-1-8",
+      "sales_model": "SM5",
+      "supply_id": "VEH-9014"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-21",
+      "po_ref": "PO-153-1-1",
+      "sales_model": "SM2",
+      "supply_id": "PO-153-1-1"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-153-1-2",
+      "sales_model": "SM5",
+      "supply_id": "PO-153-1-2"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-153",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-153-1-3",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9015"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "bonded",
+      "pdn": "PDN-153",
+      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-153-1-4",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9016"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "pdi",
+      "pdn": "PDN-153",
+      "planned_delivery_date": "2026-08-10",
+      "po_ref": "PO-153-1-5",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9017"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "future",
+      "pdn": "PDN-153",
+      "planned_delivery_date": "2026-09-21",
+      "po_ref": "PO-153-1-6",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9018"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "future",
+      "pdn": "PDN-153",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-153-1-7",
+      "sales_model": "SM5",
+      "supply_id": "VEH-9019"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "transfer",
+      "pdn": "PDN-153",
+      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-153-1-8",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9020"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-08-10",
+      "po_ref": "PO-154-1-1",
+      "sales_model": "SM5",
+      "supply_id": "PO-154-1-1"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-14",
+      "po_ref": "PO-154-1-2",
+      "sales_model": "SM3",
+      "supply_id": "PO-154-1-2"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "port",
+      "pdn": "PDN-154",
+      "planned_delivery_date": "2026-08-31",
+      "po_ref": "PO-154-1-3",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9021"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "future",
+      "pdn": "PDN-154",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-154-1-4",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9022"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "future",
+      "pdn": "PDN-154",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-154-1-5",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9023"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-154-1-6",
+      "sales_model": "SM2",
+      "supply_id": "PO-154-1-6"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "transfer",
+      "pdn": "PDN-154",
+      "planned_delivery_date": "2026-08-24",
+      "po_ref": "PO-154-1-7",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9024"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "bonded",
+      "pdn": "PDN-154",
+      "planned_delivery_date": "2026-08-03",
+      "po_ref": "PO-154-1-8",
+      "sales_model": "SM5",
+      "supply_id": "VEH-9025"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "future",
+      "pdn": "PDN-5",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-SPARE-5-1-1",
+      "sales_model": "SM3",
+      "supply_id": "VEH-9026"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-10-12",
+      "po_ref": "PO-SPARE-5-1-2",
+      "sales_model": "SM1",
+      "supply_id": "PO-SPARE-5-1-2"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "bonded",
+      "pdn": "PDN-5",
+      "planned_delivery_date": "2026-08-03",
+      "po_ref": "PO-SPARE-5-1-3",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9027"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "bonded",
+      "pdn": "PDN-5",
+      "planned_delivery_date": "2026-08-17",
+      "po_ref": "PO-SPARE-5-1-4",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9028"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-14",
+      "po_ref": "PO-SPARE-5-1-5",
+      "sales_model": "SM4",
+      "supply_id": "PO-SPARE-5-1-5"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-10-05",
+      "po_ref": "PO-SPARE-5-1-6",
+      "sales_model": "SM1",
+      "supply_id": "PO-SPARE-5-1-6"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-28",
+      "po_ref": "PO-SPARE-5-1-7",
+      "sales_model": "SM4",
+      "supply_id": "PO-SPARE-5-1-7"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-5",
+      "planned_delivery_date": "2026-10-26",
+      "po_ref": "PO-SPARE-5-1-8",
+      "sales_model": "SM5",
+      "supply_id": "VEH-9029"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-10-19",
+      "po_ref": "PO-SPARE-6-1-1",
+      "sales_model": "SM4",
+      "supply_id": "PO-SPARE-6-1-1"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "sea",
+      "pdn": "PDN-6",
+      "planned_delivery_date": "2026-08-31",
+      "po_ref": "PO-SPARE-6-1-2",
+      "sales_model": "SM5",
+      "supply_id": "VEH-9030"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-10-05",
+      "po_ref": "PO-SPARE-6-1-3",
+      "sales_model": "SM2",
+      "supply_id": "PO-SPARE-6-1-3"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "port",
+      "pdn": "PDN-6",
+      "planned_delivery_date": "2026-09-07",
+      "po_ref": "PO-SPARE-6-1-4",
+      "sales_model": "SM1",
+      "supply_id": "VEH-9031"
+    },
+    {
+      "kind": "vehicle",
+      "location_state": "port",
+      "pdn": "PDN-6",
+      "planned_delivery_date": "2026-08-31",
+      "po_ref": "PO-SPARE-6-1-5",
+      "sales_model": "SM2",
+      "supply_id": "VEH-9032"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-14",
+      "po_ref": "PO-SPARE-6-1-6",
+      "sales_model": "SM2",
+      "supply_id": "PO-SPARE-6-1-6"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-14",
+      "po_ref": "PO-SPARE-6-1-7",
+      "sales_model": "SM5",
+      "supply_id": "PO-SPARE-6-1-7"
+    },
+    {
+      "kind": "po_line",
+      "location_state": "future",
+      "pdn": "",
+      "planned_delivery_date": "2026-09-07",
+      "po_ref": "PO-SPARE-6-1-8",
+      "sales_model": "SM5",
+      "supply_id": "PO-SPARE-6-1-8"
     }
   ]
 }

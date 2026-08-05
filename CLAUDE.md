@@ -21,9 +21,11 @@ If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is gone. Concretely:
 
 - **The fabricated dataset is the data snapshot.** `scenario_engine/` (outside
-  the agent) fabricates `data/pull.json`; the pull ships it and `flatten` maps it
-  to the `orders/units/incumbent` snapshot. The *same* bundled dataset backs every
-  turn of a repair cycle — a replay against different data is not a replay.
+  the agent) fabricates `data/pull.json` (PO→PDN→Vehicle, Customer→SO with vehicle
+  order rows); the pull ships it and `flatten` explodes SOs into rows + unions the
+  supply (vehicles ∪ PO-line slots) into the `orders/units/incumbent` snapshot. The
+  *same* bundled dataset backs every turn of a repair cycle — a replay against
+  different data is not a replay.
 - **The ledger is the session.** Steering instructions are appended and replayed;
   the sandbox is a performance convenience.
 - **Flatten is pure code, not judgment.** Eligibility is a hard `sales_model`
@@ -91,7 +93,7 @@ is the right place for it, since the sandbox never sees this process.
 
 ## Open decisions
 
-`DECIDE-1..11` are stubbed defaults, not settled answers. Run
+`DECIDE-1..12` are stubbed defaults, not settled answers. Run
 `uv run python -m xas_allocation.decisions` for the live list. The big ones for
 anyone touching this: DECIDE-7 (no real XAS API — `scenario_engine/` fabricates
 PDN/Vehicle/SO data shaped per `docs/xasdatamodel.md`), DECIDE-3 (which

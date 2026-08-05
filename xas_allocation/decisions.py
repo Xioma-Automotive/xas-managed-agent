@@ -134,6 +134,17 @@ DECISIONS: list[Decision] = [
         ),
     ),
     Decision(
+        key="DECIDE-12",
+        title="PO-line slot committed-ness",
+        default="a PO-line slot is location_state='future' -> never committed until it explodes into vehicles",
+        rationale=(
+            "Supply is now vehicles ∪ PO-line slots. A slot is a not-yet-built car, so it "
+            "is freely re-allocatable; committed-ness still derives from location_state, and a "
+            "slot carries 'future'. Once a PDN explodes the slot into concrete vehicles, those "
+            "vehicles carry a real pipeline stage and can become committed as usual."
+        ),
+    ),
+    Decision(
         key="DECIDE-11",
         title="Reschedule fairness: how hard to protect an already-bumped order",
         default="GAMMA = 0.75 escalation on W(o) per times_rescheduled",

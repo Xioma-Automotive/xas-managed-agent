@@ -37,43 +37,49 @@ def _committed(location_state: str) -> bool:
 
 
 def flatten(rich: dict) -> Snapshot:
-    """Rich relational pull -> flattened Snapshot. Pure, deterministic."""
-    orders = [
-        Order.from_dict(
-            {
-                "order_id": so["order_id"],
-                "customer": so["customer"],
-                "customer_id": so["customer_id"],
-                "sales_model": so["sales_model"],
-                "priority": so["priority"],
-                "promised_date": so["promised_date"],
-                "eta_date": so["eta_date"],
-                "price": so.get("price", 0.0),
-                "n_prior_delays": so.get("n_prior_delays", 0),
-                "days_backordered": so.get("days_backordered", 0),
-                "times_rescheduled": so.get("times_rescheduled", 0),
-            }
-        )
-        for so in rich["sos"]
-    ]
+    """Rich relational pull -> flattened Snapshot. Pure, deterministic.
+
+    Explodes each Sales Order into its vehicle order rows (the allocatable
+    orders) and unions the supply (concrete vehicles + PO-line slots) into
+    ``units``. Incumbent comes from each row's current allocation link."""
+    orders: list[Order] = []
+    incumbent: dict[str, str] = {}
+    for so in rich["sos"]:
+        for row in so["rows"]:
+            orders.append(
+                Order.from_dict(
+                    {
+                        "order_id": row["row_id"],
+                        "so_id": so["so_id"],
+                        "customer": so["customer"],
+                        "customer_id": so["customer_id"],
+                        "sales_model": row["sales_model"],
+                        "priority": row["priority"],
+                        "promised_date": row["promised_date"],
+                        "eta_date": row["eta_date"],
+                        "price": row.get("price", 0.0),
+                        "n_prior_delays": row.get("n_prior_delays", 0),
+                        "days_backordered": row.get("days_backordered", 0),
+                        "times_rescheduled": row.get("times_rescheduled", 0),
+                    }
+                )
+            )
+            if row.get("current_supply_id"):
+                incumbent[str(row["row_id"])] = str(row["current_supply_id"])
 
     units = [
         Unit(
-            vehicle_id=str(v["vehicle_id"]),
-            sales_model=v["sales_model"],
-            planned_delivery_date=parse_date(v["planned_delivery_date"]),
-            location_state=v["location_state"],
-            pdn=v.get("pdn", ""),
-            committed=_committed(v["location_state"]),
+            vehicle_id=str(s["supply_id"]),
+            kind=s.get("kind", "vehicle"),
+            sales_model=s["sales_model"],
+            planned_delivery_date=parse_date(s["planned_delivery_date"]),
+            location_state=s["location_state"],
+            po_ref=s.get("po_ref", ""),
+            pdn=s.get("pdn", ""),
+            committed=_committed(s["location_state"]),
         )
-        for v in rich["vehicles"]
+        for s in rich["supply"]
     ]
-
-    incumbent = {
-        str(so["order_id"]): str(so["current_vehicle_id"])
-        for so in rich["sos"]
-        if so.get("current_vehicle_id")
-    }
 
     return Snapshot(
         orders=orders,
@@ -109,6 +115,6 @@ if __name__ == "__main__":
     )
     d = snap.disruption
     print(
-        f"disruption: PDN {d.get('pdn')} +{d.get('delay_days')}d, "
+        f"disruption: PO {d.get('po')} +{d.get('delay_days')}d, "
         f"{len(d.get('disrupted_orders', []))} orders to repair"
     )

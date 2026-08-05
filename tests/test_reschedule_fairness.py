@@ -20,6 +20,7 @@ LATE = date(2026, 10, 14)
 def _order(oid: str, times_rescheduled: int) -> Order:
     return Order(
         order_id=oid,
+        so_id=oid.rsplit("-", 1)[0],
         customer="Dealer",
         customer_id="CUST-001",
         sales_model="SM1",
@@ -36,10 +37,12 @@ def _order(oid: str, times_rescheduled: int) -> Order:
 def _unit(vid: str, planned: date) -> Unit:
     return Unit(
         vehicle_id=vid,
+        kind="vehicle",
         sales_model="SM1",
         planned_delivery_date=planned,
         location_state="sea",
-        pdn="PDN-000",
+        po_ref="PO-150-1-1",
+        pdn="PDN-150",
         committed=False,
     )
 

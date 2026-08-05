@@ -42,10 +42,12 @@ bug guarded against everywhere. `tests/test_invariant.py` proves it holds even
 after the sandbox is discarded and the ledger is replayed from disk.
 
 This build is a **runnable prototype against fabricated data** shaped like XAS
-(`PDN → Vehicle`, `Customer → SO`, real dates; see `docs/xasdatamodel.md`). A
-standalone `scenario_engine/` fabricates the world; real MCP data wiring and the
-production solver repo come later. Every unresolved choice from the spec is a
-marked `DECIDE-n` — not guessed, but stubbed with a labelled default (see below).
+(`PO → PDN → Vehicle`, `Customer → SO` with vehicle order **rows**, supply =
+vehicles ∪ PO-line slots, real dates; see `docs/xasdatamodel.md`). A standalone
+`scenario_engine/` fabricates the world; the agent can work the whole book or a
+**scope** (a customer/month/PO slice — a localized fix that leaves the rest
+pinned). Every unresolved choice from the spec is a marked `DECIDE-n` — stubbed
+with a labelled default (see below).
 
 ## Reference-solver package (the deterministic core)
 
@@ -62,7 +64,7 @@ before real dealer data (DECIDE-9).
 | `ledger.py`      | §11.4  | Append-only override store; replay-with-TTL fold into one combined override. The ledger **is** the session. |
 | `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, data-prep flow chart, **reason-coded change list**. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
-| `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the rich PDN/Vehicle/SO dataset (good → disrupted). |
+| `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the rich PO→PDN→Vehicle / SO-with-rows dataset (good → disrupted). |
 | `tests/test_invariant.py` | §11.7 | Determinism invariant: same plan across two runs **and** across sandbox discard. |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
@@ -173,6 +175,7 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION` |
 | 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |
 | 11 | Reschedule fairness (`times_rescheduled`) | `γ=0.75` escalation on W(o) — protect an already-bumped order from being delayed again |
+| 12 | PO-line slot committed-ness | a slot is `location_state='future'` → never committed until it explodes into vehicles |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

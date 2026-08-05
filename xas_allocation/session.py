@@ -119,7 +119,8 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
     n_orders = len(snapshot.orders)
     n_units = len(snapshot.units)
     n_incumbent = len(snapshot.incumbent)
-    n_pdn = len({u.pdn for u in snapshot.units if u.pdn})
+    n_veh = sum(1 for u in snapshot.units if u.kind == "vehicle")
+    n_slot = n_units - n_veh
     n_models = len({o.sales_model for o in snapshot.orders})
     d = snapshot.disruption
     n_disrupted = len(d.get("disrupted_orders", []))
@@ -127,10 +128,13 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
         [
             "```mermaid",
             "flowchart LR",
-            f'  SRC["rich pull<br/>{n_pdn} PDNs · {n_units} vehicles · {n_orders} SO lines"]',
             (
-                f'  DIS["disruption<br/>PDN {d.get("pdn", "?")} +{d.get("delay_days", 0)}d<br/>'
-                f'{n_disrupted} orders freed"]'
+                f'  SRC["rich pull<br/>PO→PDN→Vehicle · Customer→SO<br/>'
+                f'{n_orders} SO rows · {n_veh} vehicles + {n_slot} PO slots"]'
+            ),
+            (
+                f'  DIS["disruption<br/>PO {d.get("po", "?")} +{d.get("delay_days", 0)}d<br/>'
+                f'{n_disrupted} rows freed"]'
             ),
             '  FL["flatten + freeze<br/>(pure code, no model judgment)"]',
             f'  ORD["orders[]<br/>{n_orders} rows"]',
@@ -200,10 +204,9 @@ def build_change_list(
         timing = "on time" if late == 0 else f"{late}d late"
 
         reasons = _order_reasons(o, ledger, current_date, boosts)
+        src = units[new_uid].pdn or units[new_uid].po_ref or units[new_uid].kind
         moved = (
-            f"vehicle {new_uid} off {units[new_uid].pdn}"
-            if old_uid is None
-            else f"vehicle {old_uid}→{new_uid}"
+            f"vehicle {new_uid} off {src}" if old_uid is None else f"vehicle {old_uid}→{new_uid}"
         )
         lines.append(
             f"order {oid}: {old_date} → {date_label(new_date)} (promised {promised}, {timing}); "
@@ -291,7 +294,7 @@ def main() -> None:
     d = snap.disruption
     print(
         f"\nsnapshot now={date_label(snap.now)}: {len(snap.orders)} orders, "
-        f"{len(snap.units)} vehicles. Disruption: PDN {d.get('pdn')} delayed "
+        f"{len(snap.units)} supply items. Disruption: PO {d.get('po')} delayed "
         f"{d.get('delay_days')}d, {len(d.get('disrupted_orders', []))} orders to repair."
     )
 
@@ -330,6 +333,31 @@ def main() -> None:
     )
     cyc2 = run_cycle(snap, ledger)
     _print_cycle("TURN 2 — after steering", snap, cyc2)
+
+    # --- Turn 3: scope. "Allocate all of one dealer's rows" — the scope DEFINES
+    #     the free set, so only that dealer's rows move; the rest stay pinned.
+    scope_cid = snap.orders[0].customer_id
+    scope_override = {
+        "pins": [],
+        "boosts": [],
+        "forbid": [],
+        "lambda": None,
+        "scope": {"customers": [scope_cid]},
+        "ttl": None,
+    }
+    print(f"\n>>> planner steering (turn 3): scope to customer {scope_cid} (work only that slice)")
+    print(f">>> override object shown back before running:\n    {scope_override}")
+    ledger.append(
+        LedgerEntry(
+            turn=ledger.next_turn(),
+            author="Olga",
+            override=scope_override,
+            timestamp="2026-08-04T10:00:00Z",
+            ttl=None,
+        )
+    )
+    cyc3 = run_cycle(snap, ledger)
+    _print_cycle(f"TURN 3 — scoped to {scope_cid}", snap, cyc3)
 
     print(
         "\n(ledger is the session: replay it against a fresh pull to reproduce "

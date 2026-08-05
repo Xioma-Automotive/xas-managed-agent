@@ -103,35 +103,36 @@ def flatten_command() -> str:
 def summarize(rich: dict) -> dict[str, Any]:
     """The part of the pull that crosses into the agent's context."""
     meta = rich.get("meta", {})
-    vehicles = rich.get("vehicles", [])
+    supply = rich.get("supply", [])
     sos = rich.get("sos", [])
     disruption = rich.get("disruption", {}) or {}
 
-    by_location: dict[str, int] = {}
-    for v in vehicles:
-        by_location[v["location_state"]] = by_location.get(v["location_state"], 0) + 1
+    rows = [row for so in sos for row in so.get("rows", [])]
+    by_kind: dict[str, int] = {}
+    for s in supply:
+        by_kind[s.get("kind", "vehicle")] = by_kind.get(s.get("kind", "vehicle"), 0) + 1
 
     # §6 steering contract: resolve a dealer name in the planner's instruction to
-    # the customer_id the override object carries. Built from the SO lines in play.
+    # the customer_id the override object carries. Built from the SOs in play.
     customers: dict[str, dict] = {}
     for so in sos:
-        customers.setdefault(
-            so["customer"], {"customer_id": so["customer_id"], "priority": so["priority"]}
-        )
+        prio = so["rows"][0]["priority"] if so.get("rows") else "?"
+        customers.setdefault(so["customer"], {"customer_id": so["customer_id"], "priority": prio})
 
     return {
         "flatten": flatten_command(),
         "snapshot_path": SNAPSHOT_FILENAME,
         "now": meta.get("now"),
-        "orders": len(sos),
-        "vehicles": len(vehicles),
-        "incumbent_assignments": sum(1 for so in sos if so.get("current_vehicle_id")),
-        "vehicles_by_location": dict(sorted(by_location.items())),
+        "sales_orders": len(sos),
+        "orders": len(rows),  # vehicle order rows — the allocatable grain
+        "supply": len(supply),
+        "supply_by_kind": dict(sorted(by_kind.items())),
+        "incumbent_assignments": sum(1 for r in rows if r.get("current_supply_id")),
         "sales_models": meta.get("sales_models", []),
         "disruption": {
-            "pdn": disruption.get("pdn"),
+            "po": disruption.get("po"),
             "delay_days": disruption.get("delay_days"),
-            "delayed_vehicles": len(disruption.get("delayed_vehicles", [])),
+            "delayed_supply": len(disruption.get("delayed_supply", [])),
         },
         "disrupted_orders": len(disruption.get("disrupted_orders", [])),
         "disrupted_order_ids": disruption.get("disrupted_orders", []),

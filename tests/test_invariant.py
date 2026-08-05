@@ -41,7 +41,7 @@ STEER = LedgerEntry(
     turn=1,
     author="Olga",
     override={
-        "pins": [{"order": "SO-4000", "action": "defer", "not_before": "2026-09-21"}],
+        "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
         "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
         "lambda": 25,
         "ttl": None,

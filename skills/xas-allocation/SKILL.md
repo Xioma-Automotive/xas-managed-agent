@@ -26,27 +26,33 @@ before real dealer data).
 
 ## The data model (dates, XAS-shaped — DECIDE-7, `docs/xasdatamodel.md`)
 
-Supply-first: `PDN → Vehicle (pool)`, `Customer → SO`, allocation binds an SO
-line to a pool Vehicle. The pull is fabricated by `scenario_engine/` (outside
-the agent) and `xas_allocation.flatten` maps it — **pure code, no judgment** —
-into the three arrays the solver reads:
+Supply-first: `PO → PDN → Vehicle (pool)`, `Customer → SO`. A **Sales Order**
+(one customer) groups **vehicle order rows**; the **row** is the allocatable
+unit. Each row is allocated to a piece of **supply** that is one of two kinds: a
+concrete **Vehicle** (a VIN) or a **PO-line slot** (a future car, keyed
+`PO-model-row` e.g. `PO-150-1-5`). The pull is fabricated by `scenario_engine/`
+(outside the agent) and `xas_allocation.flatten` maps it — **pure code, no
+judgment** — into the three arrays the solver reads:
 
-- **`orders[]`** (SO lines): `order_id · customer · customer_id · sales_model ·
-  priority · promised_date · eta_date · price · n_prior_delays · days_backordered`
-- **`units[]`** (Vehicles): `vehicle_id · sales_model · planned_delivery_date ·
-  location_state · pdn · committed`
-- **`incumbent[]`**: `order_id → vehicle_id` (the current allocation)
+- **`orders[]`** (vehicle order rows): `order_id · so_id · customer ·
+  customer_id · sales_model · priority · promised_date · eta_date · price ·
+  n_prior_delays · days_backordered · times_rescheduled`
+- **`units[]`** (supply = vehicles ∪ PO-line slots): `vehicle_id · kind ·
+  sales_model · planned_delivery_date · location_state · po_ref · pdn · committed`
+- **`incumbent[]`**: `row_id → supply_id` (the current allocation)
 
 Everything is **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
-`planned_delivery_date` is the one field a disruption moves. `promised_date` is
-the commitment tardiness is measured against; `eta_date` is the originally-
-expected delivery (a discrepancy = the allocated vehicle now delivers past it).
+`planned_delivery_date` is the one field a disruption moves (a delayed PO slips
+every supply item under it — slots and vehicles). `promised_date` is the
+commitment tardiness is measured against; `eta_date` is the originally-expected
+delivery (a discrepancy = the allocated supply now delivers past it).
 
 **Eligibility (the sparse arc rule) — computed, never stored:** an arc
-`order → vehicle` exists iff `order.sales_model == vehicle.sales_model`. It is a
-hard equality, not a fuzzy match — there is no LLM spec-residual anymore.
-Lateness is **priced**, not forbidden, so a slightly-late vehicle can still be
-placed instead of backordering.
+`row → supply` exists iff `row.sales_model == supply.sales_model`. Hard equality,
+not a fuzzy match — no LLM spec-residual. The solver treats a Vehicle and a
+PO-line slot identically (both are capacity-1 supply with a date), so a row can
+be re-linked between them. Lateness is **priced**, not forbidden, so a slightly-
+late supply item can still be placed instead of backordering.
 
 ## The cost model (verbatim — §2)
 
@@ -178,19 +184,37 @@ carries a decision:
 
 Planner natural language → a typed override object (see
 `xas_allocation/overrides_schema.json`). Same inputs + same override →
-byte-identical plan. Your job is the **translation**: resolve "Colmobil" → its
-customer_id, "these orders" → real keys from the previous turn's change list,
-"next cycle" → a date. **Show the override object back to the planner
-before running.**
+byte-identical plan. This object is the **flexibility surface**: you handle *any*
+request by compiling it into `boosts` / `pins` / `forbid` / `lambda` / **`scope`**
+— never by special-casing in prose. Your job is the **translation**: resolve
+"Colmobil" → its customer_id, "these orders" → real keys from the previous turn's
+change list, "next cycle"/"August" → a date or date range. **Show the override
+object back to the planner before running.**
 
 Review gate:
 
-| Request                                             | Handling                          |
-|-----------------------------------------------------|-----------------------------------|
-| "delay SO-4471", "prefer Colmobil", "more churn"    | Runtime override. Instant, safe.  |
-| "never split a dealer's vehicles across weeks"      | New constraint → **PR with tests**, not a live mutation. |
+| Request                                                  | Handling                          |
+|----------------------------------------------------------|-----------------------------------|
+| "delay SO-4471", "prefer Colmobil", "more churn", "allocate all Colmobil for August", "just fix this delay" | Runtime override (weights / pins / **scope**). Instant, safe. |
+| "never split a dealer's vehicles across weeks"           | New **constraint** → **PR with tests**, not a live mutation. |
 
-The prompt moves weights and pins; a human moves the model.
+The prompt moves weights, pins, and scope; a human moves the model.
+
+### Scope — work a slice, keep fixes local (§6)
+
+`scope` is a general filter carried in the override:
+`{customers?, models?, po?, from_date?, to_date?}`. **When a scope is present it
+DEFINES the free set** — only rows matching *all* given dimensions may move;
+everything else stays pinned. One mechanism, two everyday jobs:
+
+- **Monthly / per-customer allocation:** "allocate all Colmobil orders for
+  August" → `scope {customers:["CUST-001"], from_date:"2026-08-01",
+  to_date:"2026-08-31"}`, then solve the slice.
+- **Localized fix:** to fix one delay "without disrupting everything else",
+  scope narrowly (a customer, a PO, a short window). Repair-not-rebuild already
+  pins the rest; scope makes the bound explicit and auditable.
+
+With no scope, the free set is the disrupted rows (the default repair).
 
 ## The override ledger (§7)
 
