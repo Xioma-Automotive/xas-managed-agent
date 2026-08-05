@@ -55,8 +55,15 @@ def fence_of(order: Order, now: date) -> str:
 def effective_weight(order: Order, boosts: dict[str, float]) -> float:
     """W(o) per §2, with DECIDE-1 controlling how back-order aging enters.
 
+    Two escalation terms ride the priority weight: ``n_prior_delays`` (supply-side
+    history, α) and ``times_rescheduled`` (reschedules OUR repair loop caused, γ —
+    DECIDE-11). The latter makes an already-bumped order heavier, so the solver
+    protects it from being delayed *again* and picks someone else to absorb the
+    next slip — the fairness lever, not a new hard constraint.
+
     boosts maps customer_id -> multiplier (from ledger override 'boosts')."""
-    w = D.PRIORITY_WEIGHT[order.priority] * (1 + D.ALPHA * order.n_prior_delays)
+    escalation = 1 + D.ALPHA * order.n_prior_delays + D.GAMMA * order.times_rescheduled
+    w = D.PRIORITY_WEIGHT[order.priority] * escalation
     if D.AGING_MODE == "multiplicative":
         w *= 1 + D.BETA * order.days_backordered
     else:  # additive (default)

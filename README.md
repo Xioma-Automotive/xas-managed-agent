@@ -172,6 +172,7 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) |
 | 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION` |
 | 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |
+| 11 | Reschedule fairness (`times_rescheduled`) | `γ=0.75` escalation on W(o) — protect an already-bumped order from being delayed again |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

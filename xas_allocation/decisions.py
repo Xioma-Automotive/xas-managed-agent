@@ -133,6 +133,19 @@ DECISIONS: list[Decision] = [
             "term in the sparse-arc eligibility rule."
         ),
     ),
+    Decision(
+        key="DECIDE-11",
+        title="Reschedule fairness: how hard to protect an already-bumped order",
+        default="GAMMA = 0.75 escalation on W(o) per times_rescheduled",
+        rationale=(
+            "times_rescheduled counts reschedules OUR repair loop caused (distinct from "
+            "supply-side n_prior_delays). Folding it into the weight escalation makes a "
+            "repeatedly-bumped order heavier, so the solver protects it from being delayed "
+            "again and spreads the pain instead of hitting the same dealer every cycle. GAMMA "
+            "tunes the strength; 0 disables it. In production the field is incremented on "
+            "approved write-back and re-pulled, never mutated mid-session (the invariant)."
+        ),
+    ),
 ]
 
 
@@ -164,7 +177,8 @@ SOLVER_VERSION = "0.2.0-prototype"
 
 # Cost-model coefficients (§2). Fixed formula, tunable coefficients.
 CONVEX_EXPONENT = 1.5  # >1 so lateness never dumps entirely on one order
-ALPHA = 0.5  # prior-delay escalation:  (1 + ALPHA * n_prior_delays)
+ALPHA = 0.5  # supply-side prior-delay escalation: (1 + ALPHA * n_prior_delays)
+GAMMA = 0.75  # DECIDE-11 reschedule-fairness escalation: (+ GAMMA * times_rescheduled)
 BETA = 0.1  # back-order aging per day (see AGING_MODE)
 
 # The lambda sweep (§2, "highest-value output").

@@ -53,7 +53,7 @@ placed instead of backordering.
 ```
 cost(o → u) = W(o) · tardiness_days(o,u)^1.5  +  λ(fence) · [date(u) ≠ promised_date(o)]
 
-W(o) = priority · (1 + α · n_prior_delays)   [+ β·days_backordered]
+W(o) = priority · (1 + α·n_prior_delays + γ·times_rescheduled)   [+ β·days_backordered]
 ```
 
 Encodings — every business factor maps to exactly one lever:
@@ -61,7 +61,8 @@ Encodings — every business factor maps to exactly one lever:
 | Factor            | Encoding                                            |
 |-------------------|-----------------------------------------------------|
 | customer priority | multiplicative weight on W                           |
-| delayed before    | `(1 + α·n_prior_delays)` multiplier — escalating     |
+| delayed before (supply) | `α·n_prior_delays` escalation on W            |
+| bumped by us before | `γ·times_rescheduled` escalation on W (DECIDE-11) — fairness: protects an already-rescheduled order from being delayed *again* |
 | back-order aging   | `β · days_backordered` (DECIDE-1: additive default) |
 | don't recall      | HARD pin — vehicle removed from choice, no cost     |
 | minimal changes   | `λ` step penalty on changed-date arcs               |

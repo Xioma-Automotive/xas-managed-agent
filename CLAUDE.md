@@ -91,7 +91,7 @@ is the right place for it, since the sandbox never sees this process.
 
 ## Open decisions
 
-`DECIDE-1..10` are stubbed defaults, not settled answers. Run
+`DECIDE-1..11` are stubbed defaults, not settled answers. Run
 `uv run python -m xas_allocation.decisions` for the live list. The big ones for
 anyone touching this: DECIDE-7 (no real XAS API — `scenario_engine/` fabricates
 PDN/Vehicle/SO data shaped per `docs/xasdatamodel.md`), DECIDE-3 (which

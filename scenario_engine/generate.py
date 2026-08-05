@@ -109,6 +109,9 @@ def generate(
                 "days_backordered": rng.choices(
                     [0, 0, 0, 7, 14, 30], weights=[50, 15, 10, 12, 8, 5]
                 )[0],
+                # Reschedules our repair loop caused in prior cycles (DECIDE-11).
+                # Mostly none; some dealers already bumped once or twice.
+                "times_rescheduled": rng.choices([0, 1, 2], weights=[75, 18, 7])[0],
                 "current_vehicle_id": "",  # filled after we build the incumbent vehicle
             }
         )

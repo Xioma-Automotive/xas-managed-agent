@@ -217,6 +217,8 @@ def _order_reasons(o: Order, ledger: Ledger, current_date: date, boosts: dict) -
     bits = [f"priority {o.priority}"]
     if o.n_prior_delays:
         bits.append(f"delayed {o.n_prior_delays}× before")
+    if o.times_rescheduled:
+        bits.append(f"rescheduled {o.times_rescheduled}× by us — protected")
     if o.days_backordered:
         bits.append(f"back-ordered {o.days_backordered}d")
     if o.customer_id in boosts and boosts[o.customer_id] != 1.0:

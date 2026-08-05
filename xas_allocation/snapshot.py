@@ -65,8 +65,9 @@ class Order:
     promised_date: date  # customer commitment; tardiness is measured against it
     eta_date: date  # originally-expected delivery, frozen at allocation
     price: float  # display-only (not a cost-model input, for now)
-    n_prior_delays: int
+    n_prior_delays: int  # supply-chain delays before us (escalates weight, §2)
     days_backordered: int
+    times_rescheduled: int = 0  # reschedules OUR repair loop caused — fairness (DECIDE-11)
 
     def to_dict(self) -> dict:
         return {
@@ -80,6 +81,7 @@ class Order:
             "price": self.price,
             "n_prior_delays": self.n_prior_delays,
             "days_backordered": self.days_backordered,
+            "times_rescheduled": self.times_rescheduled,
         }
 
     @classmethod
@@ -95,6 +97,7 @@ class Order:
             price=float(d.get("price", 0.0)),
             n_prior_delays=int(d.get("n_prior_delays", 0)),
             days_backordered=int(d.get("days_backordered", 0)),
+            times_rescheduled=int(d.get("times_rescheduled", 0)),
         )
 
 

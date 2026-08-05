@@ -51,6 +51,7 @@ def flatten(rich: dict) -> Snapshot:
                 "price": so.get("price", 0.0),
                 "n_prior_delays": so.get("n_prior_delays", 0),
                 "days_backordered": so.get("days_backordered", 0),
+                "times_rescheduled": so.get("times_rescheduled", 0),
             }
         )
         for so in rich["sos"]
