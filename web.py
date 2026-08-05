@@ -149,25 +149,34 @@ async def _interrupt(session_id: str) -> None:
     )
 
 
-async def _stop(session_id: str) -> None:
-    """Interrupt the agent, end the session, drop its tool-answering task.
-
-    Both API calls are allowed to fail: a session that already terminated on its
-    own rejects them, and that is the ordinary case rather than an error.
+async def _detach(session_id: str) -> None:
+    """Pause a session without ending it: interrupt its current run and drop our
+    tool-answering task, but do NOT archive it — so it stays continuable and the
+    planner can switch back to it from the sidebar. Only the active session's
+    pulls are answered; that is the one-at-a-time design, unchanged.
     """
     global _answering
     try:
         await _interrupt(session_id)
-    except APIError as e:  # already terminated, or never started
+    except APIError as e:  # already terminated, or idle with nothing to interrupt
         log.info("interrupt on %s: %s", session_id, e)
-    try:
-        await client.beta.sessions.archive(session_id)
-    except APIError as e:
-        log.info("archive on %s: %s", session_id, e)
     if _answering:
         _answering.cancel()
         await asyncio.gather(_answering, return_exceptions=True)
         _answering = None
+
+
+async def _stop(session_id: str) -> None:
+    """Interrupt the agent, end (archive) the session, drop its tool-answering task.
+
+    Both API calls are allowed to fail: a session that already terminated on its
+    own rejects them, and that is the ordinary case rather than an error.
+    """
+    await _detach(session_id)
+    try:
+        await client.beta.sessions.archive(session_id)
+    except APIError as e:
+        log.info("archive on %s: %s", session_id, e)
 
 
 def _render(event) -> dict | None:
@@ -256,8 +265,10 @@ async def new_session(body: NewSession) -> dict:
     async with _lock:
         previous = None
         if _active:
+            # Detach, don't archive — the previous session stays in the sidebar
+            # and the planner can switch back to it.
             previous, _active = _active, None
-            await _stop(previous)
+            await _detach(previous)
 
         session = await client.beta.sessions.create(
             agent={
@@ -275,6 +286,27 @@ async def new_session(body: NewSession) -> dict:
 
     log.info("session %s started (%s)", session.id, MODELS[body.model]["id"])
     return {"id": session.id, "model": body.model, "stopped": previous}
+
+
+@app.post("/session/{session_id}/activate")
+async def activate(session_id: str) -> dict:
+    """Switch the active session — the one whose pulls we answer and messages reach.
+
+    Detaches the current session's tool runner (without archiving it) and attaches
+    one to the selected session, so the planner can pick an earlier conversation
+    back up from the sidebar. Idempotent when it is already active.
+    """
+    _require_config()
+    global _active, _answering
+    async with _lock:
+        if _active == session_id:
+            return {"active": _active}
+        if _active:
+            await _detach(_active)
+        _active = session_id
+        _answering = asyncio.create_task(_answer_custom_tools(session_id))
+    log.info("activated session %s", session_id)
+    return {"active": _active}
 
 
 @app.post("/session/interrupt")
