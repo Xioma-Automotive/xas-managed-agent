@@ -76,11 +76,71 @@ tests**, never as live-session code.
    replay (§7), run the **λ sweep**.
 5. **Self-check hard constraints:** no frozen/committed unit moved, no spec
    violation, every order has exactly one unit (or a surfaced backorder).
-6. **Emit a reason-coded change list** — not a bare new plan. Each line:
-   `order 4471: W32 → W34 (promised W33, 1w late); unit 9a→9b; priority A,
-   delayed 1× before`. This is the hard part — spend the effort here.
+6. **Emit a reason-coded change list** — not a bare new plan. This is the hard
+   part; spend the effort here. The internal line carries everything
+   (`order 4471: W32 → W34 (promised W33, 1w late); unit 9a→9b; priority A,
+   delayed 1× before`) — but that is the *source*, not the reply. Render it for
+   the planner per **Planner-facing output** below.
 7. Human approves → write back via MCP (approval-gated). Steering → append a new
    ledger entry → back to step 4.
+
+## Planner-facing output — the reply the planner reads
+
+The planner is a dealer-allocation scheduler, not an engineer. The reply's job
+is to let them answer "did my instruction land, what moved, and what still needs
+my attention" at a glance. Write **outcomes in business terms**; keep the
+machinery in the sandbox.
+
+**Lead with the outcome, in one or two lines.** What the instruction did (or
+didn't do) and the headline: how many orders moved, how many are still late.
+Answer the question they actually asked *first* — if they said "prefer Colmobil",
+the first fact is what happened to Colmobil.
+
+**Then a change summary — this is mandatory, never dropped.** The reason-coded
+change list is the deliverable. Trimming jargon must never mean omitting the
+allocation changes. Render every changed order as a table, in plain columns:
+
+| Order | Dealer (priority) | Was arriving | Now arrives | Promised | Result |
+|-------|-------------------|--------------|-------------|----------|--------|
+| 4001  | Colmobil (A)      | W41          | **W38**     | W38      | ✅ on time |
+
+Then a second table for orders **still late / unfilled** under a "needs your
+call" heading — these are the decisions the planner owns. Close with the count
+of unchanged orders (e.g. "The other 112 orders are unchanged") so nothing is
+silently hidden. Sort changed orders most-improved first; put the priority-A
+dealers and the order named in the instruction where they're easy to find.
+
+**Surface the one thing they'd miss.** If the steering barely mattered (the
+boosted dealer had one order in play), if a high-priority order is still late, if
+a pin cost extra changes — say so in a single plain sentence. Don't bury it under
+the table.
+
+**Weeks:** show as `W38` (or `2026-W38`), consistently. **Late:** say "2 wks
+late", not a tardiness number. **End** with the natural next steering options in
+the planner's words ("defer the late Delek order", "protect Colmobil next
+cycle") — not internal levers.
+
+### Stays internal — never in the planner reply
+
+Compute it, rely on it, but do **not** print it unless the planner asks or it
+carries a decision:
+
+- **The override JSON**, `customer_id`s (`CUST-001`), `weight_mult`, the ledger,
+  "replay", "seed", "reproducible", "turn N". Confirm the *translation* in plain
+  words ("prioritizing Colmobil over the other dealers") before running — not the
+  raw object.
+- **The λ sweep table when it's flat.** §2 keeps the sweep as the high-value
+  computation, but a frontier where every row is identical is noise — collapse it
+  to one sentence ("churn/lateness didn't trade off this cycle"). Show the table
+  only when the rows genuinely differ and the planner has a point to pick.
+- **Self-check field dumps** (`every_order_placed`, `unfilled_count`,
+  double-booked). Report it as one word — "checks passed" — or, on a violation,
+  the plain-English violation only.
+- **Unit IDs** (`9001→9169`), node indices, objective-in-micros, solver status.
+  A unit swap is real, but the ID means nothing to a planner; mention a physical
+  unit only if they track VINs, and never in the headline.
+- **Internal vocabulary:** λ, Pareto frontier, weighted late-days, slushy/frozen
+  fence, incumbent, mid-frontier default, arc, min-cost flow. Translate or omit.
 
 ## Steering contract (§6) — prompt compiles to parameters, NEVER code
 
