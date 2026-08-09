@@ -185,6 +185,8 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | 11 | Reschedule fairness (`times_rescheduled`) | `γ=0.75` escalation on W(o) — protect an already-bumped order from being delayed again |
 | 12 | PO-line slot committed-ness | a slot is `location_state='future'` → never committed until it explodes into vehicles |
 | 13 | Bumping an untouched order | never without explicit planner authorization (the `bump` override); the agent asks who may be bumped |
+| 14 | Time-scale granularity | planner knob `time_scale` (days/weeks/months); day-gaps rounded **up** to whole units; fence stays in days; default days |
+| 15 | Earliness penalty | `EARLY_WEIGHT=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

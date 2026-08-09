@@ -103,9 +103,12 @@ XAS endpoint and its credential never touch the sandbox.
 
 ## Open decisions
 
-`DECIDE-1..13` are stubbed defaults, not settled answers. Run
+`DECIDE-1..15` are stubbed defaults, not settled answers. Run
 `uv run python -m xas_allocation.decisions` for the live list. The big ones for
-anyone touching this: DECIDE-7 (no real XAS API yet — the pull is a callable
+anyone touching this: DECIDE-14 (`time_scale` knob — the solver reasons at
+days/weeks/months, rounding gaps UP; changes the plan, fence stays in days),
+DECIDE-15 (earliness is priced — linear + small so lateness dominates; a car
+months-early is not a win), DECIDE-7 (no real XAS API yet — the pull is a callable
 `datasource.py`, the `scenario_engine/` fake by default, real XAS by config,
 shaped per `docs/xasdatamodel.md`), DECIDE-3 (which
 `location_state` counts as committed), DECIDE-9 (the solver lives in-repo; it

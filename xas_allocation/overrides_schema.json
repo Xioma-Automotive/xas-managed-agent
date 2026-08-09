@@ -91,6 +91,11 @@
         "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
         "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
       }
+    },
+    "time_scale": {
+      "description": "Resolution the solver reasons at and the report speaks in (DECIDE-14). 'days' (default) = exact; 'weeks'/'months' round every gap UP to whole units, so the solver stops distinguishing differences finer than a unit (a coarser, calmer plan) and durations read in that unit. Changes the plan, not just the wording. The hard time fence stays in days regardless.",
+      "type": "string",
+      "enum": ["days", "weeks", "months"]
     }
   }
 }

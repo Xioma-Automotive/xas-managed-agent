@@ -35,6 +35,7 @@ from .solver import (
     lambda_sweep,
     partition,
     repairability,
+    scale_units,
     solve,
     tardiness,
 )
@@ -97,11 +98,15 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
     return out
 
 
-def discrepancy_report(snapshot: Snapshot) -> str:
-    """Turn-1 planner-facing map: what broke, split into fixable vs locked-in."""
+def discrepancy_report(snapshot: Snapshot, override: dict | None = None) -> str:
+    """Turn-1 planner-facing map: what broke, split into fixable vs locked-in.
+
+    ``override`` is optional and used only to speak durations in the active
+    time-scale (DECIDE-14); the discrepancy set itself is scale-independent."""
     discs = find_discrepancies(snapshot)
     if not discs:
         return "No orders are late — every allocated car still meets its promised date."
+    scale, unit_days = _scale_of(override)
     d = snapshot.disruption
     stuck = [x for x in discs if not x.fixable]
     movable = [x for x in discs if x.fixable]
@@ -121,7 +126,7 @@ def discrepancy_report(snapshot: Snapshot) -> str:
             why = "locked in (near delivery)" if x.reason == "frozen" else "already in final prep"
             lines.append(
                 f"| {x.order_id} | {x.customer} ({x.priority}) | {date_label(x.promised)} | "
-                f"{date_label(x.now_arriving)} | {x.days_late} days | {why} |"
+                f"{date_label(x.now_arriving)} | {_dur(x.days_late, scale, unit_days)} | {why} |"
             )
     if movable:
         lines.append(
@@ -132,7 +137,7 @@ def discrepancy_report(snapshot: Snapshot) -> str:
         for x in movable:
             lines.append(
                 f"| {x.order_id} | {x.customer} ({x.priority}) | {date_label(x.promised)} | "
-                f"{date_label(x.now_arriving)} | {x.days_late} days |"
+                f"{date_label(x.now_arriving)} | {_dur(x.days_late, scale, unit_days)} |"
             )
     return "\n".join(lines)
 
@@ -327,7 +332,27 @@ def _order_reasons(o: Order, boosts: dict) -> str:
 
 # --- Planner-facing report (the finished reply) ------------------------------
 
-EARLY_FLAG_DAYS = 14  # only call out earliness beyond this, so it isn't oversold
+# The solver PRICES all earliness (DECIDE-15); the report only *mentions* it when
+# it's notable, so a couple of days early isn't nagged about. Display threshold,
+# not a solver knob.
+EARLY_FLAG_DAYS = 14
+
+_UNIT_LABEL = {"days": "day", "weeks": "week", "months": "month"}
+
+
+def _scale_of(override: dict | None) -> tuple[str, int]:
+    """Active time-scale (name, days-per-unit) from the override (DECIDE-14)."""
+    scale = (override or {}).get("time_scale") or D.DEFAULT_TIME_SCALE
+    return scale, D.SCALE_DAYS.get(scale, D.SCALE_DAYS[D.DEFAULT_TIME_SCALE])
+
+
+def _dur(days: int, scale: str, unit_days: int) -> str:
+    """A duration rendered in the active unit, rounding up (DECIDE-14)."""
+    if unit_days <= 1:
+        return f"{days} day" + ("" if days == 1 else "s")
+    n = scale_units(days, unit_days)
+    label = _UNIT_LABEL.get(scale, "unit")
+    return f"{n} {label}" + ("" if n == 1 else "s")
 
 
 def _cid_to_name(snapshot: Snapshot) -> dict[str, str]:
@@ -366,12 +391,16 @@ def _steering_summary(override: dict, cid_to_name: dict[str, str]) -> str:
     return "; ".join(parts) if parts else "default repair"
 
 
-def _result_phrase(order: Order, unit) -> str:
+def _result_phrase(order: Order, unit, scale: str, unit_days: int) -> str:
     late = tardiness(order, unit)
     if late > 0:
-        return f"{late} days late"
+        return f"{_dur(late, scale, unit_days)} late"
     early = (order.promised_date - unit.planned_delivery_date).days
-    return f"on time ({early} days early)" if early > EARLY_FLAG_DAYS else "on time"
+    if early > EARLY_FLAG_DAYS:
+        return (
+            f"on time, but {_dur(early, scale, unit_days)} early (ties a car up sooner than needed)"
+        )
+    return "on time"
 
 
 def _why_late(reason: str) -> str:
@@ -392,6 +421,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     incumbent = snapshot.incumbent
     disrupted = set(snapshot.disruption.get("disrupted_orders", []))
     cid_to_name = _cid_to_name(snapshot)
+    scale, unit_days = _scale_of(override)
     plan = result.plan
 
     broken = [
@@ -439,7 +469,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
             was = date_label(units[old].planned_delivery_date) if old else "—"
             kind = "slot" if u.kind == "po_line" else "car"
             alloc = f"`{new}` [{kind}]" + (f" (was `{old}`)" if old else "")
-            res = _result_phrase(o, u)
+            res = _result_phrase(o, u, scale, unit_days)
             if old is not None and oid not in disrupted:
                 res += " — **bumped**"
             lines.append(
@@ -458,7 +488,8 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
             o, u = orders[oid], units[plan[oid]]
             lines.append(
                 f"| {oid} | {o.customer} ({o.priority}) | {date_label(u.planned_delivery_date)} "
-                f"| {date_label(o.promised_date)} | {tardiness(o, u)} days | {_why_late(r)} |"
+                f"| {date_label(o.promised_date)} | {_dur(tardiness(o, u), scale, unit_days)} "
+                f"| {_why_late(r)} |"
             )
         for oid in result.unfilled:
             o = orders[oid]
@@ -540,6 +571,15 @@ def main() -> None:
 
     print("\n" + "=" * 70 + "\nTURN 3 — steer: also scope to that one dealer\n" + "=" * 70)
     override["scope"] = {"customers": [fav.customer_id]}
+    print(repair_and_report(snap, override))
+
+    print(
+        "\n"
+        + "=" * 70
+        + "\nTURN 4 — steer: think in weeks (durations coarsen to the unit)\n"
+        + "=" * 70
+    )
+    override["time_scale"] = "weeks"
     print(repair_and_report(snap, override))
 
     print(

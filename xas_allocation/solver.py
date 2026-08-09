@@ -77,6 +77,28 @@ def tardiness(order: Order, unit: Unit) -> int:
     return days_late(unit.planned_delivery_date, order.promised_date)
 
 
+def earliness(order: Order, unit: Unit) -> int:
+    """Days early = how far the delivery lands before the promise (0 if on/after)."""
+    return max(0, (order.promised_date - unit.planned_delivery_date).days)
+
+
+def scale_units(days: int, unit_days: int) -> int:
+    """Round a non-negative day count UP to whole time-scale units (DECIDE-14).
+
+    unit_days=1 (day scale) is the identity, so day-scale behaviour is unchanged.
+    Round-up ('bill by the week'): 1..unit_days days => 1 unit, so any nonzero gap
+    is at least one unit and a coarse scale never under-states a gap."""
+    if days <= 0:
+        return 0
+    return (days + unit_days - 1) // unit_days
+
+
+def unit_days_of(override: dict) -> int:
+    """Map the override's time_scale to nominal days-per-unit (DECIDE-14)."""
+    scale = (override or {}).get("time_scale") or D.DEFAULT_TIME_SCALE
+    return D.SCALE_DAYS.get(scale, D.SCALE_DAYS[D.DEFAULT_TIME_SCALE])
+
+
 def arc_cost_float(
     order: Order,
     unit: Unit,
@@ -84,13 +106,31 @@ def arc_cost_float(
     now: date,
     boosts: dict[str, float],
     not_before: date | None,
+    unit_days: int = 1,
 ) -> float:
-    """§2 cost for one order->unit arc, in float space (scaled to int later)."""
-    late = tardiness(order, unit)
-    cost = effective_weight(order, boosts) * (late**D.CONVEX_EXPONENT)
+    """§2 cost for one order->unit arc, in float space (scaled to int later).
+
+    Two time-aware pieces layer in here (DECIDE-14 / DECIDE-15) without colliding:
+      * every day-gap is quantized to whole units by ``unit_days`` (round up), so
+        the solver reasons at the planner's scale; at day scale this is a no-op;
+      * a gentle LINEAR earliness term discourages needlessly-early cars, small
+        enough that the convex lateness term always wins for comparable gaps."""
+    w = effective_weight(order, boosts)
+
+    # Lateness (convex) — the dominant term, measured in units.
+    late_units = scale_units(tardiness(order, unit), unit_days)
+    cost = w * (late_units**D.CONVEX_EXPONENT)
+
+    # Earliness (linear, small) — a car that lands too early ties up inventory.
+    early_units = scale_units(earliness(order, unit), unit_days)
+    if early_units:
+        cost += D.EARLY_WEIGHT * w * early_units
 
     # λ additive term, gated by the fence (liquid => free to change the date).
-    if unit.planned_delivery_date != order.promised_date and fence_of(order, now) == "slushy":
+    # "Changed" means the delivery differs from the promise by at least one unit,
+    # so a within-unit shuffle isn't counted as churn at a coarse scale.
+    gap_days = abs((unit.planned_delivery_date - order.promised_date).days)
+    if gap_days >= unit_days and fence_of(order, now) == "slushy":
         cost += lam
 
     # Soft instruction pin: 'defer'/not_before violated by an early arrival.
@@ -135,6 +175,7 @@ class RepairPlan:
     lam_default: int | None  # override-supplied λ (sweep still explores all)
     not_before: dict[str, date]  # order_id -> earliest allowed delivery date
     forbid_no_move: set[str]  # orders explicitly pinned by instruction
+    unit_days: int  # DECIDE-14 time-scale resolution (days per unit; 1 = day scale)
 
 
 def _combined_boosts(override: dict) -> dict[str, float]:
@@ -265,6 +306,7 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
         lam_default=lam_default,
         not_before=not_before,
         forbid_no_move=forbid_no_move,
+        unit_days=unit_days_of(override),
     )
 
 
@@ -318,7 +360,7 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
             u = units[uid]
             if not eligible(o, u):
                 continue  # incompatible -> no arc (keeps graph sparse, §4)
-            c = arc_cost_float(o, u, lam, snapshot.now, rp.boosts, nb)
+            c = arc_cost_float(o, u, lam, snapshot.now, rp.boosts, nb, rp.unit_days)
             smcf.add_arc_with_capacity_and_unit_cost(
                 order_pos[oid], unit_pos[uid], 1, round(c * COST_SCALE)
             )

@@ -82,7 +82,8 @@ Flattening the pull into the snapshot is pure code (eligibility is a hard sales_
 Hard rules (never violate)
 
 The plan comes from the solver, not from you.
-You are flexible by TRANSLATING any planner request into the typed override object (weights, pins, and scope), never by special-casing in prose — the object is the flexibility surface; the solver decides. A new CONSTRAINT is a model change — a reviewed PR with tests, never a live-session mutation. "Scope" (work only a customer / month / PO slice) is a runtime override, not a constraint.
+You are flexible by TRANSLATING any planner request into the typed override object (weights, pins, scope, and time_scale), never by special-casing in prose — the object is the flexibility surface; the solver decides. A new CONSTRAINT is a model change — a reviewed PR with tests, never a live-session mutation. "Scope" (work only a customer / month / PO slice) is a runtime override, not a constraint. "time_scale" (days/weeks/months) sets the resolution the solver reasons at — "just get the month roughly right" → months, "hit the exact dates" → days; it changes the plan, not just the wording.
+Do NOT hand-pick early cars or praise early delivery: arriving too early is already priced by the solver (a gentle penalty), so lateness dominates but a car that lands months early is not a win. Report earliness as a mild caveat, never a ✅ prize.
 Never move a frozen-fence order or a committed (bonded/pdi) vehicle.
 Never BUMP an order the disruption didn't touch unless the planner has explicitly authorized who may be bumped. If a good fix needs it, list the candidates (session.bump_candidates) and ASK; compile the answer into the `bump` override. No uninvited displacements.
 Write back to XAS only on explicit human approval.

@@ -164,6 +164,34 @@ DECISIONS: list[Decision] = [
         ),
     ),
     Decision(
+        key="DECIDE-14",
+        title="Time-scale granularity: the resolution the solver reasons at",
+        default="planner knob time_scale (days|weeks|months); round day-deltas UP; default days",
+        rationale=(
+            "A planner works at different horizons. time_scale sets the unit the solver "
+            "measures every gap in: day-deltas are rounded UP to whole units (ceil) before "
+            "costing, so differences finer than a unit collapse and coarser scales stop "
+            "fussing over a few days. Round-up is strict — any lateness is at least one unit, "
+            "so a coarse view never under-states lateness. The hard time fence (DECIDE-2) and "
+            "committed (DECIDE-3) stay in real days — they are physical, not a reasoning lens. "
+            "month = 30 days nominal (delta rounding, not calendar months). Default 'days' = "
+            "today's behaviour exactly. SCALE_DAYS / DEFAULT_TIME_SCALE."
+        ),
+    ),
+    Decision(
+        key="DECIDE-15",
+        title="Earliness penalty: how hard to discourage arriving too early",
+        default="EARLY_WEIGHT = 0.15, linear; extreme earliness may lose to slight lateness (uncapped)",
+        rationale=(
+            "Only lateness used to be priced, so the solver grabbed wildly-early cars and sold "
+            "them as wins. A linear, small early-side term (EARLY_WEIGHT · W(o) · early_units) "
+            "makes a little early cheap and a lot early costly, while the convex lateness term "
+            "always dominates for comparable magnitudes. Uncapped: a car months early CAN cost "
+            "more than one a day late (tying a car up for months is real waste) — a documented "
+            "crossover, not a bug. Earliness only; lateness stays strict (no late-side grace)."
+        ),
+    ),
+    Decision(
         key="DECIDE-11",
         title="Reschedule fairness: how hard to protect an already-bumped order",
         default="GAMMA = 0.75 escalation on W(o) per times_rescheduled",
@@ -210,6 +238,19 @@ CONVEX_EXPONENT = 1.5  # >1 so lateness never dumps entirely on one order
 ALPHA = 0.5  # supply-side prior-delay escalation: (1 + ALPHA * n_prior_delays)
 GAMMA = 0.75  # DECIDE-11 reschedule-fairness escalation: (+ GAMMA * times_rescheduled)
 BETA = 0.1  # back-order aging per day (see AGING_MODE)
+
+# DECIDE-15  earliness: price early arrivals so the solver stops grabbing
+# needlessly-early cars. LINEAR and small, so the convex lateness term always
+# dominates (a late car is never chosen over an on-time one to avoid earliness).
+# A little early costs almost nothing; a lot early costs real money.
+EARLY_WEIGHT = 0.15
+
+# DECIDE-14  time-scale granularity: the resolution the solver reasons at. Day
+# gaps (early/late) are rounded UP to whole units before costing, so differences
+# finer than a unit collapse. Nominal days-per-unit — month = 30d nominal, NOT
+# calendar months (we round day-deltas, never snap to a calendar boundary).
+SCALE_DAYS: dict[str, int] = {"days": 1, "weeks": 7, "months": 30}
+DEFAULT_TIME_SCALE = "days"  # no behaviour change unless the planner asks
 
 # The lambda sweep (§2, "highest-value output").
 LAMBDA_SWEEP = (0, 5, 10, 25, 50, 100)

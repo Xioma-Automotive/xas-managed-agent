@@ -61,8 +61,10 @@ late supply item can still be placed instead of backordering.
 ## The cost model (verbatim — §2)
 
 ```
-cost(o → u) = W(o) · tardiness_days(o,u)^1.5  +  λ(fence) · [date(u) ≠ promised_date(o)]
+cost(o → u) = W(o) · late_units^1.5  +  EARLY_WEIGHT · W(o) · early_units
+              +  λ(fence) · [delivery differs from promise by ≥ 1 unit]
 
+late_units / early_units = the day-gap rounded UP to whole time_scale units
 W(o) = priority · (1 + α·n_prior_delays + γ·times_rescheduled)   [+ β·days_backordered]
 ```
 
@@ -77,12 +79,15 @@ Encodings — every business factor maps to exactly one lever:
 | don't recall      | HARD pin — vehicle removed from choice, no cost     |
 | minimal changes   | `λ` step penalty on changed-date arcs               |
 | convex lateness   | exponent `1.5` so delay never dumps on one order    |
+| **arriving too early** | **`EARLY_WEIGHT·W·early_units` (DECIDE-15) — linear + small, so lateness always dominates; a little early is cheap, a lot early is costly. Lateness is NOT softened.** |
 | time fence        | frozen / slushy / liquid → `λ` varies by horizon    |
+| **time resolution** | **`time_scale` (DECIDE-14) rounds every gap UP to days/weeks/months, so the solver ignores sub-unit differences. Planner knob; default days = exact.** |
 
 Term placement matters: priority / prior-delays / aging build the **weight**
-`W(o)`; the convex exponent shapes the **lateness term**; `λ` is a **separate
-additive term**, untouched by weight escalation. `λ` is per-arc linear — the
-problem stays a pure linear min-cost flow.
+`W(o)`; the convex exponent shapes the **lateness term**; the earliness term is a
+separate, gentle, *linear* add-on; `λ` is a **separate additive term**, untouched
+by weight escalation. `λ` is per-arc linear — the problem stays a pure linear
+min-cost flow.
 
 **The λ sweep is the highest-value output.** Re-solve for λ ∈ {0,5,10,25,50,100}
 (same network, only some arc costs change) and hand the planner a Pareto frontier
@@ -215,10 +220,19 @@ Planner natural language → a typed override object (see
 `xas_allocation/overrides_schema.json`). Same inputs + same override →
 byte-identical plan. This object is the **flexibility surface**: you handle *any*
 request by compiling it into `boosts` / `pins` / `forbid` / `lambda` / **`scope`**
-— never by special-casing in prose. Your job is the **translation**: resolve
-"Colmobil" → its customer_id, "these orders" → real keys from the previous turn's
-change list, "next cycle"/"August" → a date or date range. **Show the override
-object back to the planner before running.**
+/ **`time_scale`** — never by special-casing in prose. Your job is the
+**translation**: resolve "Colmobil" → its customer_id, "these orders" → real keys
+from the previous turn's change list, "next cycle"/"August" → a date or date
+range, "just get the month roughly right" → `time_scale: months`, "hit the exact
+dates" → `time_scale: days`. **Show the override object back to the planner before
+running.**
+
+`time_scale` (DECIDE-14) sets the resolution the solver reasons at — coarser
+scales round every gap up to whole weeks/months and stop distinguishing smaller
+differences, so the plan itself gets calmer (and durations read in that unit). It
+changes the plan, not just the wording; the hard time fence stays in days. There
+is no separate "how early is OK" knob — the earliness term (DECIDE-15) is always
+on and gentle, and a coarse `time_scale` already absorbs sub-unit earliness.
 
 Review gate:
 
