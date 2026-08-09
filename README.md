@@ -16,6 +16,7 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-opus-5`.
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
 | `skills/xas-allocation/SKILL.md` | — | The skill: cost model, procedure, steering contract. |
+| `COMMANDS.md` | — | Every runnable command with its parameters — data generation knobs, the test gate, deploy, the typical loops. |
 
 The split is **control** (create the agent and environment once — persistent,
 versioned resources referenced by ID forever after) and **run** (open a session
@@ -61,7 +62,7 @@ before real dealer data (DECIDE-9).
 
 | Module | Deliverable | Role |
 | ------ | ----------- | ---- |
-| `decisions.py`   | —      | Every `DECIDE-1..10` stub + its labelled default, surfaced at runtime. |
+| `decisions.py`   | —      | Every `DECIDE-1..15` stub + its labelled default, surfaced at runtime. |
 | `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/units/incumbent`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure rich-pull → snapshot mapping (the "flatten + freeze" hop). Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, data/instruction pins (§5), the **λ sweep**, deterministic read-back. Also `repairability()` — is a broken order even re-slottable, or locked in? |
@@ -69,7 +70,7 @@ before real dealer data (DECIDE-9).
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
 | `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the rich PO→PDN→Vehicle / SO-with-rows dataset (good → disrupted). |
 | `../datasource.py`      | —     | **Host-side pull interface** (DECIDE-7): `ScenarioEngineSource` (the fake, default) / `XASApiSource` (real, stubbed), selected by `XAS_DATA_SOURCE`. `web.py` calls it and mounts the result into the sandbox. |
-| `tests/test_invariant.py` | §11.7 | Determinism invariant: same plan across two runs **and** across sandbox discard. |
+| `../tests/`      | §11.7  | 50 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, reschedule fairness, scope, time-scale, report, datasource). |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
 contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
@@ -81,8 +82,14 @@ uv sync
 uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
 uv run python -m xas_allocation.session          # full §8 loop over the repo dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
-PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4)
+uv run pytest                                    # the gate — 50 tests, no network, no key
+PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4), standalone
 ```
+
+`scenario_engine.generate` takes knobs (`--seed`, `--customers`, `--orders`,
+`--spare-ratio`, `--delay-days`) for varying the starting conditions —
+**`COMMANDS.md` documents every command and flag in this repo**, including the
+deploy path and the typical change→verify loops.
 
 `session.py` prints the discrepancy map (what the disruption broke), the
 data-prep flow chart, the λ-sweep Pareto frontier, the hard-constraint
