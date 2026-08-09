@@ -120,17 +120,19 @@ It is *not* an agent knob. Determinism holds (no new inputs).
 3. **Default weight shifts current output.** The demo's "28 days early ✅" becomes a
    caveat and some fixtures move — that shift is the point; update them deliberately.
 4. **Interoperates with the time-scale plan.** If that lands, `early` is measured in
-   whatever unit the scale sets (sub-unit early → 0 → free). At day scale (default)
-   it's raw days. Either way the term is the same shape.
+   whatever unit the scale sets, **rounded up** (decided there) — so at week scale
+   even 1 day early counts as 1 week early. "A little early is fine" therefore comes
+   from *this* plan's small linear weight (1 unit early is cheap), NOT from the scale
+   rounding it down. At day scale (default) `early` is raw days. Same term either way.
 
-## Decisions to confirm
+## Decisions (confirmed)
 
-- **A. `EARLY_WEIGHT = 0.15`, linear?** (Recommend yes.)
-- **B. Extreme-early crossover:** allow a very-early car to lose to a slightly-late
-  one (uncapped linear), or cap earliness so lateness is *always* worse? (Recommend
-  uncapped + a documenting test; cap only if "late is always the worst outcome.")
-- **C. Late-side grace:** out of scope — earliness only. Confirm you don't want
-  small lateness treated as free here.
+- **A. Weight/shape:** `EARLY_WEIGHT = 0.15`, **linear**. ✅
+- **B. Extreme-early crossover:** **uncapped** — a very-early car may lose to a
+  slightly-late one (tying a car up for months is real waste). Documented with a
+  test so the crossover isn't a surprise. ✅
+- **C. Late side:** **earliness only** — lateness stays strict, every day counts;
+  no late-side grace in this change. ✅
 
 ## Verify
 
