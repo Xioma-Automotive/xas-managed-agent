@@ -9,6 +9,9 @@ ledger.json
 residual_cache.json
 snapshot.json
 
+# QA agent chart outputs downloaded from sessions (qa/run_qa.py)
+qa-outputs/
+
 # Python cruft
 __pycache__/
 *.pyc
