@@ -37,14 +37,24 @@ questions in natural language (any language, including Hebrew). Its whole job is
 | Deployment | Docker on dev **EC2**, xioma-read as in-container sidecar (`:8001`), Postgres sidecar, seccomp workarounds, STS credential refresh |
 | Observability / evals | LangSmith tracing + LLM-as-judge eval suite |
 
-### The one hard constraint that shapes everything
+### The constraint that shapes the data plane
 
-The agent must reach **live, per-user, per-tenant** DMS data using a **token that
-changes on every request**. A Managed Agent's sandbox has **zero network egress
-and holds none of your credentials** (see `README.md` "What 'no outside
-connections' means"). So the data plane cannot move into the sandbox — it must
-stay **host-side**, exactly as the allocation agent keeps its credentialed pull
-host-side. That single fact drives the target design below.
+The agent must reach **live, per-user, per-tenant** DMS data. Two facts interact:
+the sandbox has **zero egress and holds no secrets**, and the per-user scope today
+rides a **custom header** (`X-Xioma-User-Token`) *alongside* a shared key. The
+platform gives **two supported ways** to satisfy this, and the choice is the
+biggest decision in the port:
+
+- **Direct MCP via per-user vaults** — Anthropic injects a per-user credential
+  into the MCP call on its side; the sandbox calls the MCP directly and never sees
+  the secret. First-class per-user, per-session (`vaults.create` +
+  `sessions.create(vault_ids=[...])`). Requires reshaping the MCP's auth to one
+  vault-injectable credential and exposing the MCP to Anthropic.
+- **Host-answered custom tools** — the worker stays the MCP client and answers the
+  data tools host-side (the allocation-agent pattern). Zero MCP changes; keeps the
+  two-header auth and host-side embedding as-is.
+
+Both are viable. §2 lays out each with its conditions and a recommendation.
 
 ---
 
@@ -85,32 +95,76 @@ We keep the **same two-plane split** this repo already uses:
 
 ### The core mapping: LangGraph tools → Managed-Agent primitives
 
-Every tool the LangGraph agent has splits into exactly one of two buckets,
-decided by **"does it need network or a credential?"**
+The **presentation** tools are pure (no network, no secrets) and move the same way
+under either design — into the **skill** as code the sandbox runs:
 
-| Tool | Needs net/secret? | Managed-Agent home | Mechanism |
-| --- | --- | --- | --- |
-| `index_lookup` | **yes** (MCP + Titan embed) | **host-answered custom tool** | worker embeds `term`→`query_vec` (Bedrock Titan), injects `company_id`, calls xioma-read with `XIOMA_MCP_KEY` |
-| `describe_entity` | **yes** (MCP) | **host-answered custom tool** | worker injects `company_id`, calls xioma-read |
-| `index_orientation` | **yes** (MCP) | **host-answered custom tool** (or a session-start system message) | worker fetches the company entity map once per conversation |
-| `get_job_cards` | **yes** (MCP + per-user token) | **host-answered custom tool** | worker attaches `X-Xioma-User-Token` for **this session's** user, calls xas-app-mcp |
-| `get_job_card` | **yes** (MCP + per-user token) | **host-answered custom tool** | same |
-| `make_date_range` | no (pure date math) | **skill code** in the sandbox | ship `date_tools.py` in the skill bundle; agent runs it |
-| `render_table` / `render_chart` / `render_graph` | no (pure HTML/SVG) | **skill code** in the sandbox | ship `report_style.py` + renderers; agent writes `report.html`; worker downloads it for the callback |
+| Tool | Managed-Agent home | Mechanism |
+| --- | --- | --- |
+| `make_date_range` | **skill code** in the sandbox | ship `date_tools.py` in the skill bundle; agent runs it |
+| `render_table` / `render_chart` / `render_graph` | **skill code** in the sandbox | ship `report_style.py` + renderers; agent writes `report.html`; worker downloads it for the callback |
 
-This is precisely the adoption-doc recommendation ("wrapping each MCP server as
-custom tools so our worker is the MCP client and the server needs no inbound
-connectivity") and precisely the `alloc_tools.py` pattern (declaration +
-host-side implementation in one place, answered by a per-session `tool_runner`).
+The **five data** tools (`index_lookup`, `describe_entity`, `index_orientation`,
+`get_job_cards`, `get_job_card`) all need network + a credential, and their home
+depends on which data-plane design we pick.
 
-**Why host-answered custom tools and not vault MCP credentials?** The platform
-does offer vault MCP creds (`static_bearer` / `mcp_oauth`) that inject on
-Anthropic's side. But `X-Xioma-User-Token` is **per request**, not static — a
-static bearer can carry `XIOMA_MCP_KEY` but cannot carry the user's DMS token, and
-per-user tenant scoping is the entire security model. It would also require
-exposing the internal MCP servers to inbound internet traffic. So for v1 the
-worker stays the MCP client. (Future option: if the app MCP grows per-user OAuth,
-`mcp_oauth` becomes viable and moves the data plane onto Anthropic's side.)
+#### Data-plane Design A — Direct MCP via per-user vaults (recommended)
+
+Per-user vaulting is a **first-class** platform feature, so the token is *not* a
+problem to inject on Anthropic's side:
+
+```python
+vault = client.beta.vaults.create(metadata={"external_user_id": user_id})     # once per user
+client.beta.vaults.credentials.create(vault_id=vault.id, auth={              # the user's DMS credential
+    "type": "mcp_oauth" | "static_bearer", "mcp_server_url": XAS_MCP_URL, ...})
+session = client.beta.sessions.create(agent=..., environment_id=...,          # bind per session
+    vault_ids=[vault.id], ...)
+```
+
+The sandbox then calls the MCP tools **directly** (`mcp_toolset`); Anthropic
+injects the per-user credential at connection time and the sandbox never sees it.
+**No host-answered tools, no `tool_runner` pool.** Three conditions, all inside
+Xioma's control:
+
+1. **Fold the two-header auth into one vault-injectable credential.** Vault injects
+   a single `Authorization: Bearer` (or an OAuth token) per `mcp_server_url`, and
+   only one credential wins per URL — it **cannot** add a custom
+   `X-Xioma-User-Token`, and cannot inject the shared key *and* the user token
+   together. So the **per-user token becomes the bearer/OAuth credential**, and the
+   shared-key check moves to a gateway Anthropic reaches (or is dropped in favor of
+   the per-user auth). `mcp_oauth` per user is the clean target (**auto-refreshed**
+   by Anthropic); `static_bearer` per user works if tokens are refreshed via
+   `vaults.credentials.update()`.
+2. **Expose the MCP to Anthropic** (public inbound / gateway) and allow it via the
+   environment `networking` (`allow_mcp_servers` / `allowed_hosts`). Today it is
+   internal (`dev_appmcp:5075`).
+3. **Move the Titan `query_vec` computation into the xioma-read MCP** — embed
+   `term` server-side so `index_lookup` needs no host step. The MCP already uses
+   Bedrock to build the index, so this is natural.
+
+Result: a **thin worker** (bot-contract shim + per-user vault provisioning +
+session management), sandbox-native tools, data flowing via Anthropic-injected MCP
+calls. This is the cleaner end state and the recommended target **if** we accept
+the auth reshape + MCP exposure.
+
+#### Data-plane Design B — Host-answered custom tools (fallback, zero MCP changes)
+
+The worker stays the MCP client and answers the five tools host-side via a
+per-session `tool_runner` — the exact `alloc_tools.py` pattern. It embeds
+`query_vec` host-side (Titan), injects `company_id`, attaches
+`Authorization: Bearer XIOMA_MCP_KEY` + `X-Xioma-User-Token` for the session's
+user, and calls the **unchanged, internal** MCP servers. More host code and a
+`tool_runner` pool, and job-card results cross the context window — but **no MCP
+auth reshape and no inbound exposure**. (Custom tools *do* work on cloud Managed
+Agents — this repo's `pull_allocation_snapshot` proves it; a common claim to the
+contrary is wrong.)
+
+#### Recommendation
+
+Target **Design A** for the app MCP (per-user `mcp_oauth` vault), since the token
+injects cleanly per user and it yields the thinnest host. **Hybrid is fine and
+likely fastest to ship:** app MCP direct via vault (A), and keep **xioma-read
+host-answered** (B) until we're ready to move embedding into it and expose it.
+Design B alone is the zero-MCP-change path if inbound exposure is off the table.
 
 ---
 
@@ -136,9 +190,11 @@ same callback (`{status, text, html, usage}`). Internally `/run` now:
    `usage` (map platform usage → `{promptTokens, completionTokens, toolCalls}`).
 5. POST the callback (keep the existing retry/backoff/DNS-pin logic verbatim).
 
-### 3.2 Credentialed data tools = one `tool_runner` per active session
+### 3.2 Credentialed data tools (Design B: one `tool_runner` per active session)
 
-Port `mcp_tools.py`'s client logic into the worker's tool answerers. For each
+*This section details the **host-answered** design. Under Design A the sandbox
+calls the MCP directly via a per-user vault and this machinery is not needed for
+that server.* Port `mcp_tools.py`'s client logic into the worker's tool answerers. For each
 session the worker registers custom tools whose implementations **close over that
 session's credential context** (the allocation agent does exactly this with
 `make_pull_tool(lambda: _pull_for(session_id))`):
@@ -295,7 +351,8 @@ These are net-new capabilities, not just parity. Prioritized:
 
 | # | Decision | Leaning |
 | --- | --- | --- |
-| D-1 | Per-user token to a sandbox with zero egress | **Host-answered custom tools** (worker is MCP client). Vault `mcp_oauth` only if the app MCP gets per-user OAuth. |
+| D-1 | Per-user token to a sandbox with zero egress | **Direct MCP via per-user vault (Design A)** is first-class and recommended — needs the MCP auth reshaped to one bearer/OAuth credential + MCP exposed to Anthropic + embedding moved into xioma-read. **Host-answered custom tools (Design B)** is the zero-MCP-change fallback. Hybrid (app MCP = A, xioma-read = B) likely ships fastest. |
+| D-1a | Per-user token form | Move from custom `X-Xioma-User-Token` to **`mcp_oauth`** (auto-refresh) or `static_bearer` per user, so vault can inject it. Requires an OAuth/bearer path on the app MCP + gateway for the shared key. |
 | D-2 | Where rendering runs | **Skill code → HTML file → worker downloads**; host-side custom tool as fallback. |
 | D-3 | Embeddings | **Keep Titan host-side** in the worker (matches the pre-built index space). Re-embedding the index is required if the model ever changes. |
 | D-4 | Session-id map durability | In-memory for v1; small Postgres table if worker restarts must preserve continuity. |
@@ -314,9 +371,14 @@ These are net-new capabilities, not just parity. Prioritized:
   Prove one host-answered custom tool (`get_job_cards`) end-to-end with a
   per-session token via `tool_runner`. Confirm the sandbox is Anthropic's
   (`whoami` sanity check).
-- **Phase 1 — Data plane.** Port all five MCP tools into host answerers (reusing
-  `mcp_tools.py` client + injection logic). Port Titan embedding for
-  `index_lookup`. `test_tool_contract.py` for every declared tool.
+- **Phase 1 — Data plane (decide A vs B first, D-1).**
+  - *Design A (app MCP):* stand up an OAuth/bearer path + gateway on the app MCP,
+    expose it to Anthropic, provision a per-user vault, attach via `mcp_toolset`,
+    bind `vault_ids` at session create. Move `query_vec` into xioma-read if taking
+    it direct too.
+  - *Design B (fallback / xioma-read):* port the five MCP tools into host answerers
+    (reusing `mcp_tools.py` client + injection), Titan embedding for
+    `index_lookup`. `test_tool_contract.py` for every declared custom tool.
 - **Phase 2 — Presentation + prompt.** Ship the renderers + `make_date_range` in
   the skill; wire the HTML file → callback. Move the full system prompt into the
   agent. Reach output parity with today's `text`/`html`/`usage`.
@@ -354,10 +416,12 @@ xas-managed-agent-qa/            # or a new branch of xas-ai-agent
 
 ### One-line summary
 
-Keep the **bot contract and the credentialed data plane host-side**, move the
-**agent loop, context management, and presentation into the Managed Agent**, wrap
-the five MCP tools as **host-answered custom tools** (worker = MCP client, per-user
-token per session), ship the renderers as **skill code**, and use the platform's
-**outcomes / budgets / permission gates / scheduling** to come out ahead of the
-LangGraph build — following the exact `setup + web.py + alloc_tools.py` pattern the
-allocation agent already proves in this repo.
+Keep the **bot contract** on the outside, move the **agent loop, context
+management, and presentation into the Managed Agent** (renderers as **skill
+code**), and reach the DMS data by **injecting each user's token via a per-user
+vault** so the sandbox calls the MCP directly (**Design A** — recommended; needs
+the MCP auth reshaped to one bearer/OAuth credential and exposed to Anthropic),
+falling back to **host-answered custom tools** (**Design B** — the
+`alloc_tools.py` pattern, zero MCP changes) where we don't want to expose a
+server. Layer on the platform's **outcomes / budgets / permission gates /
+scheduling** to come out ahead of the LangGraph build.
