@@ -19,7 +19,7 @@ the sandbox can't see them; the agent only ever receives an already-fetched file
 The contract every source returns is the rich pull shape `flatten()` and
 `alloc_tools.summarize()` already consume::
 
-    {meta, pos, sos, supply, disruption}
+    {meta, vsos, vehicles, disruption}
 
 Select with the ``XAS_DATA_SOURCE`` env var (``scenario`` | ``xas``).
 """
@@ -71,8 +71,8 @@ class XASApiSource:
     When it does, ``pull`` should:
       1. ``httpx.get(f"{base_url}/allocation/pull", headers={"Authorization":
          f"Bearer {token}"}, params=_fetch_params(scope), timeout=…)``;
-      2. hand the JSON to ``_map_response`` — a PURE function that renames XAS
-         fields into ``{meta, pos, sos, supply, disruption}`` (unit-testable
+      2. hand the JSON to ``_map_response`` — a PURE function that shapes the XAS
+         response into ``{meta, vsos, vehicles, disruption}`` (unit-testable
          against a captured sample, no network).
 
     The credential lives here on the host and is NEVER shipped to the sandbox.
@@ -92,8 +92,8 @@ class XASApiSource:
 
     @staticmethod
     def _map_response(xas_json: dict) -> dict:  # pragma: no cover - stub
-        """Map an XAS pull response into the rich contract {meta, pos, sos,
-        supply, disruption}. Pure; fill in once a sample response exists."""
+        """Map an XAS pull response into the rich contract {meta, vsos,
+        vehicles, disruption}. Pure; fill in once a sample response exists."""
         raise NotImplementedError
 
 

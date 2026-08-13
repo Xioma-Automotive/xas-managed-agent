@@ -16,15 +16,15 @@ ON_TIME = date(2026, 9, 14)
 
 
 def _order(oid: str, customer_id: str) -> Order:
+    so_id, line = oid.rsplit("-", 1)
     return Order(
-        order_id=oid,
-        so_id=oid.rsplit("-", 1)[0],
+        so_id=so_id,
+        line=int(line),
         customer="Dealer",
         customer_id=customer_id,
         sales_model="SM1",
         priority="B",
-        promised_date=PROMISED,
-        eta_date=PROMISED,
+        delivery_date=PROMISED,
         price=40000,
         n_prior_delays=0,
         days_backordered=0,
@@ -34,13 +34,9 @@ def _order(oid: str, customer_id: str) -> Order:
 def _unit(vid: str, planned: date) -> Unit:
     return Unit(
         vehicle_id=vid,
-        kind="vehicle",
+        vehicle_classification="Vehicle",
         sales_model="SM1",
-        planned_delivery_date=planned,
-        location_state="sea",
-        po_ref="PO-150-1-1",
-        pdn="PDN-150",
-        committed=False,
+        eta_dealer=planned,
     )
 
 

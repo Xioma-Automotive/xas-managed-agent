@@ -14,7 +14,7 @@ import pytest
 import datasource
 from xas_allocation.flatten import flatten
 
-CONTRACT_KEYS = {"meta", "pos", "sos", "supply", "disruption"}
+CONTRACT_KEYS = {"meta", "vsos", "vehicles", "disruption"}
 
 
 def test_scenario_source_returns_the_rich_contract():

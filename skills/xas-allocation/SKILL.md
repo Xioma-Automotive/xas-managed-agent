@@ -1,8 +1,8 @@
 ---
 name: xas-allocation
 description: >-
-  Repair a vehicle-to-order allocation after a disruption (delayed PDN, changed
-  inbound, manual steering). Translate the situation + planner instructions into
+  Repair a vehicle-to-order allocation after a disruption (delayed shipment,
+  changed inbound, manual steering). Translate the situation + planner instructions into
   inputs for a deterministic min-cost-flow solver, run the λ sweep, self-check
   hard constraints, and emit a reason-coded change list. Use whenever a planner
   asks to re-allocate, defer/pin/boost orders, or explain an allocation change.
@@ -26,37 +26,46 @@ Reference solver version pinned by this skill: **0.2.0-prototype**
 (`xas_allocation/` package; DECIDE-9 — canonical version moves to a tested repo
 before real dealer data).
 
-## The data model (dates, XAS-shaped — DECIDE-7, `docs/xasdatamodel.md`)
+## The data model (dates, real XAS vocabulary — DECIDE-7, `docs/xasdatamodel.md`)
 
-Supply-first: `PO → PDN → Vehicle (pool)`, `Customer → SO`. A **Sales Order**
-(one customer) groups **vehicle order rows**; the **row** is the allocatable
-unit. Each row is allocated to a piece of **supply** that is one of two kinds: a
-concrete **Vehicle** (a VIN) or a **PO-line slot** (a future car, keyed
-`PO-model-row` e.g. `PO-150-1-5`). The pull comes from a callable data source
-resolved host-side (`datasource.py` — the `scenario_engine/` fake by default, the
-real XAS endpoint by config; DECIDE-7), which `web.py` fetches and mounts into
-your sandbox as a file. `xas_allocation.flatten` maps it — **pure code, no
-judgment** — into the three arrays the solver reads:
+The pull is `{meta, vsos, vehicles, disruption}`. A **VSO** (Vehicle Sales
+Order, one customer) has a header + **JobItems**, one per **wanted car**; the
+**jobitem** is the allocatable order, keyed `{JobKey}-{LineNum}` (e.g.
+`VSO-4000-2`). Each order is allocated to one **vehicle** from a single pool.
+A vehicle's `VehicleClassification` is `"Vehicle"` (a real car with a VIN — a
+**hard** binding) or `"Future"` (a not-yet-built car — a **soft** binding).
+There is no PO/PDN/slot layer and no qty-expansion — one flat vehicle list. The
+pull comes from a callable data source resolved host-side (`datasource.py` — the
+`scenario_engine/` fake by default, the real XAS endpoint by config; DECIDE-7),
+which `web.py` fetches and mounts into your sandbox as a file.
+`xas_allocation.flatten` maps it — **pure code, no judgment** — into the three
+arrays the solver reads:
 
-- **`orders[]`** (vehicle order rows): `order_id · so_id · customer ·
-  customer_id · sales_model · priority · promised_date · eta_date · price ·
-  n_prior_delays · days_backordered · times_rescheduled`
-- **`units[]`** (supply = vehicles ∪ PO-line slots): `vehicle_id · kind ·
-  sales_model · planned_delivery_date · location_state · po_ref · pdn · committed`
-- **`incumbent[]`**: `row_id → supply_id` (the current allocation)
+- **`orders[]`** (VSO car lines): `so_id · line · customer · customer_id ·
+  sales_model · priority · delivery_date · price · n_prior_delays ·
+  days_backordered · times_rescheduled` (key = `{so_id}-{line}`)
+- **`units[]`** (the vehicle pool): `vehicle_id · vehicle_classification ·
+  sales_model · eta_dealer`
+- **`incumbent[]`**: `order_key → vehicle_id` (the current allocation)
 
 Everything is **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
-`planned_delivery_date` is the one field a disruption moves (a delayed PO slips
-every supply item under it — slots and vehicles). `promised_date` is the
-commitment tardiness is measured against; `eta_date` is the originally-expected
-delivery (a discrepancy = the allocated supply now delivers past it).
+`eta_dealer` (from a vehicle's `EtaDealer`) is the one field a disruption moves
+(a delayed shipment slips it on the affected vehicles). `delivery_date` (from the
+VSO's `DeliveryDate`) is the commitment tardiness is measured against; a
+discrepancy is when the allocated vehicle's `eta_dealer` now runs past it.
+
+Field mapping (real XAS → solver): jobitem `SalesModelCode` → `sales_model`;
+`VehicleId.Code` ↔ `VehicleCode` is the hard incumbent link; a soft incumbent is
+the jobitem's Alloc link to a Future vehicle; `ModelId.Code` is the vehicle's
+`sales_model`; `JobPriority.Code` → `priority`.
 
 **Eligibility (the sparse arc rule) — computed, never stored:** an arc
-`row → supply` exists iff `row.sales_model == supply.sales_model`. Hard equality,
-not a fuzzy match — no LLM spec-residual. The solver treats a Vehicle and a
-PO-line slot identically (both are capacity-1 supply with a date), so a row can
-be re-linked between them. Lateness is **priced**, not forbidden, so a slightly-
-late supply item can still be placed instead of backordering.
+`order → vehicle` exists iff `order.sales_model == vehicle.sales_model`
+(model-level: jobitem `SalesModelCode` == vehicle `ModelId.Code`). Hard equality,
+not a fuzzy match — no LLM spec-residual. The solver treats a real and a future
+vehicle identically for matching (both are capacity-1 supply with a date), so an
+order can be re-linked between them. Lateness is **priced**, not forbidden, so a
+slightly-late vehicle can still be placed instead of backordering.
 
 ## The cost model (verbatim — §2)
 
@@ -117,14 +126,14 @@ tests**, never as live-session code.
    reasoning. This is the data-prep step;
    `xas_allocation.session.data_prep_flowchart` draws it as a mermaid flow chart.
 3. **Map discrepancies** — print `session.discrepancy_report(snapshot)`. It lists
-   the SO rows whose allocated supply now delivers past its `promised_date` **and
-   classifies each fixable vs locked-in** (frozen fence / committed vehicle). Show
+   the VSO car lines whose allocated vehicle now delivers past its `delivery_date`
+   **and classifies each fixable vs locked-in** (frozen fence). Show
    this **before** solving — it is the turn-1 truth of what the disruption broke
    *and* which of it re-allocation can't touch.
 4. Apply the current combined override (weights / pins / forbid / lambda / scope /
    bump), build the graph (§4), run the **λ sweep**. `session.repair_and_report`
    does all of this and returns the finished reply.
-5. **Self-check hard constraints:** no frozen/committed vehicle moved, no
+5. **Self-check hard constraints:** no frozen-fence order moved, no
    sales_model violation, every order has exactly one vehicle (or a surfaced
    backorder), no vehicle double-booked. (`repair_and_report` runs the self-check;
    trust it.)
@@ -152,7 +161,7 @@ machinery in the sandbox.
 
 **Turn 1 is the discrepancy map, and it must say what's stuck.**
 `discrepancy_report` splits the broken orders into **can be repaired** vs
-**locked in** (too close to delivery to re-slot, or riding a committed vehicle).
+**locked in** (too close to delivery to re-slot — the frozen fence).
 Say this up front — an order that's frozen won't be helped by any re-allocation,
 and the planner needs to know that on turn 1 (a call to expedite the delivery),
 not after three rounds of steering that can't move it.
@@ -166,12 +175,12 @@ the first fact is what happened to Colmobil.
 change list is the deliverable. Trimming jargon must never mean omitting the
 allocation changes. Render every changed order as a table, in plain columns:
 
-| Order   | Dealer (priority) | Was arriving | Now arrives    | Promised   | Allocation (actual change) | Result |
-|---------|-------------------|--------------|----------------|------------|----------------------------|--------|
-| SO-4001 | Colmobil (A)      | 2026-10-05   | **2026-08-24** | 2026-08-24 | now `VEH-9044` (was `VEH-9001`) | ✅ on time |
+| Order      | Dealer (priority) | Was arriving | Now arrives    | Promised   | Allocation (actual change) | Result |
+|------------|-------------------|--------------|----------------|------------|----------------------------|--------|
+| VSO-4001-1 | Colmobil (A)      | 2026-10-05   | **2026-08-24** | 2026-08-24 | now `VEH-9044` (was `VEH-9001`) | ✅ on time |
 
-**Always name the actual allocation change** — the concrete supply the row now
-gets vs. what it had (`now PO-152-1-3 [slot] (was VEH-9001)`). The planner
+**Always name the actual allocation change** — the concrete vehicle the order now
+gets vs. what it had (`now VEH-9044 [future] (was VEH-9001)`). The planner
 allocates by these references; "moved to an earlier car" without the id is not
 actionable. Flag any **bump** (an untouched order displaced) in its own line.
 
@@ -208,7 +217,7 @@ carries a decision:
   double-booked). Report it as one word — "checks passed" — or, on a violation,
   the plain-English violation only.
 - **Node indices, objective-in-micros, solver status, λ internals.** (NOT the
-  supply ids — the VIN / PO-line ref of the actual swap DOES belong in the change
+  supply ids — the VehicleCode of the actual swap DOES belong in the change
   table; the planner allocates by them. Keep them out of the one-line *headline*,
   but always in the table.)
 - **Internal vocabulary:** λ, Pareto frontier, weighted late-days, slushy/frozen
@@ -238,7 +247,7 @@ Review gate:
 
 | Request                                                  | Handling                          |
 |----------------------------------------------------------|-----------------------------------|
-| "delay SO-4471", "prefer Colmobil", "more churn", "allocate all Colmobil for August", "just fix this delay" | Runtime override (weights / pins / **scope**). Instant, safe. |
+| "delay VSO-4471", "prefer Colmobil", "more churn", "allocate all Colmobil for August", "just fix this delay" | Runtime override (weights / pins / **scope**). Instant, safe. |
 | "never split a dealer's vehicles across weeks"           | New **constraint** → **PR with tests**, not a live mutation. |
 
 The prompt moves weights, pins, and scope; a human moves the model.
@@ -246,15 +255,15 @@ The prompt moves weights, pins, and scope; a human moves the model.
 ### Scope — work a slice, keep fixes local (§6)
 
 `scope` is a general filter carried in the override:
-`{customers?, models?, po?, from_date?, to_date?}`. **When a scope is present it
-DEFINES the free set** — only rows matching *all* given dimensions may move;
+`{customers?, models?, orders?, from_date?, to_date?}`. **When a scope is present
+it DEFINES the free set** — only orders matching *all* given dimensions may move;
 everything else stays pinned. One mechanism, two everyday jobs:
 
 - **Monthly / per-customer allocation:** "allocate all Colmobil orders for
   August" → `scope {customers:["CUST-001"], from_date:"2026-08-01",
   to_date:"2026-08-31"}`, then solve the slice.
 - **Localized fix:** to fix one delay "without disrupting everything else",
-  scope narrowly (a customer, a PO, a short window). Repair-not-rebuild already
+  scope narrowly (a customer, a model, a short window). Repair-not-rebuild already
   pins the rest; scope makes the bound explicit and auditable.
 
 With no scope, the free set is the disrupted rows (the default repair).

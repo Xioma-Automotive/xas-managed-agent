@@ -22,14 +22,13 @@ PROMISED = date(2026, 11, 1)  # ~90 days out → liquid fence, no λ churn in pl
 
 def _order() -> Order:
     return Order(
-        order_id="SO-1-1",
         so_id="SO-1",
+        line=1,
         customer="Dealer 1",
         customer_id="CUST-001",
         sales_model="SM1",
         priority="B",
-        promised_date=PROMISED,
-        eta_date=PROMISED,
+        delivery_date=PROMISED,
         price=40000,
         n_prior_delays=0,
         days_backordered=0,
@@ -39,13 +38,9 @@ def _order() -> Order:
 def _unit(vid: str, planned: date) -> Unit:
     return Unit(
         vehicle_id=vid,
-        kind="vehicle",
+        vehicle_classification="Vehicle",
         sales_model="SM1",
-        planned_delivery_date=planned,
-        location_state="sea",
-        po_ref="PO-150-1-1",
-        pdn="PDN-150",
-        committed=False,
+        eta_dealer=planned,
     )
 
 

@@ -31,31 +31,27 @@ JARGON = ["λ", "lambda", "objective", "pareto", "incumbent", "min-cost", "arc",
 
 
 def _order(oid: str, model: str, priority: str, promised: date) -> Order:
+    so_id, line = oid.rsplit("-", 1)
     return Order(
-        order_id=oid,
-        so_id=oid.rsplit("-", 1)[0],
+        so_id=so_id,
+        line=int(line),
         customer={"MOV": "Colmobil", "FRZ": "Delek", "UT": "Carasso"}.get(oid.split("-")[0], oid),
         customer_id=oid,
         sales_model=model,
         priority=priority,
-        promised_date=promised,
-        eta_date=promised,
+        delivery_date=promised,
         price=40000,
         n_prior_delays=0,
         days_backordered=0,
     )
 
 
-def _unit(vid: str, model: str, planned: date, committed: bool = False) -> Unit:
+def _unit(vid: str, model: str, planned: date) -> Unit:
     return Unit(
         vehicle_id=vid,
-        kind="vehicle",
+        vehicle_classification="Vehicle",
         sales_model=model,
-        planned_delivery_date=planned,
-        location_state="pdi" if committed else "sea",
-        po_ref="PO-151-1-1",
-        pdn="PDN-151",
-        committed=committed,
+        eta_dealer=planned,
     )
 
 
@@ -73,7 +69,11 @@ def _snapshot() -> Snapshot:
             _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
         ],
         incumbent={"MOV-1": "VEH-MOV-LATE", "FRZ-1": "VEH-FRZ-LATE", "UT-1": "VEH-UT-GOOD"},
-        disruption={"po": "PO-151", "delay_days": 30, "disrupted_orders": ["MOV-1", "FRZ-1"]},
+        disruption={
+            "delay_days": 30,
+            "delayed_vehicles": ["VEH-MOV-LATE", "VEH-FRZ-LATE"],
+            "disrupted_orders": ["MOV-1", "FRZ-1"],
+        },
         now=NOW,
     )
 
@@ -81,7 +81,7 @@ def _snapshot() -> Snapshot:
 def test_repairability_classifies_frozen_and_movable():
     snap = _snapshot()
     units = snap.unit_by_id()
-    orders = snap.order_by_id()
+    orders = snap.order_by_key()
     assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
     assert repairability(orders["FRZ-1"], NOW, units["VEH-FRZ-LATE"]) == "frozen"
 
@@ -117,7 +117,7 @@ def test_hard_vehicle_allocation_is_movable_not_locked():
     """DECIDE-3: a broken order riding a REAL (hard) vehicle is no longer walled
     off — it reads 'movable', because hard is expensive-but-movable, not a lock."""
     snap = _snapshot()
-    orders = snap.order_by_id()
+    orders = snap.order_by_key()
     units = snap.unit_by_id()
     # MOV rides VEH-MOV-LATE, a real vehicle (kind 'vehicle', so is_hard) that used
     # to be treated as committed/locked; now it is simply movable.

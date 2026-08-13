@@ -41,7 +41,7 @@ SEED = 20
 # A representative steering override (defer + boost + λ). Just a dict — the whole
 # point is that the agent carries this object, not a log of how it was built.
 STEER = {
-    "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
+    "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
     "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
     "lambda": 25,
 }
@@ -106,12 +106,12 @@ def test_override_is_order_independent() -> None:
     snap = flatten(generate(seed=SEED)["pull"])
     a = {
         "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
-        "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
+        "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
         "lambda": 25,
     }
     b = {
         "lambda": 25,
-        "pins": [{"order": "SO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
+        "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
         "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
     }
     assert _plan_json(solve(snap, a, lam=25).plan) == _plan_json(solve(snap, b, lam=25).plan)

@@ -2,16 +2,17 @@
 
 This package is NOT bundled into the skill and never runs inside a session. A
 human runs it to produce a dataset (`data/pull.json` + `data/baseline.json`);
-the agent's pull ships that dataset in and `xas_allocation.flatten` turns it into
-the solver snapshot.
+the host fetches that dataset and mounts it into the sandbox, where
+`xas_allocation.flatten` turns it into the solver snapshot.
 
-It models the supply-first chain from `docs/xasdatamodel.md`, minus PO:
+It emits the real-XAS vocabulary (`docs/xasdatamodel.md`):
 
-    PDN  --explodes into-->  Vehicle (pool)      SO line  --allocated to-->  Vehicle
+    VSO jobcard (car lines)  --allocated to-->  Vehicle (pool: real ∪ future)
 
-It builds a feasible, on-time world first, then introduces a delay on one PDN —
-pushing `planned_delivery_date` on every vehicle that PDN exploded into, which
-is what breaks allocations and triggers the repair the agent performs.
+It builds a feasible, on-time world first, then delays a coherent batch of
+vehicles — pushing `EtaDealer` on every vehicle of one model — which is what
+breaks allocations (their car now arrives past the VSO's promised date) and
+triggers the repair the agent performs.
 """
 
 from .generate import BASE_DATE, generate

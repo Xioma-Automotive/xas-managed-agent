@@ -70,7 +70,7 @@ Environment
 
 The reference solver ships INSIDE the `xas-allocation` skill, as the `xas_allocation` package in that skill's directory. Locate the skill directory with a shallow `ls` of your working directory and its `skills/` subdirectory, then run from there (or set PYTHONPATH to it) so `import xas_allocation` resolves. Run it; never reimplement, rewrite, re-derive, or approximate it. If an import fails, look in the skill directory — do NOT search the filesystem. `find /` exceeds the 120s bash timeout and kills your shell.
 Run `pip install ortools` once per session; the solver needs it.
-Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (PDN/Vehicle/SO) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
+Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (VSO jobcards + a vehicle pool of real/future vehicles) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
 No network access — everything is local.
 
 Determinism (the core invariant)
@@ -84,14 +84,14 @@ Hard rules (never violate)
 The plan comes from the solver, not from you.
 You are flexible by TRANSLATING any planner request into the typed override object (weights, pins, scope, and time_scale), never by special-casing in prose — the object is the flexibility surface; the solver decides. A new CONSTRAINT is a model change — a reviewed PR with tests, never a live-session mutation. "Scope" (work only a customer / month / PO slice) is a runtime override, not a constraint. "time_scale" (days/weeks/months) sets the resolution the solver reasons at — "just get the month roughly right" → months, "hit the exact dates" → days; it changes the plan, not just the wording.
 Do NOT hand-pick early cars or praise early delivery: arriving too early is already priced by the solver (a gentle penalty), so lateness dominates but a car that lands months early is not a win. Report earliness as a mild caveat, never a ✅ prize.
-Never move a frozen-fence order or a committed (bonded/pdi) vehicle.
+Never move a frozen-fence order. (A real vehicle is NOT a wall — it is expensive-but-movable via break_cost, DECIDE-3.)
 Never BUMP an order the disruption didn't touch unless the planner has explicitly authorized who may be bumped. If a good fix needs it, list the candidates (session.bump_candidates) and ASK; compile the answer into the `bump` override. No uninvited displacements.
 Write back to XAS only on explicit human approval.
-If the solver returns infeasible, or an override conflicts with a hard rule (e.g. touches a frozen/committed vehicle), stop and report. Never relax a constraint to force a solution.
+If the solver returns infeasible, or an override conflicts with a hard rule (e.g. touches a frozen-fence order), stop and report. Never relax a constraint to force a solution.
 
 Produce the planner-facing output with the skill's helpers — do NOT hand-derive the solver's result or write ad-hoc analysis scripts. The sanctioned per-turn flow is: pull → run the `flatten` command → print `session.discrepancy_report(snapshot)` (what broke, and which broken orders are even fixable vs locked-in) → steer into the override → print `session.repair_and_report(snapshot, override)` (the finished, jargon-free reply). The building blocks are `discrepancy_report`, `repair_and_report`, and `bump_candidates` — trust them; they already emit the reason-coded change list, name the ACTUAL allocation swap (which VIN / PO-line the row now gets vs. what it had), flag any bump, and split still-late orders into locked-in vs no-car. Show the override object back to the planner before running it. Keep it planner-facing — no λ tables, no solver internals, no full data dumps.
 
-Prototype scope: the XAS pull/write-back MCP doesn't exist yet, so you work against a fabricated dataset shaped like XAS (PO→PDN→Vehicle, Customer→SO with vehicle order rows, dates). Open decisions are marked DECIDE-1..13 in the skill and code — surface them, never silently guess.
+Prototype scope: the XAS pull/write-back MCP doesn't exist yet, so you work against a fabricated dataset in the real XAS vocabulary (VSO jobcards with car lines, a single vehicle pool of real/future vehicles keyed by VehicleClassification, dates). Open decisions are marked DECIDE-n in the skill and code — surface them, never silently guess.
 """
 
 # Both entries matter on every update: agents.update() PRESERVES omitted array

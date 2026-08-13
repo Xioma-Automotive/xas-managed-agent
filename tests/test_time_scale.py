@@ -17,14 +17,13 @@ NOW = date(2026, 8, 3)
 
 def _order(promised: date) -> Order:
     return Order(
-        order_id="SO-1-1",
         so_id="SO-1",
+        line=1,
         customer="Dealer 1",
         customer_id="CUST-001",
         sales_model="SM1",
         priority="B",
-        promised_date=promised,
-        eta_date=promised,
+        delivery_date=promised,
         price=40000,
         n_prior_delays=0,
         days_backordered=0,
@@ -34,13 +33,9 @@ def _order(promised: date) -> Order:
 def _unit(planned: date) -> Unit:
     return Unit(
         vehicle_id="VEH-1",
-        kind="vehicle",
+        vehicle_classification="Vehicle",
         sales_model="SM1",
-        planned_delivery_date=planned,
-        location_state="sea",
-        po_ref="PO-150-1-1",
-        pdn="PDN-150",
-        committed=False,
+        eta_dealer=planned,
     )
 
 

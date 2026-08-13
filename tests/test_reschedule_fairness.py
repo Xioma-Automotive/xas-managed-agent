@@ -18,15 +18,15 @@ LATE = date(2026, 10, 14)
 
 
 def _order(oid: str, times_rescheduled: int) -> Order:
+    so_id, line = oid.rsplit("-", 1)
     return Order(
-        order_id=oid,
-        so_id=oid.rsplit("-", 1)[0],
+        so_id=so_id,
+        line=int(line),
         customer="Dealer",
         customer_id="CUST-001",
         sales_model="SM1",
         priority="C",
-        promised_date=PROMISED,
-        eta_date=PROMISED,
+        delivery_date=PROMISED,
         price=40000,
         n_prior_delays=0,
         days_backordered=0,
@@ -37,25 +37,21 @@ def _order(oid: str, times_rescheduled: int) -> Order:
 def _unit(vid: str, planned: date) -> Unit:
     return Unit(
         vehicle_id=vid,
-        kind="vehicle",
+        vehicle_classification="Vehicle",
         sales_model="SM1",
-        planned_delivery_date=planned,
-        location_state="sea",
-        po_ref="PO-150-1-1",
-        pdn="PDN-150",
-        committed=False,
+        eta_dealer=planned,
     )
 
 
 def test_weight_escalates_with_reschedules():
-    base = _order("SO-A", 0)
-    bumped = _order("SO-B", 2)
+    base = _order("SO-A-1", 0)
+    bumped = _order("SO-B-1", 2)
     assert effective_weight(bumped, {}) > effective_weight(base, {})
 
 
 def test_already_bumped_order_wins_the_on_time_vehicle():
-    a = _order("SO-A", 2)  # already rescheduled twice — protect it
-    b = _order("SO-B", 0)  # never rescheduled
+    a = _order("SO-A-1", 2)  # already rescheduled twice — protect it
+    b = _order("SO-B-1", 0)  # never rescheduled
     units = [
         _unit("VEH-GOOD", ON_TIME),  # the single on-time vehicle (scarce)
         _unit("VEH-LATE-A", LATE),
@@ -64,12 +60,12 @@ def test_already_bumped_order_wins_the_on_time_vehicle():
     snap = Snapshot(
         orders=[a, b],
         units=units,
-        incumbent={"SO-A": "VEH-LATE-A", "SO-B": "VEH-LATE-B"},
-        disruption={"disrupted_orders": ["SO-A", "SO-B"]},
+        incumbent={"SO-A-1": "VEH-LATE-A", "SO-B-1": "VEH-LATE-B"},
+        disruption={"disrupted_orders": ["SO-A-1", "SO-B-1"]},
         now=NOW,
     )
     result = solve(snap, {}, lam=0)
     by_id = snap.unit_by_id()
-    assert result.plan["SO-A"] == "VEH-GOOD", "the already-bumped order should be protected"
-    assert tardiness(a, by_id[result.plan["SO-A"]]) == 0
-    assert tardiness(b, by_id[result.plan["SO-B"]]) > 0
+    assert result.plan["SO-A-1"] == "VEH-GOOD", "the already-bumped order should be protected"
+    assert tardiness(a, by_id[result.plan["SO-A-1"]]) == 0
+    assert tardiness(b, by_id[result.plan["SO-B-1"]]) > 0

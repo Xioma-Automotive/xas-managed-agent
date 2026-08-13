@@ -6,17 +6,17 @@ The agent NEVER implements the algorithm — it builds the network and calls
 core invariant).
 
 Design highlights, mapped to the spec:
-- §4  Integer node positions from a FIXED sort (order_id / vehicle_id asc); real
+- §4  Integer node positions from a FIXED sort (order key / vehicle_id asc); real
       keys recovered through explicit lookup tables before anything leaves here.
 - §1  Repair, don't re-solve: pin the whole incumbent, free ONLY the disrupted
       orders, re-match just those. Change count is structural.
-- §2  cost(o->u) = W(o)·tardiness_days^1.5 + λ(fence)·[date(u) ≠ promised_date(o)].
+- §2  cost(o->u) = W(o)·tardiness_days^1.5 + λ(fence)·[eta(u) ≠ delivery_date(o)].
 - §5  Frozen-fence orders are pre-committed OUT of the graph; instruction
       pins/defers/forbids are large finite soft penalties (DECIDE-4 / DECIDE-8) so
       a conflict surfaces as a cost line, never a crash.
 - §5b Moving an allocation OFF its current binding costs a finite BREAK_COST
       (DECIDE-3): hard (real vehicle) is expensive-but-movable, soft (future
-      PO-line slot) is free. No hard wall — a hard allocation can be bumped 'for
+      vehicle) is free. No hard wall — a hard allocation can be bumped 'for
       the sake of another' order when the tardiness saved exceeds the break cost.
 - A per-order dummy "backorder" arc keeps the flow always feasible; an order
   routed to it is an explicitly surfaced unfilled order, not a silent drop.
@@ -47,8 +47,8 @@ BACKORDER_COST = D.SOFT_PIN_COST * 10.0
 
 
 def fence_of(order: Order, now: date) -> str:
-    """DECIDE-2 time fence by days-until-promised: frozen / slushy / liquid."""
-    days_out = (order.promised_date - now).days
+    """DECIDE-2 time fence by days-until-delivery: frozen / slushy / liquid."""
+    days_out = (order.delivery_date - now).days
     if days_out <= D.FROZEN_MAX_DAYS:
         return "frozen"
     if days_out <= D.SLUSHY_MAX_DAYS:
@@ -77,13 +77,13 @@ def effective_weight(order: Order, boosts: dict[str, float]) -> float:
 
 
 def tardiness(order: Order, unit: Unit) -> int:
-    """Days late = how far the vehicle's planned delivery runs past the promise."""
-    return days_late(unit.planned_delivery_date, order.promised_date)
+    """Days late = how far the vehicle's ETA to the dealer runs past the promise."""
+    return days_late(unit.eta_dealer, order.delivery_date)
 
 
 def earliness(order: Order, unit: Unit) -> int:
     """Days early = how far the delivery lands before the promise (0 if on/after)."""
-    return max(0, (order.promised_date - unit.planned_delivery_date).days)
+    return max(0, (order.delivery_date - unit.eta_dealer).days)
 
 
 def scale_units(days: int, unit_days: int) -> int:
@@ -133,12 +133,12 @@ def arc_cost_float(
     # λ additive term, gated by the fence (liquid => free to change the date).
     # "Changed" means the delivery differs from the promise by at least one unit,
     # so a within-unit shuffle isn't counted as churn at a coarse scale.
-    gap_days = abs((unit.planned_delivery_date - order.promised_date).days)
+    gap_days = abs((unit.eta_dealer - order.delivery_date).days)
     if gap_days >= unit_days and fence_of(order, now) == "slushy":
         cost += lam
 
     # Soft instruction pin: 'defer'/not_before violated by an early arrival.
-    if not_before is not None and unit.planned_delivery_date < not_before:
+    if not_before is not None and unit.eta_dealer < not_before:
         cost += D.SOFT_PIN_COST
     return cost
 
@@ -149,7 +149,7 @@ def break_cost_of(order: Order, incumbent_unit: Unit | None, break_cost: dict[st
     Zero when it has no binding, OR when that binding is already LATE — a broken
     promise protects nothing, so re-allocating a disrupted order is free. Only
     displacing an ON-TIME binding costs: BREAK_COST['hard'] for a real vehicle,
-    BREAK_COST['soft'] for a future slot. This is what makes "bump someone for the
+    BREAK_COST['soft'] for a future vehicle. This is what makes "bump someone for the
     sake of another" price the *victim* (whose kept promise is disturbed), not the
     disrupted order being rescued."""
     if incumbent_unit is None or tardiness(order, incumbent_unit) > 0:
@@ -185,12 +185,12 @@ def eligible(order: Order, unit: Unit) -> bool:
 class RepairPlan:
     """The pinned/free partition + the combined override, resolved once."""
 
-    pinned: dict[str, str]  # order_id -> vehicle_id (hard, kept as-is)
-    free_orders: list[str]  # order_ids to (re)match
+    pinned: dict[str, str]  # order_key -> vehicle_id (hard, kept as-is)
+    free_orders: list[str]  # order_keys to (re)match
     free_units: list[str]  # vehicle_ids available to the free orders
     boosts: dict[str, float]  # customer_id -> weight multiplier
     lam_default: int | None  # override-supplied λ (sweep still explores all)
-    not_before: dict[str, date]  # order_id -> earliest allowed delivery date
+    not_before: dict[str, date]  # order_key -> earliest allowed delivery date
     forbid_no_move: set[str]  # orders explicitly pinned by instruction
     unit_days: int  # DECIDE-14 time-scale resolution (days per unit; 1 = day scale)
     break_cost: dict[str, float]  # DECIDE-3 cost to move off a hard/soft binding
@@ -206,7 +206,7 @@ def _combined_boosts(override: dict) -> dict[str, float]:
     return boosts
 
 
-_FILTER_DIMS = ("customers", "models", "po", "orders", "from_date", "to_date")
+_FILTER_DIMS = ("customers", "models", "orders", "from_date", "to_date")
 
 
 def _filter_active(filt: dict) -> bool:
@@ -214,19 +214,13 @@ def _filter_active(filt: dict) -> bool:
     return bool(filt) and any(filt.get(k) for k in _FILTER_DIMS)
 
 
-def _po_of(po_ref: str) -> str:
-    """'PO-150-1-5' -> 'PO-150' (the purchase order, dropping model line + row)."""
-    parts = po_ref.rsplit("-", 2)
-    return parts[0] if len(parts) == 3 else po_ref
-
-
-def _matches(order: Order, assigned_unit: Unit | None, filt: dict) -> bool:
+def _matches(order: Order, filt: dict) -> bool:
     """AND across whichever filter dimensions are set. Empty dimension = no filter.
 
-    Customers match by id OR display name; `orders` by row id; a date range is
-    against promised_date; `po` matches the order's currently-allocated supply's
-    purchase order. Used by both `scope` (defines the working set) and `bump`
-    (authorizes which untouched rows the solver may displace)."""
+    Customers match by id OR display name; `orders` matches the order key
+    (`{so_id}-{line}`) OR the bare `so_id` (so a whole VSO can be named); a date
+    range is against delivery_date. Used by both `scope` (defines the working set)
+    and `bump` (authorizes which untouched rows the solver may displace)."""
     customers = filt.get("customers")
     if customers and order.customer_id not in customers and order.customer not in customers:
         return False
@@ -234,23 +228,16 @@ def _matches(order: Order, assigned_unit: Unit | None, filt: dict) -> bool:
     if models and order.sales_model not in models:
         return False
     orders = filt.get("orders")
-    if orders and order.order_id not in orders and order.so_id not in orders:
+    if orders and order.key not in orders and order.so_id not in orders:
         return False
-    if filt.get("from_date") and order.promised_date < parse_date(filt["from_date"]):
+    if filt.get("from_date") and order.delivery_date < parse_date(filt["from_date"]):
         return False
-    if filt.get("to_date") and order.promised_date > parse_date(filt["to_date"]):
-        return False
-    po = filt.get("po")
-    if po:
-        ref = assigned_unit.po_ref if assigned_unit else ""
-        if _po_of(ref) not in po:
-            return False
-    return True
+    return not (filt.get("to_date") and order.delivery_date > parse_date(filt["to_date"]))
 
 
 def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     """Decide what is pinned vs free (§1, §5) from data rules + the override."""
-    orders = snapshot.order_by_id()
+    orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
     incumbent = dict(snapshot.incumbent)
     disrupted = set(snapshot.disruption.get("disrupted_orders", []))
@@ -292,17 +279,16 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     free_orders: list[str] = []
     for oid, o in orders.items():
         assigned = incumbent.get(oid)
-        unit = units.get(assigned) if assigned else None
         if oid in forbid_no_move:
             continue
         if fence_of(o, snapshot.now) == "frozen":
             continue
         if scoped:
-            include = _matches(o, unit, scope)
+            include = _matches(o, scope)
         else:
             include = (oid in disrupted) or (oid in deferred) or (assigned is None)
         if not include and bumpable:
-            include = _matches(o, unit, bump)
+            include = _matches(o, bump)
         if include:
             free_orders.append(oid)
     free_orders.sort()  # §4 fixed key
@@ -339,7 +325,7 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
 @dataclass
 class SolveResult:
     lam: int
-    plan: dict[str, str]  # order_id -> vehicle_id (full: pinned+free)
+    plan: dict[str, str]  # order_key -> vehicle_id (full: pinned+free)
     unfilled: list[str]  # free orders routed to backorder
     node_index: dict[int, object]  # position -> ('order'|'unit', real_id)
     n_changes: int  # free orders whose vehicle differs from incumbent
@@ -349,7 +335,7 @@ class SolveResult:
 
 
 def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
-    orders = snapshot.order_by_id()
+    orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
 
     # §4 integer node positions from the fixed sort already applied to rp.
@@ -454,7 +440,7 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
 
 def _self_check(snapshot: Snapshot, plan: dict, unfilled: list) -> dict:
     """§8.5 hard-constraint self-check. Returns findings; never silently relaxes."""
-    orders = snapshot.order_by_id()
+    orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
     violations: list[str] = []
 
