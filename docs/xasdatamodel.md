@@ -161,13 +161,38 @@ location pipeline.
   with a `sales_model` + a date), so a row can be re-linked between a future slot
   and a real vehicle.
 
-> **Eligibility key — still open.** VPO rows key on `SalesModelCode`
-> (`202509231112`), while VGR/VSO rows use a longer `DMSDocItemCode`
-> (`T7160USSPMH0006`) with color/trim in the label. So a row's match against a
-> *future* vehicle may be model-level while its match against a *real* vehicle is
-> spec-exact. The prototype assumes a single `sales_model` equality
-> (`flatten.py`). Settle empirically by diffing a real already-allocated pair
-> (a VSO row with `Alloc*` populated → its source row). Independent of soft/hard.
+The link has **two sides**, and a VSO row shows which by which one is populated:
+
+- **soft / future side** — the `Alloc*` block
+  (`AllocSourceClassification` VPO/VGR, `AllocSourceJobNum`, `AllocSourceLineNum`,
+  …) points at a supply *row* (a VPO/VGR jobitem).
+- **hard / real side** — `VehicleId` points at a concrete vehicle:
+  `VSO.VehicleId.Code ⟷ Vehicle.VehicleCode` (exact equality). E.g. a VSO row
+  with `VehicleId.Code = "11317"` is bound to the vehicle whose
+  `VehicleCode = "11317"`; a row with `VehicleId = {Description: "undefined"}`
+  (or no `VehicleId`) is not yet hard-linked. Two rows of the *same* spec, one
+  with `VehicleId.Code` set and one without, are exactly the hard/soft pair.
+
+#### Eligibility key: model-level, via `ModelId.Code` (resolved)
+
+Which vehicles may fill a VSO row is a **model-level** equality, not spec-exact —
+because the real vehicle does not expose the configured spec code:
+
+| | VSO jobitem | Vehicle |
+| --- | --- | --- |
+| model/spec code | `SalesModelCode` = `DMSDocItemCode` = `T5040UECLMQ0009` | `ModelId.Code` = `T5040` |
+| model name | `Label` = "JAECOO7 4WD Exclusive …" | `ModelId.Name` / `Description` = "JAECOO7 4WD" |
+| base model | (in label) | `BaseModelId.Code` = "JAECOO7" |
+
+The VSO code is **model (`T5040`) + config (`UECLMQ0009`)**; the vehicle carries
+only the model half (`ModelId.Code`), never the config suffix, and none of its
+`ItemCode` / `ExternalModelCode` / `DMSDocItemCode` fields are populated. So the
+only shared, matchable key against a real vehicle is `ModelId.Code` ⟷ the model
+prefix of the VSO's `SalesModelCode`. **Color/trim cannot be matched against a
+real vehicle with this data** — eligibility is model-level, full stop. (Future
+vehicles come from VPO `SalesModelCode`, which is model-level too.) The prototype
+models this as a single `sales_model` equality (`flatten.py`), which is correct
+at this granularity.
 
 ---
 
@@ -224,8 +249,11 @@ This matches the spec's core loop: the disruption changes a field on the data
 - `planned_delivery_date` (on both flavors) is the **mutable field**: disruptions
   write it, allocation reads it (drives `tardiness`, §2). Real dates
   (`YYYY-MM-DD`); tardiness in **days**.
-- `sales model` is the shared key for eligibility (equality) — pending the
-  model-level-vs-spec-exact question above.
+- `sales model` is the shared key for eligibility (equality), and it is
+  **model-level**: `Vehicle.ModelId.Code` ⟷ the model prefix of the VSO
+  `SalesModelCode`. The real vehicle never carries the configured spec code, so
+  color/trim is not matchable against it. The hard link to a specific vehicle is
+  `VSO.VehicleId.Code ⟷ Vehicle.VehicleCode`.
 - **No location gradient.** Soft/hard is binary and derives from the allocation
   target's flavor, not from a parsed `Status`/location (those are `null` in
   practice). `break_cost` is a two-entry parameter.
