@@ -102,16 +102,30 @@ class Order:
 
 @dataclass(frozen=True)
 class Unit:
-    """One supply item — a concrete Vehicle OR a PO-line slot (a future car)."""
+    """One supply item — a concrete Vehicle OR a PO-line slot (a future car).
+
+    A real Vehicle (``kind == "vehicle"``, from a VGR / inventory) is a **hard**
+    binding; a PO-line slot (``kind == "po_line"``, a future car from a VPO) is
+    **soft**. Both are still capacity-1 with a ``sales_model`` and a date — the
+    only difference is what it costs to move an allocation OFF each (DECIDE-3):
+    hard is expensive-but-movable, soft is free to reshuffle. ``is_hard`` is the
+    single bit that drives that, derived from ``kind``.
+    """
 
     vehicle_id: str  # supply id: a VIN ("VEH-9000") or a slot ref ("PO-150-1-5")
-    kind: str  # "vehicle" | "po_line"
+    kind: str  # "vehicle" (real, hard) | "po_line" (future, soft)
     sales_model: str
     planned_delivery_date: date  # the ONE mutable field disruptions write
-    location_state: str  # vehicle pipeline stage; "future" for a PO-line slot
+    location_state: str  # informational pipeline stage; "future" for a PO-line slot
     po_ref: str  # the PO-line this fulfils, e.g. "PO-150-1-5"
     pdn: str  # PDN batch for a vehicle; "" for a PO-line slot
-    committed: bool  # derived from location_state at flatten time
+    committed: bool  # informational only — retained field, no longer a solver wall (DECIDE-3)
+
+    @property
+    def is_hard(self) -> bool:
+        """A real vehicle is a HARD binding (expensive to break); a future
+        PO-line slot is SOFT (free to reshuffle). See DECIDE-3."""
+        return self.kind == "vehicle"
 
     def to_dict(self) -> dict:
         return {

@@ -96,6 +96,15 @@
       "description": "Resolution the solver reasons at and the report speaks in (DECIDE-14). 'days' (default) = exact; 'weeks'/'months' round every gap UP to whole units, so the solver stops distinguishing differences finer than a unit (a coarser, calmer plan) and durations read in that unit. Changes the plan, not just the wording. The hard time fence stays in days regardless.",
       "type": "string",
       "enum": ["days", "weeks", "months"]
+    },
+    "break_cost": {
+      "description": "Cost to displace an allocation from its current binding (DECIDE-3). 'hard' = a real vehicle (VGR/inventory); 'soft' = a future PO-line slot (VPO). Hard is expensive-but-movable, soft is free. Only an ON-TIME binding costs this to displace; an already-late binding is free to re-allocate (a broken promise protects nothing), so the break prices the bump victim, not the disrupted order being rescued. The solver bumps an on-time hard allocation only when the tardiness saved elsewhere outweighs 'hard' — it is the tunable 'how many weighted late-days is one hard break worth' knob. Omit to use the defaults (hard=200, soft=0). Only the keys present are overridden.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "hard": { "type": "number", "minimum": 0, "description": "Cost to break a hard (real-vehicle) allocation." },
+        "soft": { "type": "number", "minimum": 0, "description": "Cost to break a soft (future-slot) allocation." }
+      }
     }
   }
 }

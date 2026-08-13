@@ -49,11 +49,16 @@ def _unit(vid: str, planned: date) -> Unit:
     )
 
 
-def _snap(units: list[Unit], incumbent_uid: str) -> Snapshot:
+def _snap(units: list[Unit]) -> Snapshot:
+    # The disrupted order's ORIGINAL car slipped badly (VEH-INC, far late), so its
+    # binding is already broken -> free to leave (break cost 0, DECIDE-3). Both
+    # cars under test are replacements, so the break cost cancels and the pure
+    # earliness/lateness cost model decides — which is what these tests exercise.
+    inc = _unit("VEH-INC", date(2027, 3, 1))
     return Snapshot(
         orders=[_order()],
-        units=units,
-        incumbent={"SO-1-1": incumbent_uid},
+        units=[*units, inc],
+        incumbent={"SO-1-1": "VEH-INC"},
         disruption={"disrupted_orders": ["SO-1-1"]},  # free to re-allocate
         now=NOW,
     )
@@ -62,7 +67,7 @@ def _snap(units: list[Unit], incumbent_uid: str) -> Snapshot:
 def test_closer_early_car_preferred():
     near = _unit("VEH-NEAR", date(2026, 10, 30))  # 2 days early
     far = _unit("VEH-FAR", date(2026, 9, 22))  # 40 days early
-    snap = _snap([near, far], "VEH-FAR")
+    snap = _snap([near, far])
     result = solve(snap, {}, lam=0)
     assert result.plan["SO-1-1"] == "VEH-NEAR", "should prefer the less-early car"
 
@@ -70,7 +75,7 @@ def test_closer_early_car_preferred():
 def test_slightly_early_beats_slightly_late():
     early = _unit("VEH-EARLY", date(2026, 10, 31))  # 1 day early
     late = _unit("VEH-LATE", date(2026, 11, 2))  # 1 day late
-    snap = _snap([early, late], "VEH-LATE")
+    snap = _snap([early, late])
     result = solve(snap, {}, lam=0)
     assert result.plan["SO-1-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
 
@@ -80,7 +85,7 @@ def test_extreme_early_can_lose_to_slight_late():
     1 day late, so the solver takes the slightly-late car. Intended, not a bug."""
     far_early = _unit("VEH-FAR-EARLY", date(2026, 9, 22))  # 40 days early
     slight_late = _unit("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
-    snap = _snap([far_early, slight_late], "VEH-FAR-EARLY")
+    snap = _snap([far_early, slight_late])
     result = solve(snap, {}, lam=0)
     assert result.plan["SO-1-1"] == "VEH-SLIGHT-LATE", (
         "extreme earliness may lose to slight lateness"

@@ -32,7 +32,9 @@ DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "pull.json"
 
 
 def _committed(location_state: str) -> bool:
-    """DECIDE-3: is a vehicle at this pipeline stage physically committed?"""
+    """Derive the INFORMATIONAL ``committed`` flag. No longer a solver wall — the
+    solver prices moving a real (hard) vehicle via BREAK_COST instead (DECIDE-3);
+    this flag is retained only as passthrough data."""
     return location_state in D.COMMIT_POINT_STATES
 
 

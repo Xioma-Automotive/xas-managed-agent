@@ -48,12 +48,22 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-3",
-        title="Vehicle location_state that counts as committed (recall/hard pin)",
-        default="{'bonded', 'pdi'}",
+        title="Break cost: soft vs hard allocation (real vs future vehicle)",
+        default="hard (real vehicle) = expensive-but-movable; soft (future PO-line slot) = free; BREAK_COST",
         rationale=(
-            "Pipeline future->sea->port->transfer->bonded->pdi; warmer/later = harder to "
-            "move. A vehicle at bonded/pdi is physically committed and cannot be reassigned. "
-            "'committed' is DERIVED from location_state at flatten time. See COMMIT_POINT_STATES."
+            "A VSO row bound to a REAL vehicle (kind 'vehicle', from a VGR/inventory) is a "
+            "HARD allocation; one bound to a FUTURE vehicle (kind 'po_line', a VPO slot) is "
+            "SOFT. Hard is NOT a wall — the repair loop may bump it 'for the sake of another' "
+            "order, it just pays a large finite BREAK_COST['hard'] to do so; soft costs "
+            "BREAK_COST['soft'] (0 by default). The cost applies only to displacing an "
+            "ON-TIME binding (a kept promise); an already-LATE binding protects nothing, so "
+            "re-allocating a disrupted order is free — the break prices the bump VICTIM, not "
+            "the disrupted order being rescued. There is NO location gradient: the real "
+            "inventory-vehicle API carries no usable position (all location fields null), so "
+            "hardness is the binary real-vs-future, keyed on Unit.kind — not location_state. "
+            "BREAK_COST['hard'] is the tunable ratio 'how many weighted late-days is breaking "
+            "one hard allocation worth'; it is a solver parameter the planner can override "
+            "per session. (Supersedes the retired committed-vehicle hard wall; see COMMIT_POINT_STATES.)"
         ),
     ),
     Decision(
@@ -63,7 +73,8 @@ DECISIONS: list[Decision] = [
         rationale=(
             "Instruction pins use a large finite penalty so the lambda sweep can re-run "
             "without rebuilding the network and so conflicts surface as cost (DECIDE-8). "
-            "Data pins (frozen/committed) are pre-committed out of the graph entirely."
+            "The frozen-fence data pin is pre-committed out of the graph entirely "
+            "(a real/hard vehicle is NOT — it is priced via BREAK_COST, DECIDE-3)."
         ),
     ),
     Decision(
@@ -154,13 +165,14 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-12",
-        title="PO-line slot committed-ness",
-        default="a PO-line slot is location_state='future' -> never committed until it explodes into vehicles",
+        title="PO-line slot = future = soft supply",
+        default="a PO-line slot (kind 'po_line') is a FUTURE vehicle -> SOFT, free to re-allocate",
         rationale=(
-            "Supply is now vehicles ∪ PO-line slots. A slot is a not-yet-built car, so it "
-            "is freely re-allocatable; committed-ness still derives from location_state, and a "
-            "slot carries 'future'. Once a PDN explodes the slot into concrete vehicles, those "
-            "vehicles carry a real pipeline stage and can become committed as usual."
+            "Supply is vehicles ∪ PO-line slots. A slot is a not-yet-built car (a VPO future "
+            "vehicle), so it is freely re-allocatable — a SOFT binding, BREAK_COST['soft']=0 "
+            "(DECIDE-3). Once a VGR explodes the slot into a concrete vehicle (kind 'vehicle'), "
+            "that vehicle is a REAL/HARD binding. The informational 'committed' flag still "
+            "derives from location_state but no longer gates the solver."
         ),
     ),
     Decision(
@@ -172,8 +184,8 @@ DECISIONS: list[Decision] = [
             "measures every gap in: day-deltas are rounded UP to whole units (ceil) before "
             "costing, so differences finer than a unit collapse and coarser scales stop "
             "fussing over a few days. Round-up is strict — any lateness is at least one unit, "
-            "so a coarse view never under-states lateness. The hard time fence (DECIDE-2) and "
-            "committed (DECIDE-3) stay in real days — they are physical, not a reasoning lens. "
+            "so a coarse view never under-states lateness. The hard time fence (DECIDE-2) "
+            "stays in real days — it is physical, not a reasoning lens. "
             "month = 30 days nominal (delta rounding, not calendar months). Default 'days' = "
             "today's behaviour exactly. SCALE_DAYS / DEFAULT_TIME_SCALE."
         ),
@@ -220,7 +232,18 @@ AGING_MODE = "additive"  # "additive" | "multiplicative"
 FROZEN_MAX_DAYS = 14
 SLUSHY_MAX_DAYS = 42
 
-# DECIDE-3  (vehicle location_state values that mean "committed / cannot move")
+# DECIDE-3  break cost: what it costs to move an allocation OFF its current
+# binding, keyed on the binding's flavor. A real vehicle is HARD (expensive but
+# movable); a future PO-line slot is SOFT (free to reshuffle). Two levels, no
+# gradient — hardness derives from Unit.kind, not location. BREAK_COST["hard"] is
+# the load-bearing ratio (cost of breaking one hard allocation, in the same
+# scaled units as weighted lateness); the planner can override it per session.
+# STUB DEFAULT — the real "days-late worth one hard break" ratio needs sign-off.
+BREAK_COST: dict[str, float] = {"hard": 200.0, "soft": 0.0}
+
+# Retained only to DERIVE the informational Unit.committed flag at flatten time.
+# It is NO LONGER a solver wall (DECIDE-3 revision): a real vehicle is movable at
+# BREAK_COST["hard"], not excluded from the graph.
 COMMIT_POINT_STATES = frozenset({"bonded", "pdi"})
 
 # DECIDE-4 / DECIDE-8

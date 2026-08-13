@@ -65,13 +65,13 @@ class Discrepancy:
     now_arriving: date
     days_late: int
     fixable: bool  # can it be re-slotted at all?
-    reason: str  # "movable" | "frozen" | "committed"
+    reason: str  # "movable" | "frozen"
 
 
 def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
     """Orders whose currently-allocated supply now delivers past the promise, each
-    classified fixable vs stuck (frozen / committed) so the planner learns on turn
-    1 which broken orders can't be helped by re-allocation at all."""
+    classified fixable vs stuck (only the frozen fence is truly stuck now) so the
+    planner learns on turn 1 which broken orders can't be helped by re-allocation."""
     orders = snapshot.order_by_id()
     units = snapshot.unit_by_id()
     out: list[Discrepancy] = []
@@ -168,7 +168,7 @@ def bump_candidates(snapshot: Snapshot, result: SolveResult) -> list[dict]:
             if not uid:
                 continue
             u = units[uid]
-            if u.committed or u.sales_model != lo.sales_model:
+            if u.sales_model != lo.sales_model:
                 continue
             if u.planned_delivery_date <= lo.promised_date:
                 cands[oid] = {
@@ -406,8 +406,6 @@ def _result_phrase(order: Order, unit, scale: str, unit_days: int) -> str:
 def _why_late(reason: str) -> str:
     if reason == "frozen":
         return "locked in (near delivery)"
-    if reason == "committed":
-        return "already in final prep"
     return "no compatible car free"
 
 
@@ -446,7 +444,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     for oid in still_late:
         inc = units.get(incumbent.get(oid)) if incumbent.get(oid) else None
         r = repairability(orders[oid], snapshot.now, inc)
-        (stuck if r in ("frozen", "committed") else no_car).append((oid, r))
+        (stuck if r == "frozen" else no_car).append((oid, r))
 
     lines = [f"**Done — {_steering_summary(override, cid_to_name)}.**"]
     head = f"{n_fixed} of {len(broken)} delayed orders now on time"

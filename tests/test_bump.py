@@ -83,3 +83,19 @@ def test_authorized_bump_rescues_the_disrupted_row():
     )
     assert tardiness(snap.order_by_id()["SO-HI-1"], units[result.plan["SO-HI-1"]]) == 0
     assert result.plan["SO-LO-1"] != "VEH-LO-GOOD", "the C-priority row was bumped off it"
+
+
+def test_break_cost_can_block_an_authorized_bump():
+    """DECIDE-3: bumping the on-time LO row off its hard vehicle costs
+    BREAK_COST['hard']. With the default it's worth paying to rescue the disrupted
+    A-priority row; make it prohibitive and the solver declines — LO keeps its car
+    and HI stays late. The bump victim's kept promise is what the break prices."""
+    snap = _snapshot()
+    auth = {"bump": {"orders": ["SO-LO-1"]}}
+    # Default: the rescue is worth the hard break.
+    assert solve(snap, auth, lam=0).plan["SO-HI-1"] == "VEH-LO-GOOD"
+    # Prohibitive break: disturbing LO's on-time hard allocation is no longer worth
+    # it, so HI stays on its late car.
+    blocked = solve(snap, {**auth, "break_cost": {"hard": 100000}}, lam=0)
+    assert blocked.plan["SO-LO-1"] == "VEH-LO-GOOD", "on-time hard allocation kept"
+    assert tardiness(snap.order_by_id()["SO-HI-1"], snap.unit_by_id()[blocked.plan["SO-HI-1"]]) > 0

@@ -2,8 +2,8 @@
 
 Two things the run analysis flagged and this guards:
   1. `discrepancy_report` / `planner_report` must classify a broken order that
-     can't be re-slotted (frozen fence, committed vehicle) as **locked in** — the
-     turn-1 truth the live run hid until turn 4.
+     can't be re-slotted (only the frozen fence is a hard wall now) as **locked
+     in** — the turn-1 truth the live run hid until turn 4.
   2. the reply must carry NO solver internals (λ, objective, Pareto, incumbent,
      min-cost) — those are the jargon the planner shouldn't see.
 """
@@ -113,17 +113,13 @@ def test_report_is_jargon_free():
     assert not leaked, f"solver jargon leaked into planner reply: {leaked}"
 
 
-def test_committed_vehicle_is_locked_in_too():
-    """The other stuck reason: a broken order riding a committed (bonded/pdi)
-    vehicle can't be re-slotted even when the fence is liquid."""
+def test_hard_vehicle_allocation_is_movable_not_locked():
+    """DECIDE-3: a broken order riding a REAL (hard) vehicle is no longer walled
+    off — it reads 'movable', because hard is expensive-but-movable, not a lock."""
     snap = _snapshot()
-    # make MOV ride a committed vehicle instead of a movable one
-    snap.units = [
-        _unit("VEH-MOV-LATE", "SM1", date(2026, 10, 20), committed=True),
-        _unit("VEH-GOOD", "SM1", date(2026, 9, 14)),
-        _unit("VEH-FRZ-LATE", "SM2", date(2026, 8, 25)),
-        _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),
-    ]
     orders = snap.order_by_id()
     units = snap.unit_by_id()
-    assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "committed"
+    # MOV rides VEH-MOV-LATE, a real vehicle (kind 'vehicle', so is_hard) that used
+    # to be treated as committed/locked; now it is simply movable.
+    assert units["VEH-MOV-LATE"].is_hard
+    assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
