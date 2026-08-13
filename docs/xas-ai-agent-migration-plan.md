@@ -166,6 +166,30 @@ likely fastest to ship:** app MCP direct via vault (A), and keep **xioma-read
 host-answered** (B) until we're ready to move embedding into it and expose it.
 Design B alone is the zero-MCP-change path if inbound exposure is off the table.
 
+#### MCP auth: today → managed agents
+
+The current **two-header** scheme is not one uniform requirement — it splits by
+server, and the per-user half applies to **only one of them**. The `XIOMA_MCP_KEY`
+shared key is *caller auth* ("prove the caller is our agent"); the
+`X-Xioma-User-Token` is *user scoping* (forwarded to the DMS gateway for that
+user's permissions). Crucially, **xioma-read is company-scoped and ignores the
+user token** (`company_id` is injected instead; discovery even sends a
+`X-Xioma-User-Token: discovery` placeholder), while **only xas-app-mcp is
+per-user**.
+
+| Server | Scope | Today | Managed-Agents target |
+| --- | --- | --- | --- |
+| **xioma-read** | company (`company_id`) | `Authorization: Bearer XIOMA_MCP_KEY` only; user token ignored | **No per-user auth.** Direct: one shared `static_bearer` in a common vault. Or keep host-side (Design B) and the key stays an internal loopback detail. |
+| **xas-app-mcp** | per-user (`X-Xioma-User-Token` → gateway) | shared key **+** per-user token (two headers) | **One per-user credential.** `mcp_oauth` per user (auto-refresh) folds "trusted caller" + "which user" into a single token; shared-key check relocates to a gateway (mTLS / IP-allowlist for Anthropic's egress). |
+
+So `Bearer XIOMA_MCP_KEY` is **not needed as a per-request header** under Design A:
+it becomes a single shared `static_bearer` for read (or nothing, if read stays
+host-side), and on the app MCP its job is absorbed by per-user OAuth + a gateway.
+The only genuinely per-user reshape is on **xas-app-mcp**; the read path carries no
+per-user credential at all. (In this repo neither server enforces the key — read
+MCP is a `127.0.0.1:8001` sidecar, app MCP is a mock — so enforcement lives in the
+real external `xas-app-mcp`; confirm the prod split before wiring vaults.)
+
 ---
 
 ## 3. How each subsystem ports
@@ -352,7 +376,7 @@ These are net-new capabilities, not just parity. Prioritized:
 | # | Decision | Leaning |
 | --- | --- | --- |
 | D-1 | Per-user token to a sandbox with zero egress | **Direct MCP via per-user vault (Design A)** is first-class and recommended — needs the MCP auth reshaped to one bearer/OAuth credential + MCP exposed to Anthropic + embedding moved into xioma-read. **Host-answered custom tools (Design B)** is the zero-MCP-change fallback. Hybrid (app MCP = A, xioma-read = B) likely ships fastest. |
-| D-1a | Per-user token form | Move from custom `X-Xioma-User-Token` to **`mcp_oauth`** (auto-refresh) or `static_bearer` per user, so vault can inject it. Requires an OAuth/bearer path on the app MCP + gateway for the shared key. |
+| D-1a | Per-user token form (app MCP only) | The per-user reshape is **xas-app-mcp only** (read MCP is company-scoped, no user token). Move `X-Xioma-User-Token` → **`mcp_oauth`** (auto-refresh) or `static_bearer` per user; relocate the shared-key caller check to a gateway. Read MCP needs at most a single shared `static_bearer` (or stays host-side). See "MCP auth: today → managed agents". |
 | D-2 | Where rendering runs | **Skill code → HTML file → worker downloads**; host-side custom tool as fallback. |
 | D-3 | Embeddings | **Keep Titan host-side** in the worker (matches the pre-built index space). Re-embedding the index is required if the model ever changes. |
 | D-4 | Session-id map durability | In-memory for v1; small Postgres table if worker restarts must preserve continuity. |
