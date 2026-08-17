@@ -18,7 +18,7 @@ description: >-
 If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is lost. That is the
 bug to guard against everywhere. `override` is a **single combined object** you
-carry forward and show each turn (no ledger, no replay); same snapshot + same
+carry forward and confirm each turn in plain words (no ledger, no replay); same snapshot + same
 override → byte-identical plan. You do **not** decide allocations; you build the
 network and call the solver, then explain the result.
 
@@ -159,6 +159,21 @@ is to let them answer "did my instruction land, what moved, and what still needs
 my attention" at a glance. Write **outcomes in business terms**; keep the
 machinery in the sandbox.
 
+**Concrete, and short.** Those pull in the same direction, not against each
+other. Concrete = the order key, the dealer, the vehicle it now gets vs. the one
+it had, the promised date, the arriving date, on time or N days late — never trim
+those. Short = everything else goes: no preamble, no restating the instruction
+back, no narrating the steps you took, no summary after the summary. Outcome in
+one or two lines, the tables, done.
+
+**Never these words in the reply:** solver, min-cost-flow, lambda / λ, weights,
+cost, network, arc, snapshot, flatten, override, scope, `time_scale`,
+`sales_model`, pin, break cost, frozen fence, seed, "turn N", DECIDE-n, raw ids
+like `CUST-001`. Each has a planner-side translation — "too close to delivery to
+re-slot" (frozen fence), "prioritizing Colmobil" (weight on a customer id),
+"planning in whole weeks" (`time_scale`), "no compatible car free" (no eligible
+arc). Use the translation.
+
 **Turn 1 is the discrepancy map, and it must say what's stuck.**
 `discrepancy_report` splits the broken orders into **can be repaired** vs
 **locked in** (too close to delivery to re-slot — the frozen fence).
@@ -208,7 +223,8 @@ carries a decision:
 - **The override JSON**, `customer_id`s (`CUST-001`), `weight_mult`, "override
   object", "seed", "reproducible", "turn N". Confirm the *translation* in plain
   words ("prioritizing Colmobil over the other dealers") before running — not the
-  raw object.
+  raw object. Print the object only on request, or when you must hand it over so
+  a session can be resumed after the sandbox is reclaimed (DECIDE-5).
 - **The λ sweep table when it's flat.** §2 keeps the sweep as the high-value
   computation, but a frontier where every row is identical is noise — collapse it
   to one sentence ("churn/lateness didn't trade off this cycle"). Show the table

@@ -82,14 +82,15 @@ DECISIONS: list[Decision] = [
         title="Managed Agents session-persistence + mid-session-steering API",
         default=(
             "steering is a single combined OVERRIDE object the agent carries forward and "
-            "shows each turn; NO durable, cross-session persistence is assumed as a platform "
-            "primitive in this prototype"
+            "confirms each turn in plain words (the object itself only on request); NO durable, "
+            "cross-session persistence is assumed as a platform primitive in this prototype"
         ),
         rationale=(
             "The invariant is plan = f(snapshot, skill, override): same snapshot + same "
             "override => byte-identical plan, so the override is the only state that must "
-            "survive. In this prototype it lives only in the conversation — the agent recovers "
-            "it from its own last shown object after a sandbox reclaim; there is no ledger. A "
+            "survive. In this prototype it lives only in the conversation — after a sandbox "
+            "reclaim the agent restates it from the conversation, printing the object when a "
+            "handover needs it; there is no ledger. A "
             "durable host-side store (web.py keyed by session id, shipped in via the pull) is "
             "the real fix and stays DEFERRED. Verify the current Managed Agents persistence + "
             "mid-session-steering surface against Anthropic docs before wiring it."
