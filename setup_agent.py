@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Control-plane setup for the XAS Allocation Agent (Managed Agent).
+"""Control-plane setup for the XAS Agent (Managed Agent).
+
+ONE agent, TWO skills. Specialisation lives in the skills, not in separate agent
+objects: `xas-allocation` drives the deterministic solver, `xas-qa` answers
+reporting questions over the mounted job-card records. The API allows 20 skills
+per agent; we use 2.
+
+The agent is the one that already exists (ALLOC_AGENT_ID). This script updates it
+in place to carry the second skill — it does not create a new one.
 
 RUN ONCE, re-runnable. Creates the persistent resources — an **Anthropic-hosted
 (cloud)** environment, the skill, and the agent — and prints their IDs to paste
@@ -35,32 +43,51 @@ import alloc_tools
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent
-SKILL_DIR = REPO_ROOT / "skills" / "xas-allocation"
+ALLOC_SKILL_DIR = REPO_ROOT / "skills" / "xas-allocation"
+QA_SKILL_DIR = REPO_ROOT / "skills" / "xas-qa"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
 ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
 ALLOC_SKILL_ID = os.environ.get("ALLOC_SKILL_ID")
+QA_SKILL_ID = os.environ.get("QA_SKILL_ID")
 
-if not ANTHROPIC_API_KEY:
-    sys.exit(
-        "Missing required .env value: ANTHROPIC_API_KEY\n"
-        "Copy .env.example to .env and fill it in before running setup."
-    )
+# The credential check and the client are deliberately NOT module-level: the
+# prompt, the tool list and the skill bundles are the agent's contract, and
+# tests/test_agent_contract.py pins them. Importing this module must therefore
+# work with no API key and no network, exactly like the rest of the suite.
+_client: anthropic.Anthropic | None = None
 
-client = anthropic.Anthropic()
+
+def client() -> anthropic.Anthropic:
+    global _client
+    if _client is None:
+        if not ANTHROPIC_API_KEY:
+            sys.exit(
+                "Missing required .env value: ANTHROPIC_API_KEY\n"
+                "Copy .env.example to .env and fill it in before running setup."
+            )
+        _client = anthropic.Anthropic()
+    return _client
+
 
 MODEL = "claude-opus-5"
 
 # Unique per organization, and the self-hosted branch already holds
 # "XAS allocation repair" — creating a skill reuses no title.
-SKILL_TITLE = "XAS allocation repair (cloud sandbox)"
+ALLOC_SKILL_TITLE = "XAS allocation repair (cloud sandbox)"
+QA_SKILL_TITLE = "XAS terminology resolution (reporting)"
 
 # §10 — the system prompt carries identity, the one-line job, and the HARD RULES.
 # Everything procedural (cost model, spec-compat, reference solver) lives in the
 # xas-allocation skill, loaded when relevant.
 SYSTEM_PROMPT = """\
-You are the XAS Allocation Agent for Xioma Automotive. Your one job: help a planner REPAIR a vehicle-to-order allocation after a disruption (delayed shipment, changed inbound, manual steering).
+You are the XAS Agent for Xioma Automotive. You do two jobs for dealership staff:
+
+1. ALLOCATION REPAIR — help a planner repair a vehicle-to-order allocation after a disruption (delayed shipment, changed inbound, manual steering). Driven by the `xas-allocation` skill.
+2. REPORTING — answer questions about the dealership's job-card records (how many, which branch, what status) and draw charts. Driven by the `xas-qa` skill.
+
+Read what was asked and use the matching skill. The hard rules below apply to both, and the first one is what keeps the two jobs from contaminating each other.
 
 You do not allocate by reasoning. You translate the situation and the planner's instructions into inputs for a deterministic min-cost-flow solver, run it, and explain the result. The solver and cost model live in the xas-allocation skill — always use them.
 
@@ -69,6 +96,10 @@ Environment
 The reference solver ships INSIDE the `xas-allocation` skill, as the `xas_allocation` package in that skill's directory. Locate the skill directory with a shallow `ls` of your working directory and its `skills/` subdirectory, then run from there (or set PYTHONPATH to it) so `import xas_allocation` resolves. Run it; never reimplement, rewrite, re-derive, or approximate it. If an import fails, look in the skill directory — do NOT search the filesystem. `find /` exceeds the 120s bash timeout and kills your shell.
 Run `pip install ortools` once per session; the solver needs it.
 Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (VSO jobcards + a vehicle pool of real/future vehicles) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
+Your data is mounted as files. There is NO network:
+  /workspace/pull.json                the allocation snapshot. Reached through the pull_allocation_snapshot tool and the `flatten` command — never read by hand.
+  /workspace/reports/index.md         this tenant's taxonomy: every live entity, classification and status, with the multi-language names users actually say. The ONLY authority for turning business words into system codes.
+  /workspace/reports/jobcards.json    the job-card records REPORTING answers over.
 No network access — everything is local.
 
 Determinism (the core invariant)
@@ -79,7 +110,7 @@ Flattening the pull into the snapshot is pure code (eligibility is a hard sales_
 
 Hard rules (never violate)
 
-The plan comes from the solver, not from you.
+The plan comes from the solver, not from you. Every claim about allocation — which order is late, which vehicle an order gets, what a repair costs, who would be bumped — comes from running the solver through the xas-allocation skill's helpers. NEVER from reading /workspace/reports/jobcards.json or any other file. Those records answer reporting questions only; they are a different snapshot of the business and are not guaranteed to agree with the pull. If you cannot answer an allocation question by running the solver, say so — do not substitute a number you read.
 You are flexible by TRANSLATING any planner request into the typed override object (weights, pins, scope, and time_scale), never by special-casing in prose — the object is the flexibility surface; the solver decides. A new CONSTRAINT is a model change — a reviewed PR with tests, never a live-session mutation. "Scope" (work only a customer / month / PO slice) is a runtime override, not a constraint. "time_scale" (days/weeks/months) sets the resolution the solver reasons at — "just get the month roughly right" → months, "hit the exact dates" → days; it changes the plan, not just the wording.
 Do NOT hand-pick early cars or praise early delivery: arriving too early is already priced by the solver (a gentle penalty), so lateness dominates but a car that lands months early is not a win. Report earliness as a mild caveat, never a ✅ prize.
 Never move a frozen-fence order. (A real vehicle is NOT a wall — it is expensive-but-movable via break_cost, DECIDE-3.)
@@ -98,6 +129,14 @@ Cut everything else. Lead with the outcome in one or two lines, print the helper
 Never put internal vocabulary in the reply: solver, min-cost-flow, lambda / λ, weights, cost, network, arc, snapshot, flatten, override, scope, time_scale, pin, sales_model, break cost, frozen fence, seed, "turn N", DECIDE-n, raw ids like CUST-001. Say what they mean instead — "too close to delivery to re-slot", not "inside the frozen fence"; "prioritizing Colmobil", not "weight_mult 3.0 on CUST-004"; "planning in whole weeks", not "time_scale weeks".
 Confirm steering in plain words before running it ("prioritizing Colmobil, and only August orders") — never as an object. Keep the steering object to yourself; print it only if the planner asks for it, or if you must hand it over so a session can be resumed.
 Say the one thing they would otherwise miss in a single sentence, and end with the natural next moves in their words.
+
+Reporting (the other job)
+
+For a question about the records — counts, breakdowns, statuses, branches, charts — use the xas-qa skill. It holds the procedure: build the phrasebook once, resolve the user's words against it exact-first, then compute the answer with real code over the records. Never eyeball the records and never invent a number. Resolve every business term through the taxonomy rather than guessing a code, translate codes back to human names before answering, and if a term matches more than one classification ask ONE short question instead of picking. Write charts as a file and tell the planner the filename.
+
+Reporting is read-only. It never changes an allocation, and its numbers never become the basis for an allocation claim.
+
+Reply in the language the person wrote in — this dealership works in Hebrew and English, and a Hebrew question gets a Hebrew answer. That applies to both jobs, and to chart labels: use the human names people recognise, never a raw code or an ObjectId.
 
 Prototype scope: the XAS pull/write-back MCP doesn't exist yet, so you work against a fabricated dataset in the real XAS vocabulary (VSO jobcards with car lines, a single vehicle pool of real/future vehicles keyed by VehicleClassification, dates). Where the skill or code marks an open decision (DECIDE-n), raise it with the planner in plain words — never silently guess.
 """
@@ -122,41 +161,46 @@ TOOLS = [
 ]
 
 
-def skill_files() -> list[tuple[str, bytes]]:
-    """The skill bundle: SKILL.md plus the reference solver itself.
+def skill_files(skill_dir: Path, package: Path | None = None) -> list[tuple[str, bytes]]:
+    """One skill bundle: the skill directory, plus an optional Python package.
 
-    The API requires one top-level directory with SKILL.md at its root, so both
-    are mapped under ``xas-allocation/``. Shipping the solver inside the skill is
-    what gets it into an Anthropic-hosted sandbox at all — there is no host-side
-    workdir to copy it into, and having the model retype it from a prompt is the
-    determinism leak this design exists to prevent. It is also §10's "reference
-    solver in the skill for day-one", arrived at the long way round.
+    The API requires one top-level directory with SKILL.md at its root, so
+    everything is mapped under ``<skill_dir.name>/``. Shipping the solver inside
+    the allocation skill is what gets it into an Anthropic-hosted sandbox at all
+    — there is no host-side workdir to copy it into, and having the model retype
+    it from a prompt is the determinism leak this design exists to prevent.
 
-    The package stays at the repo root: this synthesizes the bundle at upload
-    time rather than duplicating the files, so the tests and the skill run
-    against the same source.
+    Sources stay where they are: this synthesizes the bundle at upload time
+    rather than duplicating files, so the tests and the skill run against the
+    same source. The DATA is never bundled — the pull, the taxonomy and the
+    records are all mounted per session (see web.py), so regenerating any of them
+    needs no redeploy. Changing this code does.
     """
     files: list[tuple[str, bytes]] = []
-    for path in sorted(SKILL_DIR.rglob("*")):
-        if path.is_file():
-            files.append((str(path.relative_to(SKILL_DIR.parent)), path.read_bytes()))
-    if not any(name.endswith("/SKILL.md") for name, _ in files):
-        sys.exit(f"No SKILL.md found in {SKILL_DIR}")
-
-    package = REPO_ROOT / "xas_allocation"
-    for path in sorted(package.rglob("*")):
+    for path in sorted(skill_dir.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts:
-            files.append((f"{SKILL_DIR.name}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
+            files.append((str(path.relative_to(skill_dir.parent)), path.read_bytes()))
+    if not any(name.endswith("/SKILL.md") for name, _ in files):
+        sys.exit(f"No SKILL.md found in {skill_dir}")
 
-    # The dataset is NO LONGER bundled: the pull comes from a callable data source
-    # (datasource.get_source()), fetched host-side by web.py and mounted into the
-    # sandbox as a file at alloc_tools.MOUNT_PATH. The skill carries only the
-    # solver package + SKILL.md; the rows arrive per-session, live.
+    if package is not None:
+        for path in sorted(package.rglob("*")):
+            if path.is_file() and "__pycache__" not in path.parts:
+                files.append((f"{skill_dir.name}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
     return files
 
 
+def alloc_bundle() -> list[tuple[str, bytes]]:
+    return skill_files(ALLOC_SKILL_DIR, REPO_ROOT / "xas_allocation")
+
+
+def qa_bundle() -> list[tuple[str, bytes]]:
+    """SKILL.md + phrasebook.py. No package: grep over a flattened table is the matcher."""
+    return skill_files(QA_SKILL_DIR)
+
+
 def create_environment() -> str:
-    environment = client.beta.environments.create(
+    environment = client().beta.environments.create(
         name="xas-allocation-cloud",
         description="Anthropic-hosted sandbox for the XAS Allocation Agent.",
         config={
@@ -174,41 +218,47 @@ def create_environment() -> str:
     return environment.id
 
 
-def create_skill() -> str:
-    skill = client.beta.skills.create(
-        files=skill_files(),
-        display_title=SKILL_TITLE,
-    )
-    print(f"Created skill:       {skill.id}")
+def create_skill(files: list[tuple[str, bytes]], title: str) -> str:
+    skill = client().beta.skills.create(files=files, display_title=title)
+    print(f"Created skill:       {skill.id}  ({title})")
     return skill.id
 
 
-def update_skill(skill_id: str) -> None:
-    version = client.beta.skills.versions.create(skill_id, files=skill_files())
-    print(f"Updated skill:       {skill_id} (version {version.version})")
+def update_skill(skill_id: str, files: list[tuple[str, bytes]], title: str) -> None:
+    version = client().beta.skills.versions.create(skill_id, files=files)
+    print(f"Updated skill:       {skill_id} -> version {version.version}  ({title})")
 
 
-def create_agent(skill_id: str) -> str:
-    agent = client.beta.agents.create(
-        name="XAS Allocation Agent",
+def _skills(alloc_skill_id: str, qa_skill_id: str) -> list[dict]:
+    """Both entries, every time — agents.update() PRESERVES omitted array fields,
+    so a skills list that is not sent is a skills list that does not change."""
+    return [
+        {"type": "custom", "skill_id": alloc_skill_id},
+        {"type": "custom", "skill_id": qa_skill_id},
+    ]
+
+
+def create_agent(alloc_skill_id: str, qa_skill_id: str) -> str:
+    agent = client().beta.agents.create(
+        name="XAS Agent",
         model=MODEL,
         system=SYSTEM_PROMPT,
         tools=TOOLS,
-        skills=[{"type": "custom", "skill_id": skill_id}],
+        skills=_skills(alloc_skill_id, qa_skill_id),
     )
     print(f"Created agent:       {agent.id}  (version {agent.version})")
     return agent.id
 
 
-def update_agent(agent_id: str, skill_id: str) -> None:
-    agent = client.beta.agents.update(
+def update_agent(agent_id: str, alloc_skill_id: str, qa_skill_id: str) -> None:
+    agent = client().beta.agents.update(
         agent_id,
         model=MODEL,
         system=SYSTEM_PROMPT,
         tools=TOOLS,
-        skills=[{"type": "custom", "skill_id": skill_id}],
+        skills=_skills(alloc_skill_id, qa_skill_id),
     )
-    print(f"Updated agent:       {agent.id}  (version {agent.version})")
+    print(f"Updated agent:       {agent.id}  (version {agent.version}, 2 skills)")
 
 
 def check_environment_type(environment_id: str) -> None:
@@ -218,7 +268,7 @@ def check_environment_type(environment_id: str) -> None:
     serves — the sessions would queue forever waiting for a worker that is not
     coming. Cheaper to refuse than to debug.
     """
-    kind = client.beta.environments.retrieve(environment_id).config.type
+    kind = client().beta.environments.retrieve(environment_id).config.type
     if kind != "cloud":
         sys.exit(
             f"ALLOC_ENV_ID={environment_id} is a {kind!r} environment, but this branch\n"
@@ -229,23 +279,49 @@ def check_environment_type(environment_id: str) -> None:
 
 
 def main() -> None:
-    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID:
+    """Three paths, because the allocation agent already exists.
+
+    The common one after the merge is the MIDDLE case: agent, environment and
+    allocation skill are live, the QA skill is not. That path creates one skill
+    and updates the agent to carry both — it never creates a second agent.
+    """
+    if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)
-        print("Resources already exist — updating in place.\n")
-        update_skill(ALLOC_SKILL_ID)
-        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID)
+
+    # Everything exists — refresh both bundles and the agent.
+    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and QA_SKILL_ID:
+        print("All resources exist — updating in place.\n")
+        update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
+        update_skill(QA_SKILL_ID, qa_bundle(), QA_SKILL_TITLE)
+        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, QA_SKILL_ID)
         print("\nDone. The IDs in .env are unchanged.")
         return
 
+    # The migration path: add the QA skill to the agent that already exists.
+    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and not QA_SKILL_ID:
+        print("Adding the reporting skill to the existing agent.\n")
+        update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
+        qa_skill_id = create_skill(qa_bundle(), QA_SKILL_TITLE)
+        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, qa_skill_id)
+        print("\n" + "=" * 60)
+        print("Add this ONE line to your .env (the others are unchanged):\n")
+        print(f"QA_SKILL_ID={qa_skill_id}")
+        print("=" * 60)
+        return
+
+    # Cold start.
     environment_id = ALLOC_ENV_ID or create_environment()
-    skill_id = ALLOC_SKILL_ID or create_skill()
-    agent_id = ALLOC_AGENT_ID or create_agent(skill_id)
+    check_environment_type(environment_id)
+    alloc_skill_id = ALLOC_SKILL_ID or create_skill(alloc_bundle(), ALLOC_SKILL_TITLE)
+    qa_skill_id = QA_SKILL_ID or create_skill(qa_bundle(), QA_SKILL_TITLE)
+    agent_id = ALLOC_AGENT_ID or create_agent(alloc_skill_id, qa_skill_id)
 
     print("\n" + "=" * 60)
     print("Setup complete. Paste these into your .env:\n")
     print(f"ALLOC_AGENT_ID={agent_id}")
     print(f"ALLOC_ENV_ID={environment_id}")
-    print(f"ALLOC_SKILL_ID={skill_id}")
+    print(f"ALLOC_SKILL_ID={alloc_skill_id}")
+    print(f"QA_SKILL_ID={qa_skill_id}")
     print("=" * 60)
     print(
         "\nThe environment is Anthropic-hosted — there is no worker to start and no\n"

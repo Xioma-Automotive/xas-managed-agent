@@ -22,6 +22,14 @@ The contract every source returns is the rich pull shape `flatten()` and
     {meta, vsos, vehicles, disruption}
 
 Select with the ``XAS_DATA_SOURCE`` env var (``scenario`` | ``xas``).
+
+The REPORTING lane mounts two more files from here — a per-dealership taxonomy
+and the job-card records. They are returned as **bytes**: unlike the pull, the
+host never parses them (nothing host-side consumes them; they exist only to be
+mounted), so decoding would be waste. They are deliberately NOT unified with the
+pull's fabricator — the two lanes fabricate by different mechanisms, decided
+2026-08-18, so the two datasets describe overlapping business objects with no
+guarantee they agree. Only the solver may speak for the allocation.
 """
 
 from __future__ import annotations
@@ -33,7 +41,14 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 REPO_ROOT = Path(__file__).resolve().parent
-DATASET_PATH = REPO_ROOT / "data" / "pull.json"
+DATA_DIR = REPO_ROOT / "data"
+DATASET_PATH = DATA_DIR / "pull.json"
+RECORDS_PATH = DATA_DIR / "jobcards.json"
+
+# Taxonomies are per-dealership and named by the file that carries them. The
+# CALLER picks (DECIDE-16) — see the `taxonomy` field on POST /session.
+TAXONOMY_SUFFIX = "-flat-index.md"
+DEFAULT_TAXONOMY = "xioma-DMSDEV2023"
 
 
 @runtime_checkable
@@ -113,3 +128,48 @@ def get_source() -> DataSource:
     if kind == "scenario":
         return ScenarioEngineSource()
     raise RuntimeError(f"unknown XAS_DATA_SOURCE {kind!r} (expected 'scenario' or 'xas')")
+
+
+# --------------------------------------------------------------------------
+# Reporting mounts: the tenant taxonomy and the job-card records.
+# --------------------------------------------------------------------------
+
+
+def available_taxonomies() -> dict[str, Path]:
+    """Every taxonomy on disk, keyed by dealership name.
+
+    Discovered by globbing, so adding a dealership is dropping a file in
+    ``data/`` — no code change and no registry to keep in sync.
+    """
+    return {
+        path.name[: -len(TAXONOMY_SUFFIX)]: path
+        for path in sorted(DATA_DIR.glob(f"*{TAXONOMY_SUFFIX}"))
+    }
+
+
+def get_taxonomy(name: str | None = None) -> tuple[str, bytes]:
+    """The dictionary that turns business words into this dealership's codes.
+
+    ``name`` arrives from the CALLER (the frontend picks the dealership), so it
+    is never joined onto a path — it is looked up in the discovered set above.
+    An unknown name is refused by listing what exists, which also makes a typo
+    self-explaining rather than a mysterious empty mount.
+    """
+    taxonomies = available_taxonomies()
+    if not taxonomies:
+        raise RuntimeError(f"No taxonomy files (*{TAXONOMY_SUFFIX}) in {DATA_DIR}")
+    chosen = name or DEFAULT_TAXONOMY
+    if chosen not in taxonomies:
+        raise RuntimeError(
+            f"Unknown taxonomy {chosen!r}. Available: {', '.join(sorted(taxonomies))}"
+        )
+    return chosen, taxonomies[chosen].read_bytes()
+
+
+def get_records() -> bytes:
+    """The job-card records the reporting lane answers over.
+
+    A fixed sample for the prototype. NOT the allocation pull and not derived
+    from it — see the module docstring.
+    """
+    return RECORDS_PATH.read_bytes()

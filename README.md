@@ -1,4 +1,4 @@
-# XAS Allocation Agent
+# XAS Agent
 
 A Claude **Managed Agent** for Xioma Automotive, running against an
 **Anthropic-hosted** sandbox. The agent's bash and file tools execute in
@@ -11,7 +11,7 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-opus-5`.
 
 | File | Plane | Role |
 | ---- | ----- | ---- |
-| `setup_allocation_agent.py` | control (once) | Creates the cloud environment, uploads the skill **with the solver inside it**, creates the agent. Re-runnable: updates in place. |
+| `setup_agent.py` | control (once) | Creates the cloud environment, uploads the skill **with the solver inside it**, creates the agent. Re-runnable: updates in place. |
 | `web.py` + `static/index.html` | run | The only process. Session control, transcript, and the one custom tool the sandbox cannot answer for itself. |
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
@@ -53,6 +53,34 @@ work the whole book or a
 **scope** (a customer/month/PO slice — a localized fix that leaves the rest
 pinned). Every unresolved choice from the spec is a marked `DECIDE-n` — stubbed
 with a labelled default (see below).
+
+## Two lanes, one agent
+
+The agent does two jobs, and which one runs is decided by **skills**, not by
+separate agents:
+
+| Lane | Skill | Reads | Answers |
+| --- | --- | --- | --- |
+| Allocation repair | `xas-allocation` | `/workspace/pull.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
+| Reporting | `xas-qa` | `/workspace/reports/index.md` + `/workspace/reports/jobcards.json` | how many, which branch, what status — and charts |
+
+Both are mounted into the same session, so a planner can repair an allocation and
+then ask for a chart without switching tools.
+
+**The rule that makes that safe:** every allocation claim comes from running the
+solver. Never from reading the records. The two datasets are fabricated by
+different mechanisms and are not guaranteed to agree, so an allocation number
+read out of `jobcards.json` would look right and not be reproducible — the exact
+thing `plan = pure_function(snapshot, skill, override)` exists to prevent. The
+system prompt forbids it by path, `tests/test_agent_contract.py` pins the rule,
+and `docs/evals/routing.md` is the hand-run behavioural check.
+
+**Reporting vocabulary.** Dealerships rename things — in the shipped tenant the
+code `Service` displays as `Distinct_name`. `xas-qa` flattens the taxonomy into a
+normalized phrasebook (one row per surface string, casefolded and stripped of
+combining marks) so Hebrew typed without niqqud still matches, then resolves
+exact-first. Which dealership's taxonomy to mount is the caller's choice — the
+optional `taxonomy` field on `POST /session`, defaulting to the committed one.
 
 ## Reference-solver package (the deterministic core)
 
@@ -102,8 +130,8 @@ committed, so nothing above needs the engine re-run.
 ```bash
 uv sync
 cp .env.example .env                  # fill in ANTHROPIC_API_KEY
-uv run python setup_allocation_agent.py
-#   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_SKILL_ID into .env
+uv run python setup_agent.py
+#   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_SKILL_ID / QA_SKILL_ID into .env
 
 uv run uvicorn web:app --port 8000    # the only process — open localhost:8000
 ```
@@ -130,7 +158,7 @@ tests and the sandbox run the same source.
 The dataset is **not** bundled (it used to be). The pull comes from a callable
 data source, fetched host-side per session and mounted into the sandbox as a file
 (next section). The consequence to remember: **edit the solver package or
-`SKILL.md` and you must re-run `setup_allocation_agent.py`**; regenerating
+`SKILL.md` and you must re-run `setup_agent.py`**; regenerating
 `data/pull.json` no longer needs a re-deploy, because it's fetched live.
 
 ### Why the pull mounts a file instead of returning the rows

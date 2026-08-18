@@ -6,7 +6,9 @@ description: >-
   inputs for a deterministic min-cost-flow solver, run the λ sweep, self-check
   hard constraints, and emit a reason-coded change list. Use whenever a planner
   asks to re-allocate, defer/pin/boost orders, or explain an allocation change.
-  Does NOT allocate by reasoning — it drives the reference solver.
+  Does NOT allocate by reasoning — it drives the reference solver. Do NOT use for
+  general reporting over job-card records (counts, breakdowns, charts) — that is
+  xas-qa.
 ---
 
 # XAS allocation repair skill

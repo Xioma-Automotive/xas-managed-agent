@@ -80,7 +80,7 @@ All of the above run offline — no network, no credentials.
 
 The single process. It fetches the pull host-side, mounts it into the sandbox,
 answers the custom tool, and serves the chat UI. Needs `.env` with the agent IDs
-(from `setup_allocation_agent.py`).
+(from `setup_agent.py`).
 
 ```bash
 uv run uvicorn web:app --port 8000            # then open http://localhost:8000
@@ -110,7 +110,7 @@ you change the **solver package** or **`SKILL.md`** (regenerating `data/pull.jso
 no longer needs a redeploy — it's fetched live).
 
 ```bash
-uv run python setup_allocation_agent.py
+uv run python setup_agent.py
 ```
 
 ---
@@ -124,5 +124,5 @@ uv run python -m xas_allocation.session
 
 # Change solver/skill code, then verify and redeploy
 uv run ruff format . && uv run ruff check . && uv run pytest
-uv run python setup_allocation_agent.py
+uv run python setup_agent.py
 ```

@@ -1,7 +1,7 @@
 """The allocation agent's data tool: pull a snapshot to repair.
 
 ONE contract, ONE definition. ``PULL_TOOL`` is the ``custom`` tool
-``setup_allocation_agent.py`` declares on the agent; ``pull_allocation_snapshot``
+``setup_agent.py`` declares on the agent; ``pull_allocation_snapshot``
 is the implementation ``web.py`` registers to answer it. Both are derived from
 the constants below, so the declaration and the implementation cannot drift into
 the failure this arrangement invites: a custom tool call whose name nothing

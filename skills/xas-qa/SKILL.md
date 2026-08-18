@@ -1,0 +1,124 @@
+---
+name: xas-qa
+description: >-
+  Answer REPORTING questions over the mounted job-card records — counts,
+  breakdowns, filters, charts — resolving the business vocabulary a user types
+  (any language) to this tenant's system codes via the mounted taxonomy and its
+  normalized phrasebook. Use for questions ABOUT the data: how many, which
+  branch, what status, draw a chart. Do NOT use for allocation repair — which
+  order is late, which vehicle an order gets, bumping or pinning belong to
+  xas-allocation, which answers those from the solver.
+---
+
+# XAS terminology resolution
+
+The tenant's taxonomy is mounted at `/workspace/index.md`. It is the **only**
+authority for turning what a user says into what the records store. Never guess a
+code, an ObjectId, or a status name from memory — resolve it here.
+
+## Step 0 — build the phrasebook (once per session)
+
+```bash
+python phrasebook.py            # /workspace/index.md -> /workspace/phrasebook.tsv
+```
+
+`phrasebook.py` ships in this skill. It explodes the index into **one row per
+surface string** — every code, name and alias on its own line — with a
+`normalized` first column (casefolded, combining marks stripped). That is what
+makes Hebrew typed the normal way (`חלפים`) match the index's stored form
+(`חֲלָפִים`), and what turns a term lookup into a single anchored grep.
+
+It is pure code: same index in, byte-identical phrasebook out. Run it, don't
+reimplement it. If it is missing, fall back to grepping `/workspace/index.md`
+directly and expect the normalization misses back.
+
+Columns, tab-separated:
+
+```
+normalized  surface  role  kind  entity  classification  code  id  name  state  closed
+```
+
+`role` is where the string came from (`code` / `name` / `alias` / `businessType`),
+`kind` is `entity` / `classification` / `status`. `code` is what you filter on;
+`name` is what you display.
+
+## Lookup recipes
+
+Normalize the user's term the same way before an anchored match:
+
+```bash
+python phrasebook.py --normalize "<what the user said>"
+```
+
+| Goal | Command |
+| --- | --- |
+| **Exact hit (try this first)** | `grep -P '^<normalized>\t' /workspace/phrasebook.tsv` |
+| Fuzzy tail, if exact misses | `grep -i '<term>' /workspace/phrasebook.tsv` |
+| Multi-word, any word order | `grep -i 'vehicle' … \| grep -i 'purchase' \| grep -i 'order'` |
+| All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/phrasebook.tsv` |
+| Only the closed ones | add `&& $11=="true"` |
+| Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/phrasebook.tsv` |
+| Browse the raw structure | `grep '^ENTITY' /workspace/index.md` |
+
+**Exact-first, then fuzzy.** An anchored match on `normalized` is the
+deterministic hit; only fall back to substring search when it returns nothing.
+`service` anchored returns one row; `service` as a substring returns twelve.
+
+**Never read either file whole.** This tenant's index is small; production
+tenants run to megabytes, and a whole-file read is the failure mode this design
+exists to prevent.
+
+## Resolution rules
+
+1. **Always carry `entity` with `code`.** Codes are unique per entity, not
+   globally — `code="Model"` exists under both the `Model` and `VehicleModels`
+   entities. A bare code is ambiguous.
+2. **`code` and `name` diverge, routinely.** Tenants rename things locally:
+   `code="Service"` carries `name="Distinct_name"`, `code="Contract"` carries
+   `name="0510"`. **Filter on `code`, display `name`.** Never infer one from the
+   other.
+3. **Two or more genuine candidates → ask one short question.** `קריאת שירות`
+   resolves to both `ServiceCall` and `Service`. Name the candidates in the
+   user's own words and let them pick. Do not silently take the first row.
+4. **Substring search matches more than you meant.** `כרטיס עבודה` hits `Service`
+   (as an alias) and `Invoice` (inside its Hebrew name). Read the rows you got
+   before acting on them.
+5. **Filter statuses the way the index says.** JobCard statuses are filtered on
+   `JobStatus.ID` using the status `id`. Vehicle statuses have no `id` (they are
+   core enums) — filter those on `code`.
+6. **A status `id` does not identify a classification.** The same ObjectId
+   (`…5b6764` = "Closed") appears under Parts, ServiceCall, VPO, Service and
+   more. Always scope a status lookup by its classification.
+7. **Use `state` and `closed` for lifecycle words.** "closed", "finished",
+   "still open", "in progress" resolve to the `closed` flag or the `state`
+   bucket (`New` / `In Process` / `Closed` / `Has Alert`) — not to a status name
+   you picked. More reliable than matching a label, and it covers the languages
+   the status rows have no aliases for.
+8. **`unresolved=true` in the index means the dictionary is missing that
+   status.** Those rows have no `name` and no `state`. Report them as "unknown
+   status (code NN)" and count them separately. Never invent a label.
+9. **Everything listed is active.** Inactive classifications are already
+   omitted; no liveness check is needed.
+10. **Parsing the raw index directly?** Strings are quoted (`name="Closed"`) but
+    booleans and counts are not (`closed=true`, `fields=649`). A
+    `(\w+)="([^"]*)"` regex silently drops every boolean, `closed` included. The
+    phrasebook has already handled this — one more reason to use it.
+
+## What the taxonomy does NOT contain
+
+Resolve these from the **records**, not from the index or phrasebook — asking the
+taxonomy for them wastes a turn and invites invention:
+
+- **Field names.** The index reports only a `fields=<n>` count, never the field
+  names or labels. Learn the real shape by reading one record
+  (`head -c 2000 /workspace/jobcards.json`, or `jq '.[0]'`).
+- **Branches.** There is no branch list. Records carry `BranchId` **and**
+  `BranchName` inline — group and label on those.
+
+## Presenting the answer
+
+Translate back through the phrasebook: show `name`, never `code`, `id`, or an
+internal field name. Where the user supplied their own wording (an alias, or a
+term whose `name` is a local placeholder like `Distinct_name`), echo **their**
+wording — it is what they will recognise. Chart axis labels and legends follow
+the same rule.

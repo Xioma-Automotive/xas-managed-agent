@@ -1,9 +1,16 @@
-# XAS Allocation Agent — working notes
+# XAS Agent — working notes
 
 A Claude **Managed Agent** on an **Anthropic-hosted (cloud)** sandbox. Nothing
 here runs the agent's tools; `web.py` is the only process. Read `README.md`
 first for architecture and run order; this file covers what isn't obvious from
 the code.
+
+**One agent, two skills.** Specialisation lives in the skills, not in separate
+agent objects: `xas-allocation` drives the deterministic solver,
+`xas-qa` answers reporting questions over the mounted job-card records. Both are
+declared on the single agent behind `ALLOC_AGENT_ID`; `setup_agent.py` sends both
+every time. The reporting lane's own agent was never created — it exists only as
+a skill.
 
 The self-hosted variant lives on `claude/agent-spec-managed-i6tn8r`. It exists
 because a self-hosted sandbox runs tools as your own uid — an agent there
@@ -39,14 +46,16 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   mapping were re-derived by the model each turn, that is the leak this guards
   against; `flatten.py` keeps it deterministic.
 
-`tests/test_invariant.py` proves this holds across a sandbox discard. It runs
-host-side and needs no API key.
+`tests/test_invariant.py` proves this holds across a sandbox discard, and
+`tests/test_agent_contract.py` pins the two-skill wiring and the mount namespace.
+Both run host-side and need no API key — which is why `setup_agent.py` builds its
+client lazily rather than at import.
 
 ### Trust levels
 
 | Where | Holds | Runs |
 | --- | --- | --- |
-| `web.py` here | organization API key (`.env`) | the one custom tool, nothing else |
+| `web.py` here | organization API key (`.env`) | the one custom tool, and the three host-side fetches that become mounts |
 | Anthropic's sandbox | nothing of ours | bash, file tools, the solver |
 
 The agent's shell is on Anthropic's side, so it has no path to this host's
@@ -70,7 +79,7 @@ XAS endpoint and its credential never touch the sandbox.
   **never times out**, so the failure looks like a hang, not an error.
   `tests/test_tool_contract.py` guards the wiring.
 - **`web_search` / `web_fetch` are disabled on the agent.** `TOOLS` in
-  `setup_allocation_agent.py` keeps the rest of `agent_toolset_20260401` and turns
+  `setup_agent.py` keeps the rest of `agent_toolset_20260401` and turns
   those two off per-tool. Everything the plan may depend on arrives in the pull, so
   a web lookup could only add state the snapshot doesn't hold — the invariant's
   first input stops being a snapshot. (The cloud environment already has no egress;
@@ -79,12 +88,26 @@ XAS endpoint and its credential never touch the sandbox.
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull
   forever.
-- **The skill bundle carries the solver, NOT the dataset.** `skill_files()` uploads
-  only `xas_allocation/` + `SKILL.md`. The pull is no longer bundled — `web.py`
-  fetches it from `datasource.get_source()` at session start and mounts it into the
-  sandbox as a file at `alloc_tools.MOUNT_PATH` (`/workspace/pull.json`). **Change
-  the solver package or `SKILL.md` and you must re-run `setup_allocation_agent.py`**;
-  regenerating `data/pull.json` no longer needs a re-deploy (it's fetched live).
+- **The skill bundles carry code, NOT data.** `skill_files(skill_dir, package)`
+  builds both: `xas-allocation/` + the `xas_allocation` package, and `xas-qa/`
+  (SKILL.md + `phrasebook.py`). All three datasets are mounted per session by
+  `web.py` — the pull from `datasource.get_source()`, the taxonomy from
+  `get_taxonomy(name)`, the records from `get_records()`. **Change either skill
+  or the solver package and you must re-run `setup_agent.py`**; regenerating any
+  dataset does not need a re-deploy.
+- **Three mounts, and the namespace is load-bearing.** `/workspace/pull.json` is
+  the allocation snapshot; `/workspace/reports/index.md` and
+  `/workspace/reports/jobcards.json` are the reporting lane's. They are
+  namespaced so the system prompt can forbid a **path**: every allocation claim
+  comes from the solver, never from reading the records. With both lanes in one
+  sandbox that rule is the only thing standing between a planner and a plausible,
+  irreproducible answer — `tests/test_agent_contract.py` pins it, and
+  `docs/evals/routing.md` question 4 is the behavioural gate.
+- **The two datasets are not one world.** `pull.json` holds VSOs;
+  `jobcards.json` holds Service job cards, fabricated by a different mechanism on
+  purpose (decided 2026-08-18). They describe overlapping business objects with
+  no guarantee they agree. Do not let the current disjoint fixtures stand in for
+  the rule above.
 - **The pull mounts a file, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
   context. So the tool returns only a summary + a `flatten` command; the rows
@@ -100,7 +123,7 @@ XAS endpoint and its credential never touch the sandbox.
   searched for: it's read from the known `MOUNT_PATH` the host mounted it at.) An
   unbounded `find /` exceeds the 120s bash timeout and kills the agent's shell;
   that is not hypothetical, it happened on the self-hosted build.
-- **`agents.update()` preserves omitted array fields.** `setup_allocation_agent.py`
+- **`agents.update()` preserves omitted array fields.** `setup_agent.py`
   always sends `tools` and `skills` explicitly. Changing `PULL_TOOL` without
   re-running setup does nothing.
 - **Cloud and self-hosted resources are not interchangeable.** `check_environment_type()`
@@ -132,14 +155,14 @@ live-session mutation.
 
 ```bash
 uv run python -m scenario_engine.generate           # (re)fabricate data/pull.json
-uv run pytest                                       # engine, flatten, contract, determinism
+uv run pytest                                       # engine, flatten, contracts, phrasebook, determinism
 PYTHONPATH=. uv run python tests/test_invariant.py  # the invariant, standalone (4/4)
 uv run ruff format . && uv run ruff check .
 ```
 
 Tests need no credentials and no network — the tool and flatten are exercised
 in-process, and `data/pull.json` is committed so the suite runs without the
-engine. Regenerating the dataset means re-running `setup_allocation_agent.py`.
+engine. Regenerating the dataset means re-running `setup_agent.py`.
 
 The sandbox being Anthropic's is worth confirming once by hand: ask the agent to
 run `whoami; ls ~; cat /proc/1/environ | tr "\0" "\n"` and check that what comes

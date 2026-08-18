@@ -55,7 +55,7 @@ DOWNLOAD_DIR = Path(
 ).expanduser()
 
 # Per-session model overrides. The agent resource keeps whatever
-# setup_allocation_agent.py gave it; picking a model here never mutates it.
+# setup_agent.py gave it; picking a model here never mutates it.
 MODELS = {
     "opus": {"id": "claude-opus-5", "label": "Opus 5"},
     "sonnet": {"id": "claude-sonnet-5", "label": "Sonnet 5"},
@@ -77,10 +77,29 @@ _lock = asyncio.Lock()
 _pull_by_session: dict[str, dict] = {}
 MOUNTED_PULL_FILENAME = "pull.json"
 
+# The reporting lane's two mounts. Namespaced under /workspace/reports/ on
+# purpose: the system prompt's hard rule keys on the path, so an allocation claim
+# sourced from these files is visibly wrong rather than merely wrong.
+MOUNTED_TAXONOMY_FILENAME = "index.md"
+MOUNTED_RECORDS_FILENAME = "jobcards.json"
+REPORTS_MOUNT_DIR = "/workspace/reports"
+TAXONOMY_MOUNT_PATH = f"{REPORTS_MOUNT_DIR}/{MOUNTED_TAXONOMY_FILENAME}"
+RECORDS_MOUNT_PATH = f"{REPORTS_MOUNT_DIR}/{MOUNTED_RECORDS_FILENAME}"
+
+# Mounted inputs come back from files.list(scope_id=...) alongside whatever the
+# agent wrote, so both the listing and the download filter them out — otherwise a
+# planner asking for "the outputs" gets their own inputs handed back.
+MOUNTED_INPUT_FILENAMES = frozenset(
+    {MOUNTED_PULL_FILENAME, MOUNTED_TAXONOMY_FILENAME, MOUNTED_RECORDS_FILENAME}
+)
+
 
 class NewSession(BaseModel):
     model: str = DEFAULT_MODEL
     title: str | None = None
+    # Which dealership's taxonomy to mount for the reporting lane (DECIDE-16).
+    # The CALLER picks; omitted means the single committed dictionary.
+    taxonomy: str | None = None
 
 
 class Message(BaseModel):
@@ -91,7 +110,7 @@ def _require_config() -> None:
     if not (ALLOC_AGENT_ID and ALLOC_ENV_ID):
         raise HTTPException(
             500,
-            "ALLOC_AGENT_ID / ALLOC_ENV_ID are not set. Run setup_allocation_agent.py "
+            "ALLOC_AGENT_ID / ALLOC_ENV_ID are not set. Run setup_agent.py "
             "and paste the printed IDs into .env.",
         )
 
@@ -113,6 +132,14 @@ def _digest(call) -> str:
         f"now={d.get('now')} rows={d.get('orders')} supply={d.get('supply')} "
         f"disruption={disruption.get('delayed_model')}+{disruption.get('delay_days')}d "
         f"on {disruption.get('delayed_vehicles')} vehicles freed={d.get('disrupted_orders')}"
+    )
+
+
+async def _upload(filename: str, blob: bytes, media_type: str):
+    """Upload one file for mounting. Three of these run per session start, so
+    they go out concurrently rather than serially."""
+    return await client.beta.files.upload(
+        file=(filename, blob, media_type), betas=[MANAGED_AGENTS_BETA]
     )
 
 
@@ -307,9 +334,15 @@ async def new_session(body: NewSession) -> dict:
         # finds the rows waiting as a file the flatten command reads. One pull
         # backs the whole repair cycle — the invariant "same snapshot every turn".
         rich = datasource.get_source().pull()
-        file_meta = await client.beta.files.upload(
-            file=(MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"),
-            betas=[MANAGED_AGENTS_BETA],
+        try:
+            taxonomy_name, taxonomy_blob = datasource.get_taxonomy(body.taxonomy)
+        except RuntimeError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+        pull_meta, taxonomy_meta, records_meta = await asyncio.gather(
+            _upload(MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"),
+            _upload(MOUNTED_TAXONOMY_FILENAME, taxonomy_blob, "text/markdown"),
+            _upload(MOUNTED_RECORDS_FILENAME, datasource.get_records(), "application/json"),
         )
         session = await client.beta.sessions.create(
             agent={
@@ -318,9 +351,11 @@ async def new_session(body: NewSession) -> dict:
                 "model": MODELS[body.model]["id"],
             },
             environment_id=ALLOC_ENV_ID,
-            title=body.title or "XAS allocation repair",
+            title=body.title or "XAS session",
             resources=[
-                {"type": "file", "file_id": file_meta.id, "mount_path": alloc_tools.MOUNT_PATH}
+                {"type": "file", "file_id": pull_meta.id, "mount_path": alloc_tools.MOUNT_PATH},
+                {"type": "file", "file_id": taxonomy_meta.id, "mount_path": TAXONOMY_MOUNT_PATH},
+                {"type": "file", "file_id": records_meta.id, "mount_path": RECORDS_MOUNT_PATH},
             ],
         )
         _active = session.id
@@ -329,8 +364,18 @@ async def new_session(body: NewSession) -> dict:
         # arrives with no runner attached parks the session indefinitely.
         _answering = asyncio.create_task(_answer_custom_tools(session.id))
 
-    log.info("session %s started (%s)", session.id, MODELS[body.model]["id"])
-    return {"id": session.id, "model": body.model, "stopped": previous}
+    log.info(
+        "session %s started (%s, taxonomy %s)",
+        session.id,
+        MODELS[body.model]["id"],
+        taxonomy_name,
+    )
+    return {
+        "id": session.id,
+        "model": body.model,
+        "taxonomy": taxonomy_name,
+        "stopped": previous,
+    }
 
 
 @app.post("/session/{session_id}/activate")
@@ -421,7 +466,10 @@ MANAGED_AGENTS_BETA = "managed-agents-2026-04-01"
 
 @app.get("/session/{session_id}/files")
 async def files(session_id: str) -> dict:
-    """What the agent wrote — the steering override, the plan, the change list.
+    """What the agent WROTE — the steering override, the plan, a chart.
+
+    Mounted inputs are excluded: they come back from the same listing, and
+    handing a planner their own pull back as an "output" is noise.
 
     With an Anthropic-hosted sandbox these live in the session's file store
     rather than on our disk, so this replaces the archive directory the
@@ -431,7 +479,9 @@ async def files(session_id: str) -> dict:
     listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
     return {
         "files": [
-            {"id": f.id, "filename": f.filename, "size_bytes": f.size_bytes} for f in listing.data
+            {"id": f.id, "filename": f.filename, "size_bytes": f.size_bytes}
+            for f in listing.data
+            if os.path.basename(f.filename or "") not in MOUNTED_INPUT_FILENAMES
         ]
     }
 
@@ -445,6 +495,11 @@ async def download_files(session_id: str) -> dict:
     destination.mkdir(parents=True, exist_ok=True)
     saved = []
     for f in listing.data:
+        # basename first: the filter must compare the same untrusted string the
+        # write below uses, or a crafted "outputs/pull.json" would slip past it.
+        name = os.path.basename(f.filename or "")
+        if name in MOUNTED_INPUT_FILENAMES:
+            continue
         content = await client.beta.files.download(f.id)
         # basename: the filename comes from the sandbox, so treat it as untrusted
         # input rather than a path we are willing to follow.
