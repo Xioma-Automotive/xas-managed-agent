@@ -50,6 +50,13 @@
   .msg.tool_result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
                          max-height: 320px; overflow-y: auto; color: var(--fg); }
   .msg.error { background: #fdeaea; color: #8a1c1c; border: 1px solid #f2c2c2; }
+  .msg.output { background: var(--panel); border: 1px solid var(--line); white-space: normal; }
+  .msg.output .output-name { font-weight: 600; margin-bottom: 6px; }
+  .msg.output .dim { color: var(--dim); font-weight: 400; }
+  /* Charts vary wildly in size; cap the height so a wide bar chart doesn't
+     push the transcript off screen. Click opens it full size in a new tab. */
+  .msg.output .output-img { display: block; max-width: 100%; max-height: 460px;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: zoom-in; }
 
   footer { border-top: 1px solid var(--line); padding: 12px; display: flex; gap: 8px;
            background: var(--panel); }
@@ -282,14 +289,51 @@ function render(event) {
         if (event.stop_reason === "requires_action") { running = true; setStatus("working (pulling data)…", "running"); }
         else { running = false; setStatus("idle"); }
       } else { running = false; setStatus(event.status); }
+      if (event.check_files) showNewOutputs();
       refreshControls();
       return;
+  }
+}
+
+// --- Agent outputs (charts, reports) -------------------------------------
+// The agent writes files into its sandbox; they are indexed a beat AFTER the
+// turn goes idle, so poll briefly rather than asking once and giving up.
+const shownFiles = new Set();
+
+async function showNewOutputs(attempt = 0) {
+  // `viewing`, not `active`: the stream we are rendering belongs to the session
+  // on screen, which is not always the one messages go to.
+  const sid = viewing;
+  if (!sid) return;
+  let files = [];
+  try {
+    ({ files } = await api(`/session/${sid}/files`));
+  } catch { return; }
+
+  const fresh = files.filter((f) => !shownFiles.has(f.id));
+  if (!fresh.length) {
+    // Up to ~4s of retries: outputs lag idle by 1-3s.
+    if (attempt < 4 && viewing === sid) setTimeout(() => showNewOutputs(attempt + 1), 1000);
+    return;
+  }
+  for (const f of fresh) {
+    shownFiles.add(f.id);
+    const url = `/session/${sid}/files/${f.id}/content`;
+    const name = escape(f.filename || f.id);
+    const kb = Math.max(1, Math.round((f.size_bytes || 0) / 1024));
+    add("output", f.inline
+      ? `<div class="output-name">${name} <span class="dim">${kb} KB</span></div>`
+        + `<a href="${url}" target="_blank" rel="noopener">`
+        + `<img class="output-img" src="${url}" alt="${name}"></a>`
+      : `<div class="output-name">${name} <span class="dim">${kb} KB</span></div>`
+        + `<a href="${url}" target="_blank" rel="noopener">open ${name}</a>`);
   }
 }
 
 function follow(id) {
   if (stream) stream.close();
   running = false;
+  shownFiles.clear();
   $("transcript").replaceChildren();
   stream = new EventSource(`/session/${id}/events`);
   stream.onmessage = (e) => render(JSON.parse(e.data));

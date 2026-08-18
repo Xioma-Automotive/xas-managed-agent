@@ -176,3 +176,95 @@ def test_taxonomy_name_is_looked_up_never_joined(bad):
     """The name arrives from the frontend, so it must never reach the filesystem."""
     with pytest.raises(RuntimeError, match="Unknown taxonomy"):
         datasource.get_taxonomy(bad)
+
+
+# --------------------------------------------------------------------------
+# Where things actually live in the sandbox
+#
+# Observed 2026-08-18: a resource requested at /workspace/pull.json appeared at
+# /mnt/session/uploads/workspace/pull.json instead, and the flatten command --
+# which read the requested path directly -- failed. The agent improvised by
+# copying files around, which is exactly the "state leaked out of the snapshot"
+# failure the invariant exists to prevent. These pin the resolution.
+# --------------------------------------------------------------------------
+
+
+def test_pull_is_resolved_not_assumed():
+    candidates = alloc_tools.mount_candidates()
+    assert alloc_tools.MOUNT_PATH in candidates
+    assert f"{alloc_tools.UPLOAD_PREFIX}{alloc_tools.MOUNT_PATH}" in candidates
+
+
+def test_flatten_command_tries_every_candidate():
+    command = alloc_tools.flatten_command()
+    for candidate in alloc_tools.mount_candidates():
+        assert candidate in command, f"{candidate} unreachable by the flatten command"
+
+
+def test_flatten_command_never_searches_from_root():
+    """An unbounded rglob from / once swept the container and killed the shell."""
+    command = alloc_tools.flatten_command()
+    assert "rglob" in command
+    assert "p != root" in command
+
+
+def test_qa_skill_points_at_the_paths_web_mounts():
+    """Namespacing the mounts under /workspace/reports/ silently orphaned the
+    skill's instructions -- it still said /workspace/index.md."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "/workspace/index.md" not in skill
+    assert "/workspace/jobcards.json" not in skill
+    assert web.REPORTS_MOUNT_DIR in skill
+    assert alloc_tools.UPLOAD_PREFIX in skill, "skill must mention the upload fallback"
+
+
+def test_phrasebook_resolves_the_taxonomy_mount():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "phrasebook", setup_agent.QA_SKILL_DIR / "phrasebook.py"
+    )
+    phrasebook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(phrasebook)
+    paths = [str(c) for c in phrasebook.INDEX_CANDIDATES]
+    assert f"{web.TAXONOMY_MOUNT_PATH}" in paths
+    assert f"{alloc_tools.UPLOAD_PREFIX}{web.TAXONOMY_MOUNT_PATH}" in paths
+
+
+# --------------------------------------------------------------------------
+# Charts reaching the planner's screen
+# --------------------------------------------------------------------------
+
+OUTPUTS_DIR = "/mnt/session/outputs"
+
+
+def test_agent_is_told_where_charts_must_go():
+    """Only /mnt/session/outputs is captured by the Files API. A chart written
+    anywhere else runs successfully and is seen by nobody."""
+    assert OUTPUTS_DIR in setup_agent.SYSTEM_PROMPT
+    assert OUTPUTS_DIR in (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_agent_is_told_not_to_read_the_chart_back():
+    """Reading a PNG back returns base64 -- ~100KB of context for no new information."""
+    prompt = setup_agent.SYSTEM_PROMPT.lower()
+    assert "do not read the image back" in prompt
+
+
+def test_web_serves_file_content_for_the_browser():
+    paths = {r.path for r in web.app.routes}
+    assert "/session/{session_id}/files/{file_id}/content" in paths
+
+
+@pytest.mark.parametrize(
+    "filename,expected,inline",
+    [
+        ("chart.png", "image/png", True),
+        ("plot.svg", "image/svg+xml", True),
+        ("report.html", "text/html", False),
+        ("notes", "application/octet-stream", False),
+    ],
+)
+def test_media_type_drives_inline_rendering(filename, expected, inline):
+    assert web._media_type(filename) == expected
+    assert web._media_type(filename).startswith("image/") is inline

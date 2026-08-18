@@ -21,8 +21,21 @@ import sys
 import unicodedata
 from pathlib import Path
 
-DEFAULT_INDEX = Path("/workspace/index.md")
+# The host mounts the taxonomy at /workspace/reports/index.md, but the platform
+# may materialize a mounted resource under /mnt/session/uploads. Resolve rather
+# than assume: guessing wrong means no phrasebook and a silent fallback to
+# grepping a file that isn't there.
+INDEX_CANDIDATES = (
+    Path("/workspace/reports/index.md"),
+    Path("/mnt/session/uploads/workspace/reports/index.md"),
+)
 DEFAULT_OUT = Path("/workspace/phrasebook.tsv")
+
+
+def default_index() -> Path | None:
+    """The first taxonomy that actually exists, or None if none do."""
+    return next((c for c in INDEX_CANDIDATES if c.is_file()), None)
+
 
 # Only real records; the header legend documents the format with the same
 # `key=<placeholder>` syntax and must not be parsed as data.
@@ -116,8 +129,10 @@ def main() -> None:
         print(normalize(sys.argv[2]))
         return
 
-    index_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_INDEX
+    index_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_index()
     out_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUT
+    if index_path is None:
+        sys.exit(f"No taxonomy index found in {[str(c) for c in INDEX_CANDIDATES]}")
     if not index_path.is_file():
         sys.exit(f"No taxonomy index at {index_path}")
 

@@ -40,6 +40,21 @@ SNAPSHOT_FILENAME = "snapshot.json"
 # the rich data from here; web.py mounts the uploaded pull at the same path.
 MOUNT_PATH = "/workspace/pull.json"
 
+# Where the platform ACTUALLY materializes a mounted resource. Observed
+# 2026-08-18: a resource requested at /workspace/pull.json appeared at
+# /mnt/session/uploads/workspace/pull.json, and /workspace held only `skills`.
+# The docs say mount_path is absolute, so treat this as a location we resolve
+# rather than one we assume — a wrong guess fails the pull, and the agent then
+# either improvises (copying files around, as it did) or gives up. Both break
+# "same snapshot every turn".
+UPLOAD_PREFIX = "/mnt/session/uploads"
+
+
+def mount_candidates(mount_path: str = MOUNT_PATH) -> list[str]:
+    """Every place a resource mounted at ``mount_path`` might really be, in order."""
+    return [mount_path, f"{UPLOAD_PREFIX}{mount_path}"]
+
+
 TOOL_NAME = "pull_allocation_snapshot"
 
 TOOL_DESCRIPTION = (
@@ -83,7 +98,10 @@ def flatten_command(pull_path: str = MOUNT_PATH) -> str:
         flatten.py``. Search bases are **explicit and never** ``/`` (an unbounded
         ``rglob`` from ``/`` once swept the whole container and killed the shell).
       * the **rich pull** is mounted by the host at ``pull_path`` (a path WE
-        choose), so we read it directly rather than searching for it.
+        choose) — but the platform may materialize it under
+        ``/mnt/session/uploads``, so we try each candidate from
+        ``mount_candidates`` rather than assuming one. Still no searching: the
+        list is short, explicit, and bounded.
 
     The command fails fast with a message if either is missing — a silent miss
     would let the sandbox solve against the wrong (or no) data. ``snapshot.json``
@@ -100,8 +118,9 @@ def flatten_command(pull_path: str = MOUNT_PATH) -> str:
         "sys.exit('xas_allocation not found under ' + str(bases)) if hit is None else None; "
         "sys.path.insert(0, str(hit.parent.parent)); "
         "from xas_allocation.flatten import flatten_path; "
-        f"src = pathlib.Path('{pull_path}'); "
-        "sys.exit('pull data not found at ' + str(src)) if not src.exists() else None; "
+        f"cands = [pathlib.Path(p) for p in {mount_candidates(pull_path)!r}]; "
+        "src = next((c for c in cands if c.is_file()), None); "
+        "sys.exit('pull data not found in ' + str([str(c) for c in cands])) if src is None else None; "
         f"out = pathlib.Path.cwd() / '{SNAPSHOT_FILENAME}'; "
         "json.dump(flatten_path(src).as_dict(), open(out,'w'), indent=2, sort_keys=True); "
         "print('wrote ' + str(out))"

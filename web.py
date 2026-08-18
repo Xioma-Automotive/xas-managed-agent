@@ -27,13 +27,14 @@ and the planner's attention are both singular.
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 from pathlib import Path
 
 from anthropic import APIError, AsyncAnthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -268,7 +269,14 @@ def _render(event) -> dict | None:
         return {"type": "status", "status": "running"}
     if kind == "session.status_idle":
         stop_reason = getattr(getattr(event, "stop_reason", None), "type", "")
-        return {"type": "status", "status": "idle", "stop_reason": stop_reason}
+        # check_files: the agent may have written a chart. Outputs are indexed
+        # ~1-3s after idle, so the browser polls rather than asking once.
+        return {
+            "type": "status",
+            "status": "idle",
+            "stop_reason": stop_reason,
+            "check_files": stop_reason != "requires_action",
+        }
     if kind == "session.status_terminated":
         return {"type": "status", "status": "terminated"}
     if kind == "session.error":
@@ -464,6 +472,17 @@ async def message(body: Message) -> dict:
 MANAGED_AGENTS_BETA = "managed-agents-2026-04-01"
 
 
+def _media_type(filename: str | None) -> str:
+    """What the browser should treat this file as.
+
+    Charts arrive as .png/.svg and render inline; .html renders in a frame. The
+    agent picks the renderer (the skill does not prescribe one), so infer from
+    the name rather than assuming matplotlib.
+    """
+    guessed, _ = mimetypes.guess_type(filename or "")
+    return guessed or "application/octet-stream"
+
+
 @app.get("/session/{session_id}/files")
 async def files(session_id: str) -> dict:
     """What the agent WROTE — the steering override, the plan, a chart.
@@ -479,11 +498,45 @@ async def files(session_id: str) -> dict:
     listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
     return {
         "files": [
-            {"id": f.id, "filename": f.filename, "size_bytes": f.size_bytes}
+            {
+                "id": f.id,
+                "filename": f.filename,
+                "size_bytes": f.size_bytes,
+                "media_type": _media_type(f.filename),
+                # The UI renders a chart inline; everything else gets a link.
+                "inline": _media_type(f.filename).startswith("image/"),
+            }
             for f in listing.data
             if os.path.basename(f.filename or "") not in MOUNTED_INPUT_FILENAMES
         ]
     }
+
+
+@app.get("/session/{session_id}/files/{file_id}/content")
+async def file_content(session_id: str, file_id: str) -> Response:
+    """Serve one output file to the browser so a chart can be shown, not just saved.
+
+    The file_id is checked against THIS session's listing before anything is
+    fetched: the id comes from the URL, and without the check one session could
+    be used to read another's outputs.
+    """
+    _require_config()
+    listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
+    match = next((f for f in listing.data if f.id == file_id), None)
+    if match is None:
+        raise HTTPException(404, f"no file {file_id} in session {session_id}")
+    name = os.path.basename(match.filename or file_id)
+    if name in MOUNTED_INPUT_FILENAMES:
+        raise HTTPException(404, "that file is a mounted input, not an output")
+
+    downloaded = await client.beta.files.download(file_id)
+    blob = await downloaded.read()
+    return Response(
+        content=blob,
+        media_type=_media_type(name),
+        # inline: the point is to SHOW it. Browsers download octet-stream anyway.
+        headers={"Content-Disposition": f'inline; filename="{name}"'},
+    )
 
 
 @app.post("/session/{session_id}/files/download")

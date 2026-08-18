@@ -12,14 +12,27 @@ description: >-
 
 # XAS terminology resolution
 
-The tenant's taxonomy is mounted at `/workspace/index.md`. It is the **only**
-authority for turning what a user says into what the records store. Never guess a
-code, an ObjectId, or a status name from memory — resolve it here.
+The tenant's taxonomy and the job-card records are mounted under
+`/workspace/reports/`. The taxonomy is the **only** authority for turning what a
+user says into what the records store. Never guess a code, an ObjectId, or a
+status name from memory — resolve it here.
+
+**Find the mounts before you use them.** The host requests
+`/workspace/reports/index.md` and `/workspace/reports/jobcards.json`, but the
+platform may materialize them under `/mnt/session/uploads` (i.e.
+`/mnt/session/uploads/workspace/reports/…`). One `ls` settles it:
+
+```bash
+ls /workspace/reports /mnt/session/uploads/workspace/reports 2>/dev/null
+```
+
+`phrasebook.py` already checks both, so Step 0 works either way — you only need
+the paths yourself when reading the records.
 
 ## Step 0 — build the phrasebook (once per session)
 
 ```bash
-python phrasebook.py            # /workspace/index.md -> /workspace/phrasebook.tsv
+python phrasebook.py            # finds the mounted index -> /workspace/phrasebook.tsv
 ```
 
 `phrasebook.py` ships in this skill. It explodes the index into **one row per
@@ -29,7 +42,7 @@ makes Hebrew typed the normal way (`חלפים`) match the index's stored form
 (`חֲלָפִים`), and what turns a term lookup into a single anchored grep.
 
 It is pure code: same index in, byte-identical phrasebook out. Run it, don't
-reimplement it. If it is missing, fall back to grepping `/workspace/index.md`
+reimplement it. If it is missing, fall back to grepping the mounted `index.md`
 directly and expect the normalization misses back.
 
 Columns, tab-separated:
@@ -58,7 +71,7 @@ python phrasebook.py --normalize "<what the user said>"
 | All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/phrasebook.tsv` |
 | Only the closed ones | add `&& $11=="true"` |
 | Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/phrasebook.tsv` |
-| Browse the raw structure | `grep '^ENTITY' /workspace/index.md` |
+| Browse the raw structure | `grep '^ENTITY' <mounted index.md>` |
 
 **Exact-first, then fuzzy.** An anchored match on `normalized` is the
 deterministic hit; only fall back to substring search when it returns nothing.
@@ -111,9 +124,25 @@ taxonomy for them wastes a turn and invites invention:
 
 - **Field names.** The index reports only a `fields=<n>` count, never the field
   names or labels. Learn the real shape by reading one record
-  (`head -c 2000 /workspace/jobcards.json`, or `jq '.[0]'`).
+  (`head -c 2000 <mounted jobcards.json>`, or `jq '.[0]'`).
 - **Branches.** There is no branch list. Records carry `BranchId` **and**
   `BranchName` inline — group and label on those.
+
+## Charts
+
+Write every chart into **`/mnt/session/outputs/`** (`mkdir -p` it first). That
+directory is what the planner's screen renders from — a chart written to
+`/workspace` or the current directory exists only inside the sandbox and nobody
+ever sees it.
+
+```python
+fig.savefig("/mnt/session/outputs/late_orders_by_dealer.png", dpi=150)
+```
+
+Then name the file in your reply and stop. **Do not read the image back.**
+Reading a PNG returns it as base64 — tens of thousands of tokens to tell you
+what you just plotted. `matplotlib` is available; use the `Agg` backend (there
+is no display).
 
 ## Presenting the answer
 
