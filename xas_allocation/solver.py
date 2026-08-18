@@ -6,14 +6,18 @@ The agent NEVER implements the algorithm — it builds the network and calls
 core invariant).
 
 Design highlights, mapped to the spec:
-- §4  Integer node positions from a FIXED sort (order_id / vehicle_id asc); real
+- §4  Integer node positions from a FIXED sort (order key / vehicle_id asc); real
       keys recovered through explicit lookup tables before anything leaves here.
 - §1  Repair, don't re-solve: pin the whole incumbent, free ONLY the disrupted
       orders, re-match just those. Change count is structural.
-- §2  cost(o->u) = W(o)·tardiness_days^1.5 + λ(fence)·[date(u) ≠ promised_date(o)].
-- §5  Data pins (frozen orders, committed vehicles) are pre-committed OUT of the
-      graph; instruction pins/defers/forbids are large finite soft penalties
-      (DECIDE-4 / DECIDE-8) so a conflict surfaces as a cost line, never a crash.
+- §2  cost(o->u) = W(o)·tardiness_days^1.5 + λ(fence)·[eta(u) ≠ delivery_date(o)].
+- §5  Frozen-fence orders are pre-committed OUT of the graph; instruction
+      pins/defers/forbids are large finite soft penalties (DECIDE-4 / DECIDE-8) so
+      a conflict surfaces as a cost line, never a crash.
+- §5b Moving an allocation OFF its current binding costs a finite BREAK_COST
+      (DECIDE-3): hard (real vehicle) is expensive-but-movable, soft (future
+      vehicle) is free. No hard wall — a hard allocation can be bumped 'for
+      the sake of another' order when the tardiness saved exceeds the break cost.
 - A per-order dummy "backorder" arc keeps the flow always feasible; an order
   routed to it is an explicitly surfaced unfilled order, not a silent drop.
 
@@ -43,8 +47,8 @@ BACKORDER_COST = D.SOFT_PIN_COST * 10.0
 
 
 def fence_of(order: Order, now: date) -> str:
-    """DECIDE-2 time fence by days-until-promised: frozen / slushy / liquid."""
-    days_out = (order.promised_date - now).days
+    """DECIDE-2 time fence by days-until-delivery: frozen / slushy / liquid."""
+    days_out = (order.delivery_date - now).days
     if days_out <= D.FROZEN_MAX_DAYS:
         return "frozen"
     if days_out <= D.SLUSHY_MAX_DAYS:
@@ -73,13 +77,13 @@ def effective_weight(order: Order, boosts: dict[str, float]) -> float:
 
 
 def tardiness(order: Order, unit: Unit) -> int:
-    """Days late = how far the vehicle's planned delivery runs past the promise."""
-    return days_late(unit.planned_delivery_date, order.promised_date)
+    """Days late = how far the vehicle's ETA to the dealer runs past the promise."""
+    return days_late(unit.eta_dealer, order.delivery_date)
 
 
 def earliness(order: Order, unit: Unit) -> int:
     """Days early = how far the delivery lands before the promise (0 if on/after)."""
-    return max(0, (order.promised_date - unit.planned_delivery_date).days)
+    return max(0, (order.delivery_date - unit.eta_dealer).days)
 
 
 def scale_units(days: int, unit_days: int) -> int:
@@ -129,26 +133,39 @@ def arc_cost_float(
     # λ additive term, gated by the fence (liquid => free to change the date).
     # "Changed" means the delivery differs from the promise by at least one unit,
     # so a within-unit shuffle isn't counted as churn at a coarse scale.
-    gap_days = abs((unit.planned_delivery_date - order.promised_date).days)
+    gap_days = abs((unit.eta_dealer - order.delivery_date).days)
     if gap_days >= unit_days and fence_of(order, now) == "slushy":
         cost += lam
 
     # Soft instruction pin: 'defer'/not_before violated by an early arrival.
-    if not_before is not None and unit.planned_delivery_date < not_before:
+    if not_before is not None and unit.eta_dealer < not_before:
         cost += D.SOFT_PIN_COST
     return cost
 
 
+def break_cost_of(order: Order, incumbent_unit: Unit | None, break_cost: dict[str, float]) -> float:
+    """Cost to move ``order`` OFF its current binding (DECIDE-3).
+
+    Zero when it has no binding, OR when that binding is already LATE — a broken
+    promise protects nothing, so re-allocating a disrupted order is free. Only
+    displacing an ON-TIME binding costs: BREAK_COST['hard'] for a real vehicle,
+    BREAK_COST['soft'] for a future vehicle. This is what makes "bump someone for the
+    sake of another" price the *victim* (whose kept promise is disturbed), not the
+    disrupted order being rescued."""
+    if incumbent_unit is None or tardiness(order, incumbent_unit) > 0:
+        return 0.0
+    return break_cost["hard"] if incumbent_unit.is_hard else break_cost["soft"]
+
+
 def repairability(order: Order, now: date, incumbent_unit: Unit | None) -> str:
-    """Can a broken order even be re-slotted? Returns 'movable' | 'frozen' |
-    'committed' — the same hard rules `partition` applies, surfaced for the
+    """Can a broken order even be re-slotted? Returns 'movable' | 'frozen' — the
+    only hard wall left is the frozen fence (DECIDE-2), surfaced for the
     discrepancy map so the planner learns on turn 1 (not turn 4) that an order is
-    stuck. 'frozen' = too close to its promised date to move; 'committed' = riding
-    a vehicle already in final prep (bonded/pdi) that can't be recalled."""
+    stuck. A real-vehicle (hard) allocation is NOT stuck: it is movable, just
+    expensive (DECIDE-3), so it reads 'movable' — the break cost, not a wall,
+    decides whether the solver actually moves it."""
     if fence_of(order, now) == "frozen":
         return "frozen"
-    if incumbent_unit is not None and incumbent_unit.committed:
-        return "committed"
     return "movable"
 
 
@@ -168,14 +185,15 @@ def eligible(order: Order, unit: Unit) -> bool:
 class RepairPlan:
     """The pinned/free partition + the combined override, resolved once."""
 
-    pinned: dict[str, str]  # order_id -> vehicle_id (hard, kept as-is)
-    free_orders: list[str]  # order_ids to (re)match
+    pinned: dict[str, str]  # order_key -> vehicle_id (hard, kept as-is)
+    free_orders: list[str]  # order_keys to (re)match
     free_units: list[str]  # vehicle_ids available to the free orders
     boosts: dict[str, float]  # customer_id -> weight multiplier
     lam_default: int | None  # override-supplied λ (sweep still explores all)
-    not_before: dict[str, date]  # order_id -> earliest allowed delivery date
+    not_before: dict[str, date]  # order_key -> earliest allowed delivery date
     forbid_no_move: set[str]  # orders explicitly pinned by instruction
     unit_days: int  # DECIDE-14 time-scale resolution (days per unit; 1 = day scale)
+    break_cost: dict[str, float]  # DECIDE-3 cost to move off a hard/soft binding
 
 
 def _combined_boosts(override: dict) -> dict[str, float]:
@@ -188,7 +206,7 @@ def _combined_boosts(override: dict) -> dict[str, float]:
     return boosts
 
 
-_FILTER_DIMS = ("customers", "models", "po", "orders", "from_date", "to_date")
+_FILTER_DIMS = ("customers", "models", "orders", "from_date", "to_date")
 
 
 def _filter_active(filt: dict) -> bool:
@@ -196,19 +214,13 @@ def _filter_active(filt: dict) -> bool:
     return bool(filt) and any(filt.get(k) for k in _FILTER_DIMS)
 
 
-def _po_of(po_ref: str) -> str:
-    """'PO-150-1-5' -> 'PO-150' (the purchase order, dropping model line + row)."""
-    parts = po_ref.rsplit("-", 2)
-    return parts[0] if len(parts) == 3 else po_ref
-
-
-def _matches(order: Order, assigned_unit: Unit | None, filt: dict) -> bool:
+def _matches(order: Order, filt: dict) -> bool:
     """AND across whichever filter dimensions are set. Empty dimension = no filter.
 
-    Customers match by id OR display name; `orders` by row id; a date range is
-    against promised_date; `po` matches the order's currently-allocated supply's
-    purchase order. Used by both `scope` (defines the working set) and `bump`
-    (authorizes which untouched rows the solver may displace)."""
+    Customers match by id OR display name; `orders` matches the order key
+    (`{so_id}-{line}`) OR the bare `so_id` (so a whole VSO can be named); a date
+    range is against delivery_date. Used by both `scope` (defines the working set)
+    and `bump` (authorizes which untouched rows the solver may displace)."""
     customers = filt.get("customers")
     if customers and order.customer_id not in customers and order.customer not in customers:
         return False
@@ -216,23 +228,16 @@ def _matches(order: Order, assigned_unit: Unit | None, filt: dict) -> bool:
     if models and order.sales_model not in models:
         return False
     orders = filt.get("orders")
-    if orders and order.order_id not in orders and order.so_id not in orders:
+    if orders and order.key not in orders and order.so_id not in orders:
         return False
-    if filt.get("from_date") and order.promised_date < parse_date(filt["from_date"]):
+    if filt.get("from_date") and order.delivery_date < parse_date(filt["from_date"]):
         return False
-    if filt.get("to_date") and order.promised_date > parse_date(filt["to_date"]):
-        return False
-    po = filt.get("po")
-    if po:
-        ref = assigned_unit.po_ref if assigned_unit else ""
-        if _po_of(ref) not in po:
-            return False
-    return True
+    return not (filt.get("to_date") and order.delivery_date > parse_date(filt["to_date"]))
 
 
 def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     """Decide what is pinned vs free (§1, §5) from data rules + the override."""
-    orders = snapshot.order_by_id()
+    orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
     incumbent = dict(snapshot.incumbent)
     disrupted = set(snapshot.disruption.get("disrupted_orders", []))
@@ -267,24 +272,23 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     # doing so lowers total cost — so it bumps a low-priority row to rescue a
     # higher-priority one, never gratuitously, and the fairness term protects
     # already-rescheduled rows. Nothing is ever bumped without this authorization.
-    # In ALL cases these can never move: frozen-fence rows, explicit no_move
-    # pins, and rows riding a committed (bonded/pdi) vehicle.
+    # The only rows that can NEVER move: frozen-fence rows and explicit no_move
+    # pins. A row riding a real (hard) vehicle CAN move — it just costs
+    # BREAK_COST['hard'] (DECIDE-3), so it is freed like any other and the cost,
+    # not a wall, decides whether the solver actually moves it.
     free_orders: list[str] = []
     for oid, o in orders.items():
         assigned = incumbent.get(oid)
-        unit = units.get(assigned) if assigned else None
         if oid in forbid_no_move:
             continue
         if fence_of(o, snapshot.now) == "frozen":
             continue
-        if assigned is not None and units[assigned].committed:
-            continue
         if scoped:
-            include = _matches(o, unit, scope)
+            include = _matches(o, scope)
         else:
             include = (oid in disrupted) or (oid in deferred) or (assigned is None)
         if not include and bumpable:
-            include = _matches(o, unit, bump)
+            include = _matches(o, bump)
         if include:
             free_orders.append(oid)
     free_orders.sort()  # §4 fixed key
@@ -293,10 +297,14 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     # Pinned = everyone else keeps their incumbent vehicle (if any).
     pinned = {oid: uid for oid, uid in incumbent.items() if oid not in free_set}
 
-    # Free vehicles: not consumed by a pinned assignment, and not committed.
+    # Free vehicles: any not consumed by a pinned assignment. A real (hard)
+    # vehicle is NOT walled off — freeing its order (above) frees it here too, so
+    # it can be reassigned at BREAK_COST['hard'] (DECIDE-3).
     consumed = set(pinned.values())
-    free_units = [uid for uid, u in units.items() if uid not in consumed and not u.committed]
+    free_units = [uid for uid in units if uid not in consumed]
     free_units.sort()  # §4 fixed key
+
+    break_cost = {**D.BREAK_COST, **(override.get("break_cost") or {})}
 
     return RepairPlan(
         pinned=pinned,
@@ -307,6 +315,7 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
         not_before=not_before,
         forbid_no_move=forbid_no_move,
         unit_days=unit_days_of(override),
+        break_cost=break_cost,
     )
 
 
@@ -316,7 +325,7 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
 @dataclass
 class SolveResult:
     lam: int
-    plan: dict[str, str]  # order_id -> vehicle_id (full: pinned+free)
+    plan: dict[str, str]  # order_key -> vehicle_id (full: pinned+free)
     unfilled: list[str]  # free orders routed to backorder
     node_index: dict[int, object]  # position -> ('order'|'unit', real_id)
     n_changes: int  # free orders whose vehicle differs from incumbent
@@ -326,7 +335,7 @@ class SolveResult:
 
 
 def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
-    orders = snapshot.order_by_id()
+    orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
 
     # §4 integer node positions from the fixed sort already applied to rp.
@@ -356,16 +365,27 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
     for oid in rp.free_orders:
         o = orders[oid]
         nb = rp.not_before.get(oid)
+        # Break cost (DECIDE-3): displacing an on-time binding costs
+        # BREAK_COST[hard|soft]; keeping it, having none, or leaving an
+        # already-late one is free. Charged to the order that gives up its
+        # vehicle — so bumping an on-time hard allocation for another order pays
+        # the hard break, and the solver only does so when the tardiness saved
+        # elsewhere outweighs it.
+        inc_uid = snapshot.incumbent.get(oid)
+        brk = break_cost_of(o, units.get(inc_uid) if inc_uid else None, rp.break_cost)
         for uid in rp.free_units:
             u = units[uid]
             if not eligible(o, u):
                 continue  # incompatible -> no arc (keeps graph sparse, §4)
             c = arc_cost_float(o, u, lam, snapshot.now, rp.boosts, nb, rp.unit_days)
+            if uid != inc_uid:
+                c += brk  # this assignment breaks the current binding
             smcf.add_arc_with_capacity_and_unit_cost(
                 order_pos[oid], unit_pos[uid], 1, round(c * COST_SCALE)
             )
+        # Backordering also gives up the incumbent binding -> also pays the break.
         smcf.add_arc_with_capacity_and_unit_cost(
-            order_pos[oid], DUMMY, 1, round(BACKORDER_COST * COST_SCALE)
+            order_pos[oid], DUMMY, 1, round((BACKORDER_COST + brk) * COST_SCALE)
         )
 
     # free vehicle -> T (cap 1) ; backorder dummy -> T (cap N)
@@ -420,14 +440,10 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, lam: int) -> SolveResult:
 
 def _self_check(snapshot: Snapshot, plan: dict, unfilled: list) -> dict:
     """§8.5 hard-constraint self-check. Returns findings; never silently relaxes."""
-    orders = snapshot.order_by_id()
+    orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
     violations: list[str] = []
 
-    # No committed vehicle reassigned away from its incumbent order.
-    for oid, uid in snapshot.incumbent.items():
-        if units[uid].committed and plan.get(oid) != uid:
-            violations.append(f"committed vehicle {uid} moved off order {oid}")
     # No sales_model violation on any assignment.
     for oid, uid in plan.items():
         if not eligible(orders[oid], units[uid]):

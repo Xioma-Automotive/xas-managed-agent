@@ -41,10 +41,11 @@ def test_pull_takes_no_parameters():
 def test_summary_carries_the_disruption():
     summary = call()
     assert summary["now"]
-    assert summary["orders"] > 0  # vehicle order rows
-    assert summary["supply"] > 0  # vehicles ∪ PO-line slots
-    assert summary["disruption"]["po"]
+    assert summary["orders"] > 0  # VSO car lines
+    assert summary["supply"] > 0  # the vehicle pool: real ∪ future
+    assert summary["disruption"]["delayed_model"]
     assert summary["disruption"]["delay_days"] > 0
+    assert summary["disruption"]["delayed_vehicles"] > 0
     assert summary["disrupted_orders"] == len(summary["disrupted_order_ids"])
 
 

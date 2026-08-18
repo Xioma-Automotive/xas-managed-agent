@@ -1,25 +1,28 @@
-"""Fabricate a rich allocation scenario: good world -> introduce a PO delay.
+"""Fabricate a rich XAS allocation scenario: good world -> introduce a delay.
 
 Deterministic: everything derives from one integer ``seed`` via ``random.Random``
 and a FIXED base date — no wall-clock, no module-level randomness — so a given
 seed regenerates a byte-identical dataset (the determinism the whole design
 rests on, upheld on the supply side of the boundary now).
 
-Model (v2, the proposed DECIDE-7 contract, minus explicit PDN tables):
-  PO           orders cars from a supplier: po_id, sales_model, quantity
-  Vehicle      a physical car (a VIN), from a PO via a PDN batch
-  PO-line slot a *future* car of a PO line, keyed PO-model-row (e.g. PO-150-1-5)
-  Sales Order  one customer, groups vehicle order ROWS
-  vehicle row  the allocatable demand unit; allocated to a Vehicle OR a slot
+Model (the real-XAS vocabulary, minus the jobcard types we don't need):
+  VSO jobcard   what a customer ordered: a header (JobKey, DeliveryDate, priority,
+                Owner) + JobItems, one per WANTED CAR (`JobItemType:"ModelItem"`,
+                one `LineNum`). The allocatable order is one jobitem.
+  Vehicle       a car in the pool, real or future, keyed by `VehicleCode`. Its
+                `VehicleClassification` is `"Vehicle"` (real, a VIN — a HARD
+                binding) or `"Future"` (not yet built — a SOFT binding).
 
-Supply is the union {vehicles, PO-line slots}. A row is on-time in the good
-world; the disruption delays one PO, slipping planned_delivery_date on every
-supply item under it (slots and vehicles alike), which breaks the rows riding
-them — the repair the agent performs.
+Supply is ONE ``vehicles`` list (no VPO/VGR jobcards, no PO-line slots, no
+qty-expansion). A jobitem is on-time in the good world; the disruption slips
+``EtaDealer`` on a coherent batch of vehicles, which breaks the jobitems riding
+them (their allocated car now arrives past the VSO's promised date) — the repair
+the agent performs.
 
-Output (JSON, real dates ``YYYY-MM-DD``):
+Emits the real-field subset, nested as the real API nests, so ``flatten.py``
+reads it 1:1. Output (JSON, real dates ``YYYY-MM-DD``):
   data/baseline.json  — the good, on-time world (reference / diffing)
-  data/pull.json      — the SAME world after one PO is delayed (the pull target)
+  data/pull.json      — the SAME world after the delay (the pull target)
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -37,18 +41,28 @@ DATA_DIR = REPO_ROOT / "data"
 BASE_DATE = date(2026, 8, 3)  # a Monday
 HORIZON_WEEKS = 13
 
+# Model-level sales-model codes. In real XAS a VSO SalesModelCode is model+config
+# (e.g. T5040UECLMQ0009) and a vehicle carries only the model half via
+# ModelId.Code (T5040); the match is model-level. The mock keeps them equal.
 SALES_MODELS = ("SM1", "SM2", "SM3", "SM4", "SM5")
+MODEL_NAMES = {
+    "SM1": "Chery Tiggo 8",
+    "SM2": "JAECOO 7",
+    "SM3": "Omoda 5",
+    "SM4": "BYD Atto 3",
+    "SM5": "Geely Coolray",
+}
 
 # 30 customers: six named dealers (so "prefer Colmobil" has a real target) then
 # generated ones. Priority cycles A,A,B,B,C,C — Colmobil/Delek land on A.
 NAMED = ("Colmobil", "Delek Motors", "Champion", "Talcar", "Carasso", "Lubinski")
 PRIORITY_CYCLE = ("A", "A", "B", "B", "C", "C")
 
-# Vehicle pipeline stages (early -> late). bonded/pdi are "committed" (DECIDE-3).
-COMMITTED_STATES = frozenset({"bonded", "pdi"})
+# VehicleClassification values (real XAS): "Vehicle" = real/hard, "Future" = soft.
+HARD, SOFT = "Vehicle", "Future"
 
-PER_PO = 8  # supply items (rows) per purchase order
-FIRST_PO = 150  # PO numbering starts here, so refs read like PO-150-1-5
+FIRST_VSO = 4000  # VSO JobKey numbering, so keys read like VSO-4000-1
+FIRST_VEH = 9000  # VehicleCode numbering
 
 
 def _iso(d: date) -> str:
@@ -64,47 +78,33 @@ def _customers(n: int) -> list[tuple[str, str, str]]:
     return out
 
 
-def _location_for(rng: random.Random, planned: date) -> str:
-    """Warmer (committed) the nearer the delivery date; cooler further out."""
-    days_out = (planned - BASE_DATE).days
-    if days_out <= 7:
-        return rng.choices(("pdi", "bonded", "transfer"), weights=[40, 40, 20])[0]
-    if days_out <= 21:
-        return rng.choices(("bonded", "transfer", "port"), weights=[20, 40, 40])[0]
-    if days_out <= 42:
-        return rng.choices(("port", "sea"), weights=[40, 60])[0]
-    return rng.choices(("sea", "future"), weights=[40, 60])[0]
+def _make_vehicle(rng: random.Random, model: str, eta: date, code: int) -> dict:
+    """One vehicle record in the pool, real (`Vehicle`) or future (`Future`).
 
-
-def _make_supply(rng, model, planned, po_id, row_in_po, uid_box, prefix="PO"):
-    """Build one supply item for a demand slot: a concrete Vehicle or a PO-line
-    slot. Returns (supply_dict, supply_id, po_id)."""
-    po_ref = f"{po_id}-1-{row_in_po}"
-    kind = rng.choices(("vehicle", "po_line"), weights=[60, 40])[0]
-    if kind == "vehicle":
-        uid_box[0] += 1
-        supply_id = f"VEH-{uid_box[0]}"
-        item = {
-            "supply_id": supply_id,
-            "kind": "vehicle",
-            "sales_model": model,
-            "planned_delivery_date": _iso(planned),
-            "location_state": _location_for(rng, planned),
-            "po_ref": po_ref,
-            "pdn": f"PDN-{po_id.split('-')[-1]}",
-        }
-    else:
-        supply_id = po_ref  # a slot is identified by its PO line
-        item = {
-            "supply_id": supply_id,
-            "kind": "po_line",
-            "sales_model": model,
-            "planned_delivery_date": _iso(planned),
-            "location_state": "future",
-            "po_ref": po_ref,
-            "pdn": "",
-        }
-    return item, supply_id
+    Emits the real-field subset the API nests; ``flatten`` reads only
+    ``VehicleCode / VehicleClassification / ModelId.Code / EtaDealer``. The rest
+    (Vin, Make, Status, InventoryStatus, IsReserved, Owner) is realistic
+    passthrough. ``ExpectedCustomerDeliveryDate`` is emitted equal to
+    ``EtaDealer`` (the read field is EtaDealer; a one-line switch if that flips)."""
+    classification = rng.choices((HARD, SOFT), weights=[60, 40])[0]
+    is_real = classification == HARD
+    return {
+        "VehicleCode": f"VEH-{code}",
+        # A future car has no VIN yet; a real one does.
+        "Vin": f"VIN{code:08d}" if is_real else "",
+        "ModelId": {"Code": model, "Name": MODEL_NAMES.get(model, model)},
+        "Make": "Chery",
+        "VehicleClassification": classification,
+        # Coarse status enum (the only populated position signal on the real API).
+        "Status": (
+            {"Code": "05", "Name": "In Stock"} if is_real else {"Code": "01", "Name": "Ordered"}
+        ),
+        "InventoryStatus": "Available" if is_real else "Future",
+        "EtaDealer": _iso(eta),
+        "ExpectedCustomerDeliveryDate": _iso(eta),
+        "IsReserved": False,
+        "Owner": "",
+    }
 
 
 def generate(
@@ -120,89 +120,94 @@ def generate(
     promise_window = weeks[: HORIZON_WEEKS - 2]  # leave slack so lateness is possible
     customers = _customers(n_customers)
 
-    sos: list[dict] = []
-    supply: list[dict] = []
-    po_members: dict[str, list[str]] = {}
-    incumbent: list[tuple[str, str]] = []  # (row_id, supply_id) for disruption logic
-    uid_box = [9000]
-    slot_index = 0
-    so_num = 4000
+    vehicles: list[dict] = []
+    veh_box = [FIRST_VEH]
 
-    def next_po_slot() -> tuple[str, int]:
-        nonlocal slot_index
-        po_id = f"PO-{FIRST_PO + slot_index // PER_PO}"
-        row_in_po = slot_index % PER_PO + 1
-        slot_index += 1
-        return po_id, row_in_po
+    def new_vehicle(model: str, eta: date) -> dict:
+        veh_box[0] += 1
+        v = _make_vehicle(rng, model, eta, veh_box[0])
+        vehicles.append(v)
+        return v
 
-    # --- Demand: Sales Orders, each with 1-3 vehicle order rows; one on-time
-    #     supply item built per row (Vehicle or PO-line slot). ----------------
+    # --- Demand: VSO jobcards, each with 1-3 car lines; one on-time vehicle
+    #     built per car (the incumbent), real or future. -----------------------
+    vsos: list[dict] = []
+    # order_key -> VehicleCode, for the disruption logic below.
+    incumbent: dict[str, str] = {}
     n_rows = 0
+    vso_num = FIRST_VSO
     while n_rows < n_orders:
         name, cid, prio = rng.choice(customers)
-        so_id = f"SO-{so_num}"
-        so_num += 1
-        rows: list[dict] = []
-        for r in range(1, rng.choices([1, 2, 3], weights=[55, 30, 15])[0] + 1):
+        job_key = f"VSO-{vso_num}"
+        vso_num += 1
+        # DeliveryDate is a VSO-header promise shared by its car lines.
+        delivery = rng.choice(promise_window)
+        items: list[dict] = []
+        n_lines = rng.choices([1, 2, 3], weights=[55, 30, 15])[0]
+        for line in range(1, n_lines + 1):
             if n_rows >= n_orders:
                 break
             model = rng.choice(SALES_MODELS)
-            promised = rng.choice(promise_window)
-            row_id = f"{so_id}-{r}"
-            po_id, row_in_po = next_po_slot()
-            item, supply_id = _make_supply(rng, model, promised, po_id, row_in_po, uid_box)
-            supply.append(item)
-            po_members.setdefault(po_id, []).append(supply_id)
-            incumbent.append((row_id, supply_id))
-            rows.append(
-                {
-                    "row_id": row_id,
-                    "sales_model": model,
-                    "priority": prio,
-                    "promised_date": _iso(promised),
-                    "eta_date": _iso(promised),  # good world: ETA == promise (on time)
-                    "price": rng.choice([32000, 38000, 45000, 52000, 61000]),
-                    "n_prior_delays": rng.choices([0, 1, 2, 3], weights=[70, 18, 8, 4])[0],
-                    "days_backordered": rng.choices(
-                        [0, 0, 0, 7, 14, 30], weights=[50, 15, 10, 12, 8, 5]
-                    )[0],
-                    # Reschedules our repair loop caused in prior cycles (DECIDE-11).
-                    "times_rescheduled": rng.choices([0, 1, 2], weights=[75, 18, 7])[0],
-                    "current_supply_id": supply_id,
-                }
-            )
-            n_rows += 1
-        sos.append({"so_id": so_id, "customer": name, "customer_id": cid, "rows": rows})
+            # The incumbent car is on time in the good world: EtaDealer == promise.
+            veh = new_vehicle(model, delivery)
+            order_key = f"{job_key}-{line}"
+            incumbent[order_key] = veh["VehicleCode"]
 
-    incumbent_map = dict(incumbent)
+            item = {
+                "JobItemType": "ModelItem",
+                "LineNum": line,
+                "SalesModelCode": model,
+                "Label": MODEL_NAMES.get(model, model),
+                "Quantity": 1,
+                "Prices": [{"GrossTotal": rng.choice([32000, 38000, 45000, 52000, 61000])}],
+                # Solver escalation fields; real-data derivation is a TODO (there
+                # is no direct XAS field — Weight vs customer tier vs delay history).
+                "n_prior_delays": rng.choices([0, 1, 2, 3], weights=[70, 18, 8, 4])[0],
+                "days_backordered": rng.choices(
+                    [0, 0, 0, 7, 14, 30], weights=[50, 15, 10, 12, 8, 5]
+                )[0],
+                "times_rescheduled": rng.choices([0, 1, 2], weights=[75, 18, 7])[0],
+            }
+            # Incumbent link: HARD rows carry VehicleId.Code (== VehicleCode);
+            # SOFT rows carry an Alloc link to their Future vehicle (the real API
+            # resolves that through AllocSource*; the mock links straight to it).
+            if veh["VehicleClassification"] == HARD:
+                item["VehicleId"] = {"Code": veh["VehicleCode"]}
+                item["AllocSourceClassification"] = "VGR"
+            else:
+                item["AllocSourceClassification"] = "VPO"
+                item["AllocatedVehicleCode"] = veh["VehicleCode"]
+            items.append(item)
+            n_rows += 1
+
+        vsos.append(
+            {
+                "JobKey": job_key,
+                "DMSJCEntry": str(vso_num - 1),
+                "DeliveryDate": _iso(delivery),
+                "JobPriority": {"Code": prio},
+                "JobStatus": "Open",
+                "Accounts": {
+                    "Owner": {
+                        "AccountName": name,
+                        "AccountUUID": cid,
+                        "AccountDMSCode": cid.replace("CUST-", "D"),
+                    }
+                },
+                # Header model codes (model-level); jobitems carry their own.
+                "ModelCode": items[0]["SalesModelCode"] if items else "",
+                "SalesModelCode": items[0]["SalesModelCode"] if items else "",
+                "JobItems": items,
+            }
+        )
 
     # --- Spare (unallocated) supply — the wiggle room a repair uses. ---------
     for _ in range(int(n_orders * spare_ratio)):
         model = rng.choice(SALES_MODELS)
-        planned = rng.choice(weeks)
-        po_id = f"PO-SPARE-{slot_index // PER_PO}"
-        row_in_po = slot_index % PER_PO + 1
-        slot_index += 1
-        item, supply_id = _make_supply(rng, model, planned, po_id, row_in_po, uid_box)
-        supply.append(item)
-        po_members.setdefault(po_id, []).append(supply_id)
+        eta = rng.choice(weeks)
+        new_vehicle(model, eta)
 
-    supply_by_id = {s["supply_id"]: s for s in supply}
-
-    def pos(delayed_po: str | None) -> list[dict]:
-        recs = []
-        for po_id, members in sorted(po_members.items()):
-            recs.append(
-                {
-                    "po_id": po_id,
-                    "sales_model": supply_by_id[members[0]]["sales_model"],
-                    "quantity": len(members),
-                    "delayed_days": delay_days if po_id == delayed_po else 0,
-                }
-            )
-        return recs
-
-    def dataset(state: str, delayed_po: str | None, sup: list[dict], disruption: dict) -> dict:
+    def dataset(state: str, vehs: list[dict], disruption: dict) -> dict:
         return {
             "meta": {
                 "seed": seed,
@@ -212,51 +217,49 @@ def generate(
                 "sales_models": list(SALES_MODELS),
                 "n_customers": n_customers,
             },
-            "pos": pos(delayed_po),
-            "supply": sup,
-            "sos": sos,
+            "vsos": vsos,
+            "vehicles": vehs,
             "disruption": disruption,
         }
 
-    baseline = dataset("good", None, supply, {})
+    baseline = dataset("good", vehicles, {})
 
-    # --- Disruption: delay the lowest-id incumbent-carrying PO whose items are
-    #     all still movable (not committed), so the repair is meaningful. -----
-    incumbent_pos = sorted(
-        {po for po in po_members if any(m in incumbent_map.values() for m in po_members[po])}
-    )
-    delayed_po = None
-    for po_id in incumbent_pos:
-        if all(
-            supply_by_id[m]["location_state"] not in COMMITTED_STATES for m in po_members[po_id]
-        ):
-            delayed_po = po_id
-            break
-    if delayed_po is None:  # fallback: any incumbent PO with a movable item
-        for po_id in incumbent_pos:
-            if any(
-                supply_by_id[m]["location_state"] not in COMMITTED_STATES for m in po_members[po_id]
-            ):
-                delayed_po = po_id
-                break
+    # --- Disruption: delay a COHERENT batch — every incumbent-carrying vehicle
+    #     of ONE model (a "model X shipment slipped") — so the repair is
+    #     meaningful and the disrupted orders are guaranteed late (their
+    #     incumbent was on time, EtaDealer == promise, so +delay_days runs past
+    #     the promise). Pick the model with the most incumbent cars; tie by code.
+    incumbent_codes = set(incumbent.values())
+    veh_by_code = {v["VehicleCode"]: v for v in vehicles}
+    by_model: dict[str, list[str]] = defaultdict(list)
+    for code in incumbent_codes:
+        by_model[veh_by_code[code]["ModelId"]["Code"]].append(code)
+    delayed_model = min(by_model, key=lambda m: (-len(by_model[m]), m))
+    delayed_codes = set(by_model[delayed_model])
 
-    delayed_ids = set(po_members[delayed_po])
-    disrupted_supply: list[dict] = []
-    for s in supply:
-        if s["supply_id"] in delayed_ids:
-            new_date = date.fromisoformat(s["planned_delivery_date"]) + timedelta(days=delay_days)
-            disrupted_supply.append({**s, "planned_delivery_date": _iso(new_date)})
+    disrupted_vehicles: list[dict] = []
+    for v in vehicles:
+        if v["VehicleCode"] in delayed_codes:
+            new_eta = date.fromisoformat(v["EtaDealer"]) + timedelta(days=delay_days)
+            disrupted_vehicles.append(
+                {
+                    **v,
+                    "EtaDealer": _iso(new_eta),
+                    "ExpectedCustomerDeliveryDate": _iso(new_eta),
+                }
+            )
         else:
-            disrupted_supply.append(dict(s))
+            disrupted_vehicles.append(dict(v))
 
-    disrupted_orders = sorted(rid for rid, sid in incumbent if sid in delayed_ids)
+    disrupted_orders = sorted(k for k, code in incumbent.items() if code in delayed_codes)
     disruption = {
-        "po": delayed_po,
+        "now": _iso(BASE_DATE),
         "delay_days": delay_days,
-        "delayed_supply": sorted(delayed_ids),
+        "delayed_model": delayed_model,
+        "delayed_vehicles": sorted(delayed_codes),
         "disrupted_orders": disrupted_orders,
     }
-    pull = dataset("disrupted", delayed_po, disrupted_supply, disruption)
+    pull = dataset("disrupted", disrupted_vehicles, disruption)
     return {"baseline": baseline, "pull": pull}
 
 
@@ -264,7 +267,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Fabricate an XAS allocation scenario.")
     ap.add_argument("--seed", type=int, default=20)
     ap.add_argument("--customers", type=int, default=30)
-    ap.add_argument("--orders", type=int, default=40, help="vehicle order rows (demand)")
+    ap.add_argument("--orders", type=int, default=40, help="VSO car lines (demand)")
     ap.add_argument("--spare-ratio", type=float, default=0.4)
     ap.add_argument("--delay-days", type=int, default=21)
     ap.add_argument("--out", type=Path, default=DATA_DIR, help="output directory")
@@ -282,18 +285,20 @@ def main() -> None:
         path = args.out / f"{name}.json"
         path.write_text(json.dumps(data, indent=2, sort_keys=True))
         d = data["disruption"]
-        kinds = {}
-        for s in data["supply"]:
-            kinds[s["kind"]] = kinds.get(s["kind"], 0) + 1
+        by_class: dict[str, int] = {}
+        for v in data["vehicles"]:
+            c = v["VehicleClassification"]
+            by_class[c] = by_class.get(c, 0) + 1
         tag = (
-            f"disruption PO {d['po']} +{d['delay_days']}d, {len(d['disrupted_orders'])} rows freed"
+            f"disruption {d['delayed_model']} +{d['delay_days']}d on "
+            f"{len(d['delayed_vehicles'])} vehicles, {len(d['disrupted_orders'])} orders freed"
             if d
             else "no disruption"
         )
-        rows = sum(len(so["rows"]) for so in data["sos"])
+        rows = sum(len(vso["JobItems"]) for vso in data["vsos"])
         print(
-            f"wrote {path}  ({len(data['sos'])} SOs / {rows} rows, "
-            f"{kinds.get('vehicle', 0)} vehicles + {kinds.get('po_line', 0)} slots; {tag})"
+            f"wrote {path}  ({len(data['vsos'])} VSOs / {rows} car lines, "
+            f"{by_class.get(HARD, 0)} real + {by_class.get(SOFT, 0)} future; {tag})"
         )
 
 

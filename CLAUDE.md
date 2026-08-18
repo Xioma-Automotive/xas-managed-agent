@@ -69,6 +69,12 @@ XAS endpoint and its credential never touch the sandbox.
   nothing answers — which parks the session on a `requires_action` idle that
   **never times out**, so the failure looks like a hang, not an error.
   `tests/test_tool_contract.py` guards the wiring.
+- **`web_search` / `web_fetch` are disabled on the agent.** `TOOLS` in
+  `setup_allocation_agent.py` keeps the rest of `agent_toolset_20260401` and turns
+  those two off per-tool. Everything the plan may depend on arrives in the pull, so
+  a web lookup could only add state the snapshot doesn't hold — the invariant's
+  first input stops being a snapshot. (The cloud environment already has no egress;
+  this also keeps the two tools out of the agent's context.)
 - **The tool answerer is owned by the session, not the browser.** `web.py` starts
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull

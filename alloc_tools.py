@@ -109,39 +109,49 @@ def flatten_command(pull_path: str = MOUNT_PATH) -> str:
     )
 
 
+def _incumbent_count(item: dict) -> bool:
+    """Whether a VSO jobitem is currently allocated (hard VehicleId or soft Alloc)."""
+    return bool((item.get("VehicleId") or {}).get("Code") or item.get("AllocatedVehicleCode"))
+
+
 def summarize(rich: dict) -> dict[str, Any]:
     """The part of the pull that crosses into the agent's context."""
     meta = rich.get("meta", {})
-    supply = rich.get("supply", [])
-    sos = rich.get("sos", [])
+    vehicles = rich.get("vehicles", [])
+    vsos = rich.get("vsos", [])
     disruption = rich.get("disruption", {}) or {}
 
-    rows = [row for so in sos for row in so.get("rows", [])]
-    by_kind: dict[str, int] = {}
-    for s in supply:
-        by_kind[s.get("kind", "vehicle")] = by_kind.get(s.get("kind", "vehicle"), 0) + 1
+    rows = [item for vso in vsos for item in vso.get("JobItems", [])]
+    by_class: dict[str, int] = {}
+    for v in vehicles:
+        c = v.get("VehicleClassification", "Vehicle")
+        by_class[c] = by_class.get(c, 0) + 1
 
     # §6 steering contract: resolve a dealer name in the planner's instruction to
-    # the customer_id the override object carries. Built from the SOs in play.
+    # the customer_id the override object carries. Built from the VSOs in play.
     customers: dict[str, dict] = {}
-    for so in sos:
-        prio = so["rows"][0]["priority"] if so.get("rows") else "?"
-        customers.setdefault(so["customer"], {"customer_id": so["customer_id"], "priority": prio})
+    for vso in vsos:
+        owner = (vso.get("Accounts") or {}).get("Owner") or {}
+        name = owner.get("AccountName", "")
+        cid = owner.get("AccountUUID", "")
+        prio = (vso.get("JobPriority") or {}).get("Code", "?")
+        if name:
+            customers.setdefault(name, {"customer_id": cid, "priority": prio})
 
     return {
         "flatten": flatten_command(),
         "snapshot_path": SNAPSHOT_FILENAME,
         "now": meta.get("now"),
-        "sales_orders": len(sos),
-        "orders": len(rows),  # vehicle order rows — the allocatable grain
-        "supply": len(supply),
-        "supply_by_kind": dict(sorted(by_kind.items())),
-        "incumbent_assignments": sum(1 for r in rows if r.get("current_supply_id")),
+        "sales_orders": len(vsos),
+        "orders": len(rows),  # VSO car lines — the allocatable grain
+        "supply": len(vehicles),  # the vehicle pool: real ∪ future
+        "supply_by_classification": dict(sorted(by_class.items())),
+        "incumbent_assignments": sum(1 for r in rows if _incumbent_count(r)),
         "sales_models": meta.get("sales_models", []),
         "disruption": {
-            "po": disruption.get("po"),
+            "delayed_model": disruption.get("delayed_model"),
             "delay_days": disruption.get("delay_days"),
-            "delayed_supply": len(disruption.get("delayed_supply", [])),
+            "delayed_vehicles": len(disruption.get("delayed_vehicles", [])),
         },
         "disrupted_orders": len(disruption.get("disrupted_orders", [])),
         "disrupted_order_ids": disruption.get("disrupted_orders", []),
