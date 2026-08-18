@@ -287,7 +287,7 @@ def _render(event) -> dict | None:
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(REPO_ROOT / "static" / "index.html")
+    return FileResponse(REPO_ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/models")

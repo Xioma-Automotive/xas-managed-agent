@@ -157,7 +157,13 @@ out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(
     "<!doctype html><meta charset=utf-8>"
     "<title>Late orders by dealer</title>"
-    "<body style=\"margin:0;font-family:system-ui\">" + buf.getvalue(),
+    # Fit the chart to whatever shows it. matplotlib writes a FIXED-size SVG,
+    # so without this the chart is cropped and grows its own scrollbars inside
+    # the chat frame. Scaling on BOTH axes keeps any aspect ratio fully visible.
+    "<style>html,body{height:100%;margin:0}"
+    "body{display:grid;place-items:center;font-family:system-ui}"
+    "svg{max-width:100%;max-height:100%;width:auto;height:auto}</style>"
+    + buf.getvalue(),
     encoding="utf-8",
 )
 print(f"wrote {out}")

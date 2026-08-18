@@ -316,14 +316,17 @@ async function showNewOutputs(attempt = 0) {
     ({ files } = await api(`/session/${sid}/files`));
   } catch { return; }
 
+  // Claim the ids synchronously, before any further await. History replay fires
+  // one idle event per past turn, so several calls run concurrently; without
+  // this they all see the same file as unseen and each renders its own bubble.
   const fresh = files.filter((f) => !shownFiles.has(f.id));
+  fresh.forEach((f) => shownFiles.add(f.id));
   if (!fresh.length) {
     // Up to ~4s of retries: outputs lag idle by 1-3s.
     if (attempt < 4 && viewing === sid) setTimeout(() => showNewOutputs(attempt + 1), 1000);
     return;
   }
   for (const f of fresh) {
-    shownFiles.add(f.id);
     const url = `/session/${sid}/files/${f.id}/content`;
     const name = escape(f.filename || f.id);
     const kb = Math.max(1, Math.round((f.size_bytes || 0) / 1024));
