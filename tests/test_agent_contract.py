@@ -248,7 +248,11 @@ def test_agent_is_told_where_charts_must_go():
 def test_agent_is_told_not_to_read_the_chart_back():
     """Reading a PNG back returns base64 -- ~100KB of context for no new information."""
     prompt = setup_agent.SYSTEM_PROMPT.lower()
-    assert "do not read the image back" in prompt
+    assert "do not read the chart back" in prompt
+    assert (
+        "do not read the chart back"
+        in (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
+    )
 
 
 def test_web_serves_file_content_for_the_browser():
@@ -257,14 +261,36 @@ def test_web_serves_file_content_for_the_browser():
 
 
 @pytest.mark.parametrize(
-    "filename,expected,inline",
+    "filename,media_type,mode",
     [
-        ("chart.png", "image/png", True),
-        ("plot.svg", "image/svg+xml", True),
-        ("report.html", "text/html", False),
-        ("notes", "application/octet-stream", False),
+        ("late_by_dealer.html", "text/html", "frame"),
+        ("chart.png", "image/png", "image"),
+        ("plot.svg", "image/svg+xml", "image"),
+        ("notes.txt", "text/plain", "link"),
+        ("data", "application/octet-stream", "link"),
     ],
 )
-def test_media_type_drives_inline_rendering(filename, expected, inline):
-    assert web._media_type(filename) == expected
-    assert web._media_type(filename).startswith("image/") is inline
+def test_render_mode_tells_the_browser_how_to_show_an_output(filename, media_type, mode):
+    assert web._media_type(filename) == media_type
+    assert web._render_mode(filename) == mode
+
+
+def test_charts_are_self_contained_html():
+    """Inline SVG, not a CDN link: the page is opened later in another browser,
+    so anything it must fetch is a dependency that can fail. It also measures
+    SMALLER than the equivalent PNG (39.5KB vs 55.5KB for the same chart)."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "self-contained" in skill.lower()
+    assert 'format="svg"' in skill, "the recipe must save SVG, not PNG"
+    assert "matplotlib.use" in skill, "no display in the sandbox — Agg backend required"
+    assert "never reference a cdn" in skill.lower()
+    assert "self-contained" in setup_agent.SYSTEM_PROMPT.lower()
+
+
+def test_html_charts_are_framed_not_trusted():
+    """A chart is model-generated HTML. It renders in an opaque origin so it
+    cannot reach this page, its cookies, or the session routes."""
+    ui = (REPO_ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    frame = ui[ui.index('<iframe class="output-frame"') :][:200]
+    assert 'sandbox="allow-scripts"' in frame
+    assert "allow-same-origin" not in frame

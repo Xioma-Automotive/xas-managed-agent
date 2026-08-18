@@ -472,6 +472,24 @@ async def message(body: Message) -> dict:
 MANAGED_AGENTS_BETA = "managed-agents-2026-04-01"
 
 
+def _render_mode(filename: str | None) -> str:
+    """How the browser should present this output.
+
+    ``frame`` — a self-contained HTML chart (inline SVG). This is the format the
+    agent is told to produce: it scales, its labels are selectable text, it opens
+    in a new tab natively, and for the charts measured here it is SMALLER than
+    the equivalent PNG (47KB vs 55KB).
+    ``image`` — a raster/vector image the agent produced anyway.
+    ``link``  — anything else; offer it, don't try to draw it.
+    """
+    media_type = _media_type(filename)
+    if media_type == "text/html":
+        return "frame"
+    if media_type.startswith("image/"):
+        return "image"
+    return "link"
+
+
 def _media_type(filename: str | None) -> str:
     """What the browser should treat this file as.
 
@@ -503,8 +521,7 @@ async def files(session_id: str) -> dict:
                 "filename": f.filename,
                 "size_bytes": f.size_bytes,
                 "media_type": _media_type(f.filename),
-                # The UI renders a chart inline; everything else gets a link.
-                "inline": _media_type(f.filename).startswith("image/"),
+                "render": _render_mode(f.filename),
             }
             for f in listing.data
             if os.path.basename(f.filename or "") not in MOUNTED_INPUT_FILENAMES

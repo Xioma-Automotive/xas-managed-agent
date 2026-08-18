@@ -130,19 +130,45 @@ taxonomy for them wastes a turn and invites invention:
 
 ## Charts
 
-Write every chart into **`/mnt/session/outputs/`** (`mkdir -p` it first). That
-directory is what the planner's screen renders from — a chart written to
-`/workspace` or the current directory exists only inside the sandbox and nobody
-ever sees it.
+Write every chart as a **self-contained `.html` file** into
+**`/mnt/session/outputs/`** (`mkdir -p` it first). That directory is what the
+planner's screen renders from — a chart written to `/workspace` or the current
+directory exists only inside the sandbox and nobody ever sees it.
+
+**Self-contained means the SVG is inlined in the page.** Never reference a CDN,
+an external stylesheet, or a separate image file: the page is opened later, in a
+different browser, and anything it has to fetch is a dependency that can fail or
+leak. Inline SVG also scales without blurring and keeps the labels as selectable
+text — and it is typically *smaller* than the same chart as a PNG.
 
 ```python
-fig.savefig("/mnt/session/outputs/late_orders_by_dealer.png", dpi=150)
+import io, pathlib, matplotlib
+matplotlib.use("Agg")          # no display in the sandbox
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(12, 6))
+# ... plot from the solver's output or the records ...
+fig.tight_layout()
+
+buf = io.StringIO()
+fig.savefig(buf, format="svg")          # SVG, not PNG
+out = pathlib.Path("/mnt/session/outputs/late_orders_by_dealer.html")
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(
+    "<!doctype html><meta charset=utf-8>"
+    "<title>Late orders by dealer</title>"
+    "<body style=\"margin:0;font-family:system-ui\">" + buf.getvalue(),
+    encoding="utf-8",
+)
+print(f"wrote {out}")
 ```
 
-Then name the file in your reply and stop. **Do not read the image back.**
-Reading a PNG returns it as base64 — tens of thousands of tokens to tell you
-what you just plotted. `matplotlib` is available; use the `Agg` backend (there
-is no display).
+Give the page a `<title>` — it becomes the browser tab name when the planner
+opens the chart full size.
+
+Then name the file in your reply and stop. **Do not read the chart back.**
+Reading it returns the whole file into the conversation — tens of thousands of
+tokens to tell you what you just plotted.
 
 ## Presenting the answer
 

@@ -57,6 +57,12 @@
      push the transcript off screen. Click opens it full size in a new tab. */
   .msg.output .output-img { display: block; max-width: 100%; max-height: 460px;
     border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: zoom-in; }
+  /* An iframe has no intrinsic size, so the height is ours to choose. 460px
+     matches the image cap; the chart scales to width and "open in new tab"
+     covers anyone who wants it full size. */
+  .msg.output .output-frame { display: block; width: 100%; height: 460px; border: 1px solid var(--line);
+    border-radius: 6px; background: #fff; }
+  .msg.output .output-open { font-weight: 400; font-size: 12px; margin-left: 6px; }
 
   footer { border-top: 1px solid var(--line); padding: 12px; display: flex; gap: 8px;
            background: var(--panel); }
@@ -321,12 +327,24 @@ async function showNewOutputs(attempt = 0) {
     const url = `/session/${sid}/files/${f.id}/content`;
     const name = escape(f.filename || f.id);
     const kb = Math.max(1, Math.round((f.size_bytes || 0) / 1024));
-    add("output", f.inline
-      ? `<div class="output-name">${name} <span class="dim">${kb} KB</span></div>`
-        + `<a href="${url}" target="_blank" rel="noopener">`
-        + `<img class="output-img" src="${url}" alt="${name}"></a>`
-      : `<div class="output-name">${name} <span class="dim">${kb} KB</span></div>`
-        + `<a href="${url}" target="_blank" rel="noopener">open ${name}</a>`);
+    // Header is the same for every output; only the body differs by render mode.
+    const head = `<div class="output-name">${name} <span class="dim">${kb} KB</span>`
+      + ` <a class="output-open" href="${url}" target="_blank" rel="noopener">open in new tab \u2197</a></div>`;
+    let body;
+    if (f.render === "frame") {
+      // The chart is model-generated HTML, so it goes in a sandbox with an
+      // OPAQUE origin: allow-scripts without allow-same-origin means it can
+      // render (and animate, if it ever ships an interactive chart) but cannot
+      // touch this page, its cookies, or the session routes.
+      body = `<iframe class="output-frame" src="${url}" sandbox="allow-scripts"`
+        + ` title="${name}" loading="lazy"></iframe>`;
+    } else if (f.render === "image") {
+      body = `<a href="${url}" target="_blank" rel="noopener">`
+        + `<img class="output-img" src="${url}" alt="${name}"></a>`;
+    } else {
+      body = "";   // the header's link is the whole offer
+    }
+    add("output", head + body);
   }
 }
 
