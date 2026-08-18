@@ -71,6 +71,7 @@ def client() -> anthropic.Anthropic:
     return _client
 
 
+AGENT_NAME = "XAS Agent"
 MODEL = "claude-opus-5"
 
 # Unique per organization, and the self-hosted branch already holds
@@ -240,7 +241,7 @@ def _skills(alloc_skill_id: str, qa_skill_id: str) -> list[dict]:
 
 def create_agent(alloc_skill_id: str, qa_skill_id: str) -> str:
     agent = client().beta.agents.create(
-        name="XAS Agent",
+        name=AGENT_NAME,
         model=MODEL,
         system=SYSTEM_PROMPT,
         tools=TOOLS,
@@ -253,6 +254,9 @@ def create_agent(alloc_skill_id: str, qa_skill_id: str) -> str:
 def update_agent(agent_id: str, alloc_skill_id: str, qa_skill_id: str) -> None:
     agent = client().beta.agents.update(
         agent_id,
+        # Sent on update too: the agent predates the merge and would otherwise
+        # keep the console label "XAS Allocation Agent" while doing two jobs.
+        name=AGENT_NAME,
         model=MODEL,
         system=SYSTEM_PROMPT,
         tools=TOOLS,
