@@ -174,8 +174,9 @@ tests**, never as live-session code.
    backorder), no vehicle double-booked. (`repair_and_report` runs the self-check;
    trust it.)
 6. **Print `session.repair_and_report(snapshot, override)`** — the finished,
-   jargon-free reply (headline · what-changed table with the actual swap ·
-   still-late split into locked-in vs no-car · unchanged count · one caveat). It
+   jargon-free reply (headline · "What I moved" table with the actual swap ·
+   "Still needs your call" split into locked-in vs no-car, with ↑moved marking
+   the orders in both · unchanged count · one caveat). It
    already builds the reason-coded change list; **do not re-derive the solver's
    output by hand or write ad-hoc analysis scripts** — that is the exact leak the
    invariant guards against, and it burns time and tokens.

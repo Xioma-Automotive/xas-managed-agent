@@ -123,3 +123,50 @@ def test_hard_vehicle_allocation_is_movable_not_locked():
     # to be treated as committed/locked; now it is simply movable.
     assert units["VEH-MOV-LATE"].is_hard
     assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
+
+
+# --------------------------------------------------------------------------
+# An order can be BOTH moved and still late -- a bump victim, or a move that
+# only narrowed the gap. It belongs in both tables (what we did / what needs a
+# call), so the overlap is MARKED, never dropped: dropping it from the call list
+# would hide the one order that moved and still failed.
+# --------------------------------------------------------------------------
+
+
+def _moved_but_late_snapshot() -> Snapshot:
+    """One disrupted order whose best free car is an improvement and still late."""
+    return Snapshot(
+        orders=[_order("MOV-1", "SM1", "A", date(2026, 9, 1))],
+        units=[
+            _unit("VEH-VERY-LATE", "SM1", date(2026, 10, 20)),
+            _unit("VEH-LESS-LATE", "SM1", date(2026, 9, 20)),
+        ],
+        incumbent={"MOV-1": "VEH-VERY-LATE"},
+        disruption={
+            "delay_days": 30,
+            "delayed_vehicles": ["VEH-VERY-LATE"],
+            "disrupted_orders": ["MOV-1"],
+        },
+        now=NOW,
+    )
+
+
+def test_moved_but_still_late_is_in_both_tables_and_marked():
+    report = repair_and_report(_moved_but_late_snapshot())
+    moved, call_list = report.split("**Still needs your call**")
+    assert "VEH-LESS-LATE" in moved, "the swap must show in what-I-moved"
+    assert "MOV-1 ↑moved" in call_list, "and the row must stay on the call list, marked"
+    assert "not a second count" in call_list, "the marker needs its one-line legend"
+
+
+def test_no_marker_when_nothing_moved_and_stayed_late():
+    """The frozen order in the base fixture is late but was never moved: no
+    overlap, so no marker and no legend to explain one."""
+    report = repair_and_report(_snapshot())
+    assert "↑moved" not in report
+
+
+def test_the_two_tables_say_what_they_are_for():
+    report = repair_and_report(_snapshot())
+    assert "**What I moved**" in report
+    assert "**Still needs your call**" in report

@@ -452,8 +452,15 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
             head += f" ({len(stuck)} locked in — can't be re-slotted)"
     lines.append(head + ".")
 
+    # An order can be BOTH re-allocated and still late (a bump victim, or a move
+    # that only narrowed the gap). Both facts are true and both tables need it:
+    # the first says what we did, the second is the planner's call list. Mark the
+    # overlap rather than dropping it from either -- dropping it from the call
+    # list would hide exactly the order that moved and still failed.
+    moved_and_late = set(changed) & set(still_late)
+
     if changed:
-        lines.append("\n**What changed**\n")
+        lines.append("\n**What I moved**\n")
         lines.append(
             "| Order | Dealer (priority) | Was arriving | Now arrives | Promised "
             "| New allocation | Result |"
@@ -477,13 +484,14 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
         lines.append("\nNo allocation changes.")
 
     if still_late or result.unfilled:
-        lines.append("\n**Still late — needs your call**\n")
+        lines.append("\n**Still needs your call**\n")
         lines.append("| Order | Dealer (priority) | Arrives | Promised | Late | Why |")
         lines.append("|---|---|---|---|---|---|")
         for oid, r in stuck + no_car:
             o, u = orders[oid], units[plan[oid]]
+            label = f"{oid} ↑moved" if oid in moved_and_late else oid
             lines.append(
-                f"| {oid} | {o.customer} ({o.priority}) | {date_label(u.eta_dealer)} "
+                f"| {label} | {o.customer} ({o.priority}) | {date_label(u.eta_dealer)} "
                 f"| {date_label(o.delivery_date)} | {_dur(tardiness(o, u), scale, unit_days)} "
                 f"| {_why_late(r)} |"
             )
@@ -492,6 +500,12 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
             lines.append(
                 f"| {oid} | {o.customer} ({o.priority}) | — | {date_label(o.delivery_date)} "
                 f"| — | no car at all (backordered) |"
+            )
+
+        if moved_and_late:
+            lines.append(
+                "\n↑moved = also in the list above: re-allocated and still late. This is a "
+                "call list, not a second count."
             )
 
     n_unchanged = len(orders) - len(changed) - len(result.unfilled)
