@@ -223,6 +223,36 @@ def test_qa_skill_points_at_the_path_web_mounts():
     assert alloc_tools.UPLOAD_PREFIX in skill, "skill must mention the upload fallback"
 
 
+@pytest.mark.parametrize(
+    "phrase", ["deliveries", "sales order", "vehicle purchase order", "what is late"]
+)
+def test_alloc_description_carries_the_words_users_type(phrase):
+    """The description is what the platform routes on, and a planner says "check
+    the deliveries", never "repair the allocation"."""
+    assert phrase in _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md").lower()
+
+
+def test_qa_description_disclaims_the_allocation_vocabulary():
+    """ "How many VSOs are late" is a COUNT, which reads like reporting -- and is
+    an allocation question. Both descriptions must say so or the platform picks
+    on surface form."""
+    qa = _description(setup_agent.QA_SKILL_DIR / "SKILL.md").lower()
+    for phrase in ("deliveries", "vso", "vpo", "supply"):
+        assert phrase in qa
+
+
+def test_alloc_skill_stops_a_status_question_at_the_report():
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "A question about the state stops at the discrepancy report." in skill
+    assert "no VPO ids" in skill, "the VPO-number limit must be stated, not discovered"
+
+
+def test_prompt_routes_the_everyday_words():
+    prompt = setup_agent.SYSTEM_PROMPT.lower()
+    for phrase in ("deliveries", "vehicle purchase order", "what's late"):
+        assert phrase in prompt
+
+
 def test_qa_skill_has_a_dead_end_rule():
     """A term that resolves to nothing used to be undefined behaviour, so the
     model improvised -- sometimes answering with the closest-looking code, which

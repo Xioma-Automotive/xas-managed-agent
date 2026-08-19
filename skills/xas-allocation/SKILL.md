@@ -2,13 +2,18 @@
 name: xas-allocation
 description: >-
   Repair a vehicle-to-order allocation after a disruption (delayed shipment,
-  changed inbound, manual steering). Translate the situation + planner instructions into
-  inputs for a deterministic min-cost-flow solver, run the λ sweep, self-check
-  hard constraints, and emit a reason-coded change list. Use whenever a planner
-  asks to re-allocate, defer/pin/boost orders, or explain an allocation change.
-  Does NOT allocate by reasoning — it drives the reference solver. Do NOT use for
-  general reporting over job-card records (counts, breakdowns, charts) — that is
-  xas-qa.
+  changed inbound, manual steering), and say where the vehicle sales orders and
+  their cars stand. Use whenever someone asks about deliveries or arrivals
+  ("check the deliveries", "are the cars coming on time", "what is late"), about
+  a VSO / vehicle sales order / sales order / customer order, about a delay in
+  supply or in a VPO / vehicle purchase order ("the factory slipped", "check for
+  delays in supply"), which car an order gets, or asks to re-allocate,
+  defer/pin/boost orders, or explain an allocation change. Translate the
+  situation + planner instructions into inputs for a deterministic min-cost-flow
+  solver, run the λ sweep, self-check hard constraints, and emit a reason-coded
+  change list. Does NOT allocate by reasoning — it drives the reference solver.
+  Do NOT use for general reporting over job-card records (counts, breakdowns,
+  charts) — that is xas-qa.
 ---
 
 # XAS allocation repair skill
@@ -68,6 +73,35 @@ not a fuzzy match — no LLM spec-residual. The solver treats a real and a futur
 vehicle identically for matching (both are capacity-1 supply with a date), so an
 order can be re-linked between them. Lateness is **priced**, not forbidden, so a
 slightly-late vehicle can still be placed instead of backordering.
+
+## The words people actually use
+
+Nobody asks for a "snapshot". They ask about deliveries, VSOs and supply delays.
+Every row below starts the same way — pull → `flatten` → `discrepancy_report`;
+what differs is how much comes after.
+
+| They say | They mean | You do |
+| --- | --- | --- |
+| "check the deliveries", "are the cars coming on time?", "what's late?" | promised dates vs the dates the cars now arrive | pull → `flatten` → `discrepancy_report`, then **stop** |
+| "check the VSO", "the sales orders", "customer orders", "VSO-4008" | the VSO car lines — one wanted car is one order | same; if they named a customer, a VSO or a month, put it in `scope` instead of filtering by hand |
+| "any delays in supply?", "delay in the VPOs", "the factory slipped", "the shipment is late" | some cars' arrival dates moved out — the pull already carries it | same; the report names the affected orders and cars |
+| "which cars are still on order?" | supply still on a factory purchase order — a **Future** vehicle, soft binding | read it off the snapshot's units; nothing to solve |
+| "fix it", "sort out Colmobil", "pull the Delek car forward" | a repair | compile the override, then `repair_and_report` |
+
+**A question about the state stops at the discrepancy report.** Do not repair, do
+not invent an override, do not offer a plan until they ask for one. "Check the
+deliveries" is a status question; answering it with a re-allocation nobody
+requested moves cars in the planner's head that nobody moved.
+
+**VPO and VGR, precisely — because the words are theirs and the data is real.**
+Each order line records where its car comes from: `AllocSourceClassification`
+`"VGR"` = the car has been received (a real VIN, a **hard** binding), `"VPO"` =
+still on order from the factory (a **Future** vehicle, a **soft** binding, free
+to reshuffle). So "is the VPO delayed?" is answerable — it is the arrival date of
+the cars still on order. What this pull does NOT carry is a VPO *number*: there
+are no VPO ids and no per-VPO rows, so you cannot list "the open VPOs" or group
+by one. Say so plainly and offer what you do have — the cars on order and when
+they now land.
 
 ## The cost model (verbatim — §2)
 
@@ -240,6 +274,21 @@ carries a decision:
   but always in the table.)
 - **Internal vocabulary:** λ, Pareto frontier, weighted late-days, slushy/frozen
   fence, incumbent, mid-frontier default, arc, min-cost flow. Translate or omit.
+
+### Say it their way
+
+Their words are not all jargon — **VSO, sales order and VPO are theirs, use
+them.** These are the ones to translate:
+
+| Internal | What they call it |
+| --- | --- |
+| `delivery_date` | the promised date / what the customer was promised |
+| `eta_dealer` | when the car lands / arriving |
+| `Vehicle` classification, a VIN | a car in stock — name the VIN, they allocate by it |
+| `Future` classification | a car on order from the factory |
+| `sales_model` | the model |
+| a VSO car line, "jobitem" | the order, or "the second car on VSO-4008" |
+| snapshot, flatten, the pull | the current position — or don't mention it at all |
 
 ## Steering contract (§6) — prompt compiles to parameters, NEVER code
 

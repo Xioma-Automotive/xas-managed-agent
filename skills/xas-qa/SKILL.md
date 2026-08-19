@@ -7,7 +7,9 @@ description: >-
   normalized phrasebook. Use for questions ABOUT the data: how many, which
   branch, what status, draw a chart. Do NOT use for allocation repair — which
   order is late, which vehicle an order gets, bumping or pinning belong to
-  xas-allocation, which answers those from the solver.
+  xas-allocation, which answers those from the solver. Nor for deliveries,
+  arrivals, VSOs / sales orders, or delays in supply or in a VPO: those are
+  allocation, even when phrased as a count.
 ---
 
 # XAS terminology resolution
