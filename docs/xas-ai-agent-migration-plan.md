@@ -224,10 +224,10 @@ session's credential context** (the allocation agent does exactly this with
 `make_pull_tool(lambda: _pull_for(session_id))`):
 
 ```python
-tools = make_xas_tools(creds_for(session_id))          # index_lookup, get_job_cards, ...
+tools = make_xas_tools(creds_for(session_id))  # index_lookup, get_job_cards, ...
 runner = client.beta.sessions.events.tool_runner(session_id, tools=tools)
 async for call in runner:
-    ...   # runner invokes our async fns on agent.custom_tool_use, posts the result
+    ...  # runner invokes our async fns on agent.custom_tool_use, posts the result
 ```
 
 Inside each answerer we reuse the existing, proven logic verbatim:

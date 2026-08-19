@@ -1,4 +1,4 @@
-"""Flatten the mounted taxonomy index into a normalized, greppable phrasebook.
+"""Flatten this skill's taxonomy index into a normalized, greppable phrasebook.
 
 One row per SURFACE STRING — every code, name and alias becomes its own line —
 so that a term the user typed can be found with a single grep, and multi-word
@@ -9,7 +9,7 @@ and stripped of combining marks, which is what makes Hebrew typed without niqqud
 Pure code, no judgement: same index in, byte-identical phrasebook out. Run once
 per session, then grep the result.
 
-    python phrasebook.py                     # /workspace/index.md -> /workspace/phrasebook.tsv
+    python phrasebook.py                     # index.md (beside this file) -> /workspace/phrasebook.tsv
     python phrasebook.py IN.md OUT.tsv
     python phrasebook.py --normalize "חֲלָפִים"   # normalize a query the same way
 """
@@ -21,20 +21,18 @@ import sys
 import unicodedata
 from pathlib import Path
 
-# The host mounts the taxonomy at /workspace/reports/index.md, but the platform
-# may materialize a mounted resource under /mnt/session/uploads. Resolve rather
-# than assume: guessing wrong means no phrasebook and a silent fallback to
-# grepping a file that isn't there.
-INDEX_CANDIDATES = (
-    Path("/workspace/reports/index.md"),
-    Path("/mnt/session/uploads/workspace/reports/index.md"),
-)
+# The taxonomy ships in this skill bundle, right beside this file, so it is found
+# relative to __file__ — the only thing that knows where the platform unpacked
+# the skill. It used to be a per-session mount at /workspace/reports/index.md,
+# which meant guessing between that path and /mnt/session/uploads/...; shipping
+# the two together removes the guess. One tenant only: see DECIDE-16.
+INDEX_PATH = Path(__file__).resolve().parent / "index.md"
 DEFAULT_OUT = Path("/workspace/phrasebook.tsv")
 
 
 def default_index() -> Path | None:
-    """The first taxonomy that actually exists, or None if none do."""
-    return next((c for c in INDEX_CANDIDATES if c.is_file()), None)
+    """The taxonomy shipped beside this file, or None if it is missing."""
+    return INDEX_PATH if INDEX_PATH.is_file() else None
 
 
 # Only real records; the header legend documents the format with the same
@@ -132,7 +130,7 @@ def main() -> None:
     index_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_index()
     out_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_OUT
     if index_path is None:
-        sys.exit(f"No taxonomy index found in {[str(c) for c in INDEX_CANDIDATES]}")
+        sys.exit(f"No taxonomy index at {INDEX_PATH} (it ships in this skill)")
     if not index_path.is_file():
         sys.exit(f"No taxonomy index at {index_path}")
 

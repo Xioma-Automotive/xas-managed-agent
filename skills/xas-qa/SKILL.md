@@ -3,7 +3,7 @@ name: xas-qa
 description: >-
   Answer REPORTING questions over the mounted job-card records — counts,
   breakdowns, filters, charts — resolving the business vocabulary a user types
-  (any language) to this tenant's system codes via the mounted taxonomy and its
+  (any language) to this tenant's system codes via this skill's taxonomy and its
   normalized phrasebook. Use for questions ABOUT the data: how many, which
   branch, what status, draw a chart. Do NOT use for allocation repair — which
   order is late, which vehicle an order gets, bumping or pinning belong to
@@ -12,27 +12,29 @@ description: >-
 
 # XAS terminology resolution
 
-The tenant's taxonomy and the job-card records are mounted under
-`/workspace/reports/`. The taxonomy is the **only** authority for turning what a
-user says into what the records store. Never guess a code, an ObjectId, or a
-status name from memory — resolve it here.
+The tenant's taxonomy is `index.md`, **in this skill's directory** beside
+`phrasebook.py`. It is the **only** authority for turning what a user says into
+what the records store. Never guess a code, an ObjectId, or a status name from
+memory — resolve it here.
 
-**Find the mounts before you use them.** The host requests
-`/workspace/reports/index.md` and `/workspace/reports/jobcards.json`, but the
-platform may materialize them under `/mnt/session/uploads` (i.e.
-`/mnt/session/uploads/workspace/reports/…`). One `ls` settles it:
+The job-card records are mounted separately, under `/workspace/reports/`.
+
+**Find that mount before you use it.** The host requests
+`/workspace/reports/jobcards.json`, but the platform may materialize it under
+`/mnt/session/uploads` (i.e. `/mnt/session/uploads/workspace/reports/…`). One
+`ls` settles it:
 
 ```bash
 ls /workspace/reports /mnt/session/uploads/workspace/reports 2>/dev/null
 ```
 
-`phrasebook.py` already checks both, so Step 0 works either way — you only need
-the paths yourself when reading the records.
+The taxonomy needs no such search: `phrasebook.py` finds it beside itself, so
+Step 0 just works — you only need a path yourself when reading the records.
 
 ## Step 0 — build the phrasebook (once per session)
 
 ```bash
-python phrasebook.py            # finds the mounted index -> /workspace/phrasebook.tsv
+python phrasebook.py            # index.md beside it -> /workspace/phrasebook.tsv
 ```
 
 `phrasebook.py` ships in this skill. It explodes the index into **one row per
@@ -42,8 +44,8 @@ makes Hebrew typed the normal way (`חלפים`) match the index's stored form
 (`חֲלָפִים`), and what turns a term lookup into a single anchored grep.
 
 It is pure code: same index in, byte-identical phrasebook out. Run it, don't
-reimplement it. If it is missing, fall back to grepping the mounted `index.md`
-directly and expect the normalization misses back.
+reimplement it. If it is missing, fall back to grepping `index.md` in this skill
+directory and expect the normalization misses back.
 
 Columns, tab-separated:
 
@@ -71,7 +73,7 @@ python phrasebook.py --normalize "<what the user said>"
 | All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/phrasebook.tsv` |
 | Only the closed ones | add `&& $11=="true"` |
 | Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/phrasebook.tsv` |
-| Browse the raw structure | `grep '^ENTITY' <mounted index.md>` |
+| Browse the raw structure | `grep '^ENTITY' <this skill>/index.md` |
 
 **Exact-first, then fuzzy.** An anchored match on `normalized` is the
 deterministic hit; only fall back to substring search when it returns nothing.
@@ -143,7 +145,8 @@ text — and it is typically *smaller* than the same chart as a PNG.
 
 ```python
 import io, pathlib, matplotlib
-matplotlib.use("Agg")          # no display in the sandbox
+
+matplotlib.use("Agg")  # no display in the sandbox
 import matplotlib.pyplot as plt
 
 fig, ax = plt.subplots(figsize=(12, 6))
@@ -151,7 +154,7 @@ fig, ax = plt.subplots(figsize=(12, 6))
 fig.tight_layout()
 
 buf = io.StringIO()
-fig.savefig(buf, format="svg")          # SVG, not PNG
+fig.savefig(buf, format="svg")  # SVG, not PNG
 out = pathlib.Path("/mnt/session/outputs/late_orders_by_dealer.html")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(
@@ -162,8 +165,7 @@ out.write_text(
     # the chat frame. Scaling on BOTH axes keeps any aspect ratio fully visible.
     "<style>html,body{height:100%;margin:0}"
     "body{display:grid;place-items:center;font-family:system-ui}"
-    "svg{max-width:100%;max-height:100%;width:auto;height:auto}</style>"
-    + buf.getvalue(),
+    "svg{max-width:100%;max-height:100%;width:auto;height:auto}</style>" + buf.getvalue(),
     encoding="utf-8",
 )
 print(f"wrote {out}")

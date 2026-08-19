@@ -88,21 +88,23 @@ XAS endpoint and its credential never touch the sandbox.
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull
   forever.
-- **The skill bundles carry code, NOT data.** `skill_files(skill_dir, package)`
-  builds both: `xas-allocation/` + the `xas_allocation` package, and `xas-qa/`
-  (SKILL.md + `phrasebook.py`). All three datasets are mounted per session by
-  `web.py` — the pull from `datasource.get_source()`, the taxonomy from
-  `get_taxonomy(name)`, the records from `get_records()`. **Change either skill
-  or the solver package and you must re-run `setup_agent.py`**; regenerating any
-  dataset does not need a re-deploy.
-- **Three mounts, and the namespace is load-bearing.** `/workspace/pull.json` is
-  the allocation snapshot; `/workspace/reports/index.md` and
-  `/workspace/reports/jobcards.json` are the reporting lane's. They are
-  namespaced so the system prompt can forbid a **path**: every allocation claim
-  comes from the solver, never from reading the records. With both lanes in one
-  sandbox that rule is the only thing standing between a planner and a plausible,
-  irreproducible answer — `tests/test_agent_contract.py` pins it, and
-  `docs/evals/routing.md` question 4 is the behavioural gate.
+- **The skill bundles carry code, and one dataset.** `skill_files(skill_dir,
+  package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
+  `xas-qa/` (SKILL.md + `phrasebook.py` + `index.md`). The two SESSION datasets
+  are still mounted per session by `web.py` — the pull from
+  `datasource.get_source()`, the records from `get_records()` — so regenerating
+  either needs no re-deploy. The tenant taxonomy is the exception (DECIDE-16):
+  it rides in the `xas-qa` bundle because there is one tenant, `phrasebook.py`
+  finds it beside itself, and the price is that the caller can no longer pick a
+  dealership per session. **Change either skill, the solver package, or the
+  taxonomy and you must re-run `setup_agent.py`.**
+- **Two mounts, and the namespace is load-bearing.** `/workspace/pull.json` is
+  the allocation snapshot; `/workspace/reports/jobcards.json` is the reporting
+  lane's. The records stay namespaced so the system prompt can forbid a **path**:
+  every allocation claim comes from the solver, never from reading the records.
+  With both lanes in one sandbox that rule is the only thing standing between a
+  planner and a plausible, irreproducible answer — `tests/test_agent_contract.py`
+  pins it, and `docs/evals/routing.md` question 4 is the behavioural gate.
 - **The two datasets are not one world.** `pull.json` holds VSOs;
   `jobcards.json` holds Service job cards, fabricated by a different mechanism on
   purpose (decided 2026-08-18). They describe overlapping business objects with
@@ -132,7 +134,7 @@ XAS endpoint and its credential never touch the sandbox.
 
 ## Open decisions
 
-`DECIDE-1..15` are stubbed defaults, not settled answers. Run
+`DECIDE-1..16` are stubbed defaults, not settled answers. Run
 `uv run python -m xas_allocation.decisions` for the live list. The big ones for
 anyone touching this: DECIDE-14 (`time_scale` knob — the solver reasons at
 days/weeks/months, rounding gaps UP; changes the plan, fence stays in days),
@@ -144,7 +146,9 @@ shaped per `docs/xasdatamodel.md`), DECIDE-3 (which
 moves to a version-pinned repo before real dealer data), DECIDE-5 (no durable
 session persistence assumed — steering is one combined override carried in the
 conversation; a host-side store is the deferred real fix), DECIDE-10
-(reserved_for_customer eligibility, deferred).
+(reserved_for_customer eligibility, deferred), DECIDE-16 (the taxonomy ships in
+the `xas-qa` skill instead of being mounted — one tenant only; a second one moves
+it back to a host-side mount).
 
 Not in the prototype, per spec: the CP-SAT + LNS escape hatch for *coupled*
 orders, and any new hard constraint. **The prompt moves weights and pins; a human

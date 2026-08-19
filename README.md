@@ -62,9 +62,9 @@ separate agents:
 | Lane | Skill | Reads | Answers |
 | --- | --- | --- | --- |
 | Allocation repair | `xas-allocation` | `/workspace/pull.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
-| Reporting | `xas-qa` | `/workspace/reports/index.md` + `/workspace/reports/jobcards.json` | how many, which branch, what status — and charts |
+| Reporting | `xas-qa` | `index.md` in its own skill dir + `/workspace/reports/jobcards.json` | how many, which branch, what status — and charts |
 
-Both are mounted into the same session, so a planner can repair an allocation and
+Both skills are on the same session, so a planner can repair an allocation and
 then ask for a chart without switching tools.
 
 **The rule that makes that safe:** every allocation claim comes from running the
@@ -79,8 +79,10 @@ and `docs/evals/routing.md` is the hand-run behavioural check.
 code `Service` displays as `Distinct_name`. `xas-qa` flattens the taxonomy into a
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
-exact-first. Which dealership's taxonomy to mount is the caller's choice — the
-optional `taxonomy` field on `POST /session`, defaulting to the committed one.
+exact-first. The taxonomy itself ships **inside the `xas-qa` skill** as
+`index.md` (DECIDE-16): one tenant, so static config beats a per-session upload,
+at the cost of a redeploy when it changes and no per-session choice of
+dealership. A second tenant moves it back to a host-side mount.
 
 ## Reference-solver package (the deterministic core)
 
@@ -90,7 +92,7 @@ before real dealer data (DECIDE-9).
 
 | Module | Deliverable | Role |
 | ------ | ----------- | ---- |
-| `decisions.py`   | —      | Every `DECIDE-1..15` stub + its labelled default, surfaced at runtime. |
+| `decisions.py`   | —      | Every `DECIDE-1..16` stub + its labelled default, surfaced at runtime. |
 | `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/units/incumbent`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure rich-pull → snapshot mapping (the "flatten + freeze" hop). Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, data/instruction pins (§5), the **λ sweep**, deterministic read-back. Also `repairability()` — is a broken order even re-slottable, or locked in? |

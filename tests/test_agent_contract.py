@@ -74,8 +74,16 @@ def test_prompt_forbids_answering_allocation_from_records():
 
 def test_prompt_names_every_mount():
     prompt = setup_agent.SYSTEM_PROMPT
-    for path in (alloc_tools.MOUNT_PATH, web.TAXONOMY_MOUNT_PATH, web.RECORDS_MOUNT_PATH):
+    for path in (alloc_tools.MOUNT_PATH, web.RECORDS_MOUNT_PATH):
         assert path in prompt, f"{path} is mounted but never explained to the agent"
+
+
+def test_prompt_says_where_the_taxonomy_lives():
+    """It is no longer a mount (DECIDE-16), so the prompt must send the agent to
+    the skill directory instead of a path that does not exist."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "index.md` ships inside the `xas-qa` skill directory" in prompt
+    assert "/workspace/reports/index.md" not in prompt
 
 
 def test_prompt_answers_in_the_users_language():
@@ -120,19 +128,23 @@ def test_alloc_bundle_ships_the_solver():
     assert "xas-allocation/xas_allocation/solver.py" in names
 
 
-def test_qa_bundle_ships_the_phrasebook_builder():
+def test_qa_bundle_ships_the_phrasebook_builder_and_the_taxonomy():
+    """The taxonomy is the ONE dataset that ships in a bundle (DECIDE-16) — it is
+    static config for the single tenant, and phrasebook.py finds it beside
+    itself instead of hunting for a mount."""
     assert [n for n, _ in setup_agent.qa_bundle()] == [
         "xas-qa/SKILL.md",
+        "xas-qa/index.md",
         "xas-qa/phrasebook.py",
     ]
 
 
 @pytest.mark.parametrize("bundle", [setup_agent.alloc_bundle(), setup_agent.qa_bundle()])
-def test_no_dataset_is_bundled(bundle):
-    """Data is mounted per session, so regenerating it needs no redeploy."""
+def test_no_session_dataset_is_bundled(bundle):
+    """The pull and the records are mounted per session, so regenerating either
+    needs no redeploy. (The taxonomy is the deliberate exception — DECIDE-16.)"""
     for name, _ in bundle:
         assert "pull.json" not in name
-        assert "flat-index" not in name
         assert "jobcards" not in name
 
 
@@ -142,9 +154,7 @@ def test_no_dataset_is_bundled(bundle):
 
 
 def test_mount_paths_are_distinct_and_reports_are_namespaced():
-    paths = [alloc_tools.MOUNT_PATH, web.TAXONOMY_MOUNT_PATH, web.RECORDS_MOUNT_PATH]
-    assert len(set(paths)) == 3
-    assert web.TAXONOMY_MOUNT_PATH.startswith(web.REPORTS_MOUNT_DIR + "/")
+    assert alloc_tools.MOUNT_PATH != web.RECORDS_MOUNT_PATH
     assert web.RECORDS_MOUNT_PATH.startswith(web.REPORTS_MOUNT_DIR + "/")
     assert not alloc_tools.MOUNT_PATH.startswith(web.REPORTS_MOUNT_DIR)
 
@@ -152,30 +162,25 @@ def test_mount_paths_are_distinct_and_reports_are_namespaced():
 def test_every_mounted_input_is_filtered_from_outputs():
     """files.list(scope_id=...) returns the inputs too; handing a planner their
     own pull back as an 'output' is noise, and downloading it is worse."""
-    mounted = {
-        Path(alloc_tools.MOUNT_PATH).name,
-        Path(web.TAXONOMY_MOUNT_PATH).name,
-        Path(web.RECORDS_MOUNT_PATH).name,
-    }
+    mounted = {Path(alloc_tools.MOUNT_PATH).name, Path(web.RECORDS_MOUNT_PATH).name}
     assert mounted == set(web.MOUNTED_INPUT_FILENAMES)
 
 
 # --------------------------------------------------------------------------
-# The taxonomy the caller picks (DECIDE-16)
+# The bundled taxonomy (DECIDE-16)
 # --------------------------------------------------------------------------
 
 
-def test_default_taxonomy_resolves():
-    name, blob = datasource.get_taxonomy()
-    assert name == datasource.DEFAULT_TAXONOMY
-    assert blob.startswith(b"# Taxonomy")
+def test_bundled_taxonomy_is_the_real_index():
+    bundled = dict(setup_agent.qa_bundle())["xas-qa/index.md"]
+    assert bundled.startswith(b"# Taxonomy")
 
 
-@pytest.mark.parametrize("bad", ["../../etc/passwd", "/etc/passwd", "nope", "xioma-DMSDEV2023/.."])
-def test_taxonomy_name_is_looked_up_never_joined(bad):
-    """The name arrives from the frontend, so it must never reach the filesystem."""
-    with pytest.raises(RuntimeError, match="Unknown taxonomy"):
-        datasource.get_taxonomy(bad)
+def test_host_no_longer_serves_a_taxonomy():
+    """It ships in the skill now, so the per-session upload is gone. Leaving a
+    dead get_taxonomy behind is how the mount quietly comes back."""
+    assert not hasattr(datasource, "get_taxonomy")
+    assert not hasattr(web, "TAXONOMY_MOUNT_PATH")
 
 
 # --------------------------------------------------------------------------
@@ -208,9 +213,9 @@ def test_flatten_command_never_searches_from_root():
     assert "p != root" in command
 
 
-def test_qa_skill_points_at_the_paths_web_mounts():
-    """Namespacing the mounts under /workspace/reports/ silently orphaned the
-    skill's instructions -- it still said /workspace/index.md."""
+def test_qa_skill_points_at_the_path_web_mounts():
+    """Namespacing the mount under /workspace/reports/ silently orphaned the
+    skill's instructions -- it still said /workspace/jobcards.json."""
     skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "/workspace/index.md" not in skill
     assert "/workspace/jobcards.json" not in skill
@@ -218,7 +223,7 @@ def test_qa_skill_points_at_the_paths_web_mounts():
     assert alloc_tools.UPLOAD_PREFIX in skill, "skill must mention the upload fallback"
 
 
-def test_phrasebook_resolves_the_taxonomy_mount():
+def test_phrasebook_reads_the_taxonomy_beside_itself():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -226,9 +231,8 @@ def test_phrasebook_resolves_the_taxonomy_mount():
     )
     phrasebook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(phrasebook)
-    paths = [str(c) for c in phrasebook.INDEX_CANDIDATES]
-    assert f"{web.TAXONOMY_MOUNT_PATH}" in paths
-    assert f"{alloc_tools.UPLOAD_PREFIX}{web.TAXONOMY_MOUNT_PATH}" in paths
+    assert phrasebook.INDEX_PATH == (setup_agent.QA_SKILL_DIR / "index.md").resolve()
+    assert phrasebook.default_index() is not None
 
 
 # --------------------------------------------------------------------------

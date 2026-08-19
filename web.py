@@ -78,29 +78,23 @@ _lock = asyncio.Lock()
 _pull_by_session: dict[str, dict] = {}
 MOUNTED_PULL_FILENAME = "pull.json"
 
-# The reporting lane's two mounts. Namespaced under /workspace/reports/ on
-# purpose: the system prompt's hard rule keys on the path, so an allocation claim
-# sourced from these files is visibly wrong rather than merely wrong.
-MOUNTED_TAXONOMY_FILENAME = "index.md"
+# The reporting lane's mount. Namespaced under /workspace/reports/ on purpose:
+# the system prompt's hard rule keys on the path, so an allocation claim sourced
+# from this file is visibly wrong rather than merely wrong. (The tenant taxonomy
+# is NOT here — it ships inside the xas-qa skill bundle; see DECIDE-16.)
 MOUNTED_RECORDS_FILENAME = "jobcards.json"
 REPORTS_MOUNT_DIR = "/workspace/reports"
-TAXONOMY_MOUNT_PATH = f"{REPORTS_MOUNT_DIR}/{MOUNTED_TAXONOMY_FILENAME}"
 RECORDS_MOUNT_PATH = f"{REPORTS_MOUNT_DIR}/{MOUNTED_RECORDS_FILENAME}"
 
 # Mounted inputs come back from files.list(scope_id=...) alongside whatever the
 # agent wrote, so both the listing and the download filter them out — otherwise a
 # planner asking for "the outputs" gets their own inputs handed back.
-MOUNTED_INPUT_FILENAMES = frozenset(
-    {MOUNTED_PULL_FILENAME, MOUNTED_TAXONOMY_FILENAME, MOUNTED_RECORDS_FILENAME}
-)
+MOUNTED_INPUT_FILENAMES = frozenset({MOUNTED_PULL_FILENAME, MOUNTED_RECORDS_FILENAME})
 
 
 class NewSession(BaseModel):
     model: str = DEFAULT_MODEL
     title: str | None = None
-    # Which dealership's taxonomy to mount for the reporting lane (DECIDE-16).
-    # The CALLER picks; omitted means the single committed dictionary.
-    taxonomy: str | None = None
 
 
 class Message(BaseModel):
@@ -137,8 +131,8 @@ def _digest(call) -> str:
 
 
 async def _upload(filename: str, blob: bytes, media_type: str):
-    """Upload one file for mounting. Three of these run per session start, so
-    they go out concurrently rather than serially."""
+    """Upload one file for mounting. Two of these run per session start, so they
+    go out concurrently rather than serially."""
     return await client.beta.files.upload(
         file=(filename, blob, media_type), betas=[MANAGED_AGENTS_BETA]
     )
@@ -342,14 +336,8 @@ async def new_session(body: NewSession) -> dict:
         # finds the rows waiting as a file the flatten command reads. One pull
         # backs the whole repair cycle — the invariant "same snapshot every turn".
         rich = datasource.get_source().pull()
-        try:
-            taxonomy_name, taxonomy_blob = datasource.get_taxonomy(body.taxonomy)
-        except RuntimeError as exc:
-            raise HTTPException(400, str(exc)) from exc
-
-        pull_meta, taxonomy_meta, records_meta = await asyncio.gather(
+        pull_meta, records_meta = await asyncio.gather(
             _upload(MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"),
-            _upload(MOUNTED_TAXONOMY_FILENAME, taxonomy_blob, "text/markdown"),
             _upload(MOUNTED_RECORDS_FILENAME, datasource.get_records(), "application/json"),
         )
         session = await client.beta.sessions.create(
@@ -362,7 +350,6 @@ async def new_session(body: NewSession) -> dict:
             title=body.title or "XAS session",
             resources=[
                 {"type": "file", "file_id": pull_meta.id, "mount_path": alloc_tools.MOUNT_PATH},
-                {"type": "file", "file_id": taxonomy_meta.id, "mount_path": TAXONOMY_MOUNT_PATH},
                 {"type": "file", "file_id": records_meta.id, "mount_path": RECORDS_MOUNT_PATH},
             ],
         )
@@ -372,18 +359,8 @@ async def new_session(body: NewSession) -> dict:
         # arrives with no runner attached parks the session indefinitely.
         _answering = asyncio.create_task(_answer_custom_tools(session.id))
 
-    log.info(
-        "session %s started (%s, taxonomy %s)",
-        session.id,
-        MODELS[body.model]["id"],
-        taxonomy_name,
-    )
-    return {
-        "id": session.id,
-        "model": body.model,
-        "taxonomy": taxonomy_name,
-        "stopped": previous,
-    }
+    log.info("session %s started (%s)", session.id, MODELS[body.model]["id"])
+    return {"id": session.id, "model": body.model, "stopped": previous}
 
 
 @app.post("/session/{session_id}/activate")

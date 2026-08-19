@@ -99,8 +99,8 @@ Run `pip install ortools` once per session; the solver needs it.
 Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (VSO jobcards + a vehicle pool of real/future vehicles) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
 Your data is mounted as files. There is NO network:
   /workspace/pull.json                the allocation snapshot. Reached through the pull_allocation_snapshot tool and the `flatten` command — never read by hand.
-  /workspace/reports/index.md         this tenant's taxonomy: every live entity, classification and status, with the multi-language names users actually say. The ONLY authority for turning business words into system codes.
   /workspace/reports/jobcards.json    the job-card records REPORTING answers over.
+The tenant's taxonomy is NOT mounted — `index.md` ships inside the `xas-qa` skill directory, beside `phrasebook.py`. It lists every live entity, classification and status with the multi-language names users actually say, and is the ONLY authority for turning business words into system codes.
 No network access — everything is local.
 
 Determinism (the core invariant)
@@ -175,9 +175,10 @@ def skill_files(skill_dir: Path, package: Path | None = None) -> list[tuple[str,
 
     Sources stay where they are: this synthesizes the bundle at upload time
     rather than duplicating files, so the tests and the skill run against the
-    same source. The DATA is never bundled — the pull, the taxonomy and the
-    records are all mounted per session (see web.py), so regenerating any of them
-    needs no redeploy. Changing this code does.
+    same source. The pull and the job-card records are never bundled — they are
+    mounted per session (see web.py), so regenerating either needs no redeploy.
+    Changing this code does, and so does editing the taxonomy the QA bundle now
+    carries (DECIDE-16).
     """
     files: list[tuple[str, bytes]] = []
     for path in sorted(skill_dir.rglob("*")):
@@ -198,7 +199,17 @@ def alloc_bundle() -> list[tuple[str, bytes]]:
 
 
 def qa_bundle() -> list[tuple[str, bytes]]:
-    """SKILL.md + phrasebook.py. No package: grep over a flattened table is the matcher."""
+    """SKILL.md + phrasebook.py + index.md. No package: grep over a flattened
+    table is the matcher.
+
+    TODO (DECIDE-16): index.md — the tenant taxonomy — rides along in this bundle
+    because there is exactly one tenant. It is the one piece of DATA in a skill,
+    and the cost is that the caller can no longer choose a dealership per session
+    and a taxonomy edit needs a redeploy. Second tenant = move it back to a
+    per-session mount (`datasource.get_taxonomy` + `/workspace/reports/index.md`,
+    reverted from this commit); do NOT fix it by bundling every tenant's
+    taxonomy, which shows each session all the others.
+    """
     return skill_files(QA_SKILL_DIR)
 
 
