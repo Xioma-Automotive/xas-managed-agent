@@ -73,6 +73,7 @@ python phrasebook.py --normalize "<what the user said>"
 | All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/phrasebook.tsv` |
 | Only the closed ones | add `&& $11=="true"` |
 | Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/phrasebook.tsv` |
+| Typo / near-miss, after everything missed | `python phrasebook.py --suggest "<what they said>"` |
 | Browse the raw structure | `grep '^ENTITY' <this skill>/index.md` |
 
 **Exact-first, then fuzzy.** An anchored match on `normalized` is the
@@ -82,6 +83,31 @@ deterministic hit; only fall back to substring search when it returns nothing.
 **Never read either file whole.** This tenant's index is small; production
 tenants run to megabytes, and a whole-file read is the failure mode this design
 exists to prevent.
+
+## When a term doesn't resolve
+
+Work down this ladder and stop at the first step that returns rows.
+
+1. **Exact** — anchored match on `normalized`.
+2. **Loose** — substring, then the multi-word chain above.
+3. **Synonyms — you propose, `grep` decides.** Generate the other wordings a
+   person might use for the same thing (the translation, the plural, the industry
+   term) and look each one up: `parts` → try `spare parts`, `spareparts`,
+   `חלפים`, `Ersatzteile`. Only a wording that RETURNS A ROW may be used. You are
+   proposing candidates to check, never confirming a code — the grep confirms.
+4. **Typo** — `python phrasebook.py --suggest "<what they said>"`. Letter-overlap
+   candidates, which is the one thing synonym guessing cannot reach (`sapre parts`
+   → `Spare Parts`). One candidate: say how you read the word and carry on ("I
+   read *sapre parts* as **Spare Parts**"). Several: list them and ask. Either
+   way the substitution is visible — never swap a word silently.
+5. **Ask, and answer nothing else.** Name the term you could not resolve, say you
+   searched this dealership's dictionary for it, and list the nearest entries you
+   did find — or say there were none. Then stop.
+
+**Never answer with an unresolved term.** Not with the closest code, not with a
+count for "something like it". A wrong-but-close code returns a real-looking
+number and the user cannot tell it is wrong, which is strictly worse than no
+answer. Every figure you report traces back to a row in the phrasebook.
 
 ## Resolution rules
 

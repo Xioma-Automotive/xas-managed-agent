@@ -12,10 +12,12 @@ per session, then grep the result.
     python phrasebook.py                     # index.md (beside this file) -> /workspace/phrasebook.tsv
     python phrasebook.py IN.md OUT.tsv
     python phrasebook.py --normalize "חֲלָפִים"   # normalize a query the same way
+    python phrasebook.py --suggest "sapre parts" # closest real entries to a term that missed
 """
 
 from __future__ import annotations
 
+import difflib
 import re
 import sys
 import unicodedata
@@ -122,9 +124,48 @@ def build(index_path: Path) -> list[tuple[str, ...]]:
     return sorted(rows)
 
 
+# A misspelling is not a synonym problem: the letters are wrong, so neither the
+# anchored match nor a substring search can reach the row. difflib closes that
+# gap deterministically and offline. 0.6 is difflib's own default cutoff, kept so
+# the suggestions stay tight — a loose cutoff turns "did you mean" into noise.
+SUGGEST_CUTOFF = 0.6
+SUGGEST_LIMIT = 5
+
+
+def suggest(
+    term: str, rows: list[tuple[str, ...]], limit: int = SUGGEST_LIMIT
+) -> list[tuple[str, ...]]:
+    """Rows whose normalized surface most nearly spells ``term``.
+
+    For a term that matched NOTHING — a typo, a truncation. The caller shows
+    these as candidates for the user to confirm; picking one automatically is
+    how a plausible wrong code becomes a confident wrong number.
+    """
+    by_normalized: dict[str, tuple[str, ...]] = {}
+    for row in rows:
+        by_normalized.setdefault(row[0], row)
+    close = difflib.get_close_matches(
+        normalize(term), sorted(by_normalized), n=limit, cutoff=SUGGEST_CUTOFF
+    )
+    return [by_normalized[hit] for hit in close]
+
+
 def main() -> None:
     if len(sys.argv) > 2 and sys.argv[1] == "--normalize":
         print(normalize(sys.argv[2]))
+        return
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--suggest":
+        index_path = default_index()
+        if index_path is None:
+            sys.exit(f"No taxonomy index at {INDEX_PATH} (it ships in this skill)")
+        rows = suggest(sys.argv[2], build(index_path))
+        if not rows:
+            print(f"no near match for {sys.argv[2]!r} — ask the user what they meant")
+            return
+        print("\t".join(COLUMNS))
+        for row in rows:
+            print("\t".join(row))
         return
 
     index_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_index()

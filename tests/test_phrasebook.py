@@ -103,3 +103,40 @@ def test_status_rows_carry_the_id_filtering_needs(rows):
 
 def test_build_is_deterministic():
     assert phrasebook.build(INDEX) == phrasebook.build(INDEX)
+
+
+# --------------------------------------------------------------------------
+# --suggest: the typo rung of the ladder. Exact and substring search both need
+# the letters to be right; a misspelling defeats them, and no amount of synonym
+# guessing recovers "sapre parts". These are CANDIDATES for the user to confirm.
+# --------------------------------------------------------------------------
+
+
+def test_suggest_recovers_a_misspelling(rows):
+    codes = {_cols(r)["code"] for r in phrasebook.suggest("sapre parts", rows)}
+    assert "SpareParts" in codes
+
+
+def test_suggest_recovers_a_hebrew_misspelling(rows):
+    """חלפם is חלפים with a letter dropped — normalization alone cannot bridge it."""
+    codes = {_cols(r)["code"] for r in phrasebook.suggest("חלפם", rows)}
+    assert "SpareParts" in codes
+
+
+def test_suggest_returns_nothing_for_a_term_the_tenant_lacks(rows):
+    """The point of the ladder's last rung: an honest empty, so the agent asks
+    instead of dressing up the nearest row as an answer."""
+    assert phrasebook.suggest("zzqqxx wobble", rows) == []
+
+
+def test_suggest_is_deterministic_and_bounded(rows):
+    first = phrasebook.suggest("srvice", rows)
+    assert first == phrasebook.suggest("srvice", rows)
+    assert 0 < len(first) <= phrasebook.SUGGEST_LIMIT
+
+
+def test_suggest_returns_one_row_per_candidate_wording(rows):
+    """Deduped on `normalized`: five spellings of the same code is not five
+    candidates, and a user asked to choose needs distinct options."""
+    normalized = [r[0] for r in phrasebook.suggest("srvice", rows)]
+    assert len(normalized) == len(set(normalized))

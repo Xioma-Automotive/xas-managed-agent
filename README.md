@@ -79,7 +79,13 @@ and `docs/evals/routing.md` is the hand-run behavioural check.
 code `Service` displays as `Distinct_name`. `xas-qa` flattens the taxonomy into a
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
-exact-first. The taxonomy itself ships **inside the `xas-qa` skill** as
+exact-first, then loosely, then through other wordings it proposes and the grep
+confirms, then `phrasebook.py --suggest` for a misspelling. A term that survives
+all of that unresolved gets no answer: the skill makes the agent name it, offer
+the nearest entries and ask, because the closest-looking code returns a
+real-looking number nobody can tell is wrong (`docs/evals/routing.md` q6).
+
+The taxonomy itself ships **inside the `xas-qa` skill** as
 `index.md` (DECIDE-16): one tenant, so static config beats a per-session upload,
 at the cost of a redeploy when it changes and no per-session choice of
 dealership. A second tenant moves it back to a host-side mount.

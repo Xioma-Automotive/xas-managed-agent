@@ -223,6 +223,19 @@ def test_qa_skill_points_at_the_path_web_mounts():
     assert alloc_tools.UPLOAD_PREFIX in skill, "skill must mention the upload fallback"
 
 
+def test_qa_skill_has_a_dead_end_rule():
+    """A term that resolves to nothing used to be undefined behaviour, so the
+    model improvised -- sometimes answering with the closest-looking code, which
+    returns a real-looking number nobody can tell is wrong."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Never answer with an unresolved term." in skill
+    assert "--suggest" in skill, "the typo rung must be documented or it is never run"
+
+
+def test_prompt_forbids_answering_an_unresolved_term():
+    assert "NEVER answer with a term you could not resolve" in setup_agent.SYSTEM_PROMPT
+
+
 def test_phrasebook_reads_the_taxonomy_beside_itself():
     import importlib.util
 
