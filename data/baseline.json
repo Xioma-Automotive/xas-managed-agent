@@ -26,8 +26,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -45,8 +46,9 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -64,6 +66,7 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -83,8 +86,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -102,8 +106,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -121,8 +126,9 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -140,6 +146,7 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -159,6 +166,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -178,6 +186,7 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -197,6 +206,7 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -216,8 +226,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -235,6 +246,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -254,8 +266,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -273,8 +286,9 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -292,6 +306,7 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -311,6 +326,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -330,6 +346,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -349,8 +366,9 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -368,6 +386,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -387,8 +406,9 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -406,8 +426,9 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -425,8 +446,9 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -444,8 +466,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -463,8 +486,9 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -482,8 +506,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -501,8 +526,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -520,8 +546,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -539,6 +566,7 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -558,6 +586,7 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -577,8 +606,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -596,8 +626,9 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -615,8 +646,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -634,6 +666,7 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -653,6 +686,7 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -672,8 +706,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -691,6 +726,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -710,6 +746,7 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -729,8 +766,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -748,8 +786,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -767,6 +806,7 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -786,6 +826,7 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -805,6 +846,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -824,8 +866,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -843,6 +886,7 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -862,8 +906,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -881,8 +926,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -900,8 +946,9 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -919,8 +966,9 @@
         "Name": "BYD Atto 3"
       },
       "Owner": "",
+      "SalesModel": "SM4",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -938,6 +986,7 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -957,8 +1006,9 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -976,8 +1026,9 @@
         "Name": "Geely Coolray"
       },
       "Owner": "",
+      "SalesModel": "SM5",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -995,8 +1046,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -1014,8 +1066,9 @@
         "Name": "Omoda 5"
       },
       "Owner": "",
+      "SalesModel": "SM3",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -1033,6 +1086,7 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Name": "Ordered"
@@ -1052,8 +1106,9 @@
         "Name": "Chery Tiggo 8"
       },
       "Owner": "",
+      "SalesModel": "SM1",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
@@ -1071,8 +1126,9 @@
         "Name": "JAECOO 7"
       },
       "Owner": "",
+      "SalesModel": "SM2",
       "Status": {
-        "Code": "05",
+        "Code": "03",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",

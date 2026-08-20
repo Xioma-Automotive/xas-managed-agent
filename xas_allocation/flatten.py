@@ -16,7 +16,10 @@ Field mapping (real XAS → solver):
   * ``DeliveryDate`` (VSO header) → ``Order.delivery_date`` (the promise).
   * ``EtaDealer`` (vehicle) → ``Unit.eta_dealer`` (the mutable delivery date).
   * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Unit.vehicle_classification``.
-  * eligibility: jobitem ``SalesModelCode`` == vehicle ``ModelId.Code`` (model-level).
+  * eligibility: jobitem ``SalesModelCode`` == vehicle ``SalesModel`` — the full
+    trim/colour code (``T5040UECLMQ0009``), NOT ``ModelId.Code`` (``T5040``),
+    which is the model and matches no order. ``ModelId.Code`` is kept only as a
+    fallback for a vehicle that has no ``SalesModel``.
   * incumbent (current allocation): HARD via jobitem ``VehicleId.Code`` ↔
     ``VehicleCode``; SOFT via the jobitem's Alloc link to a Future vehicle (in the
     mock, resolved straight to that vehicle's code — see ``_incumbent_of``).
@@ -53,12 +56,36 @@ def _incumbent_of(item: dict) -> str | None:
     return None
 
 
+def _unit_model(vehicle: dict) -> str:
+    """A vehicle's eligibility key: ``SalesModel``, else ``ModelId.Code``.
+
+    An order names a full trim/colour code, which is what ``SalesModel`` holds;
+    ``ModelId.Code`` is the model above it and matches no real order. The
+    fallback exists only so a model-coded order can still find a car — it is the
+    same hard equality either way, never a fuzzy match."""
+    sales_model = vehicle.get("SalesModel") or ""
+    return str(sales_model).strip() or str((vehicle.get("ModelId") or {}).get("Code") or "").strip()
+
+
 def flatten(rich: dict) -> Snapshot:
     """Rich XAS pull -> flattened Snapshot. Pure, deterministic.
 
     Explodes each VSO into its jobitem car lines (the allocatable orders) and
     reads the flat vehicle pool into ``units``. Incumbent comes from each
-    jobitem's current allocation link (hard ``VehicleId`` or soft Alloc)."""
+    jobitem's current allocation link (hard ``VehicleId`` or soft Alloc).
+
+    A row missing the field that makes it solvable — a VSO with no promised date,
+    a vehicle with no eligibility key or no arrival date — is SKIPPED and counted,
+    never defaulted: a fabricated date would silently move the plan. The real
+    source filters these out host-side already (``datasource.map_response``), so
+    the counts here are a backstop, and they land in ``snapshot.meta`` beside the
+    source's own so the reply can account for every row.
+    """
+    skips: dict[str, int] = {}
+
+    def skip(reason: str) -> None:
+        skips[reason] = skips.get(reason, 0) + 1
+
     orders: list[Order] = []
     incumbent: dict[str, str] = {}
     for vso in rich["vsos"]:
@@ -67,8 +94,14 @@ def flatten(rich: dict) -> Snapshot:
         customer = owner.get("AccountName", "")
         customer_id = owner.get("AccountUUID", "")
         priority = (vso.get("JobPriority") or {}).get("Code", "C")
+        if not vso.get("DeliveryDate"):
+            skip("order_without_a_promised_date")
+            continue
         delivery_date = parse_date(vso["DeliveryDate"])
         for item in vso.get("JobItems", []):
+            if not str(item.get("SalesModelCode") or "").strip():
+                skip("order_line_without_a_model")
+                continue
             line = int(item["LineNum"])
             price = sum(float(p.get("GrossTotal", 0.0)) for p in item.get("Prices", []))
             order = Order(
@@ -91,15 +124,35 @@ def flatten(rich: dict) -> Snapshot:
             if inc:
                 incumbent[order.key] = inc
 
-    units = [
-        Unit(
-            vehicle_id=str(v["VehicleCode"]),
-            vehicle_classification=v["VehicleClassification"],
-            sales_model=(v.get("ModelId") or {})["Code"],
-            eta_dealer=parse_date(v["EtaDealer"]),
+    units: list[Unit] = []
+    for v in rich["vehicles"]:
+        model = _unit_model(v)
+        if not model:
+            skip("vehicle_without_a_model")
+            continue
+        if not v.get("EtaDealer"):
+            skip("vehicle_without_an_arrival_date")
+            continue
+        units.append(
+            Unit(
+                vehicle_id=str(v["VehicleCode"]),
+                vehicle_classification=v["VehicleClassification"],
+                sales_model=model,
+                eta_dealer=parse_date(v["EtaDealer"]),
+            )
         )
-        for v in rich["vehicles"]
-    ]
+
+    # An incumbent pointing at a vehicle that did not survive is no incumbent.
+    unit_ids = {u.vehicle_id for u in units}
+    for key in [k for k, uid in incumbent.items() if uid not in unit_ids]:
+        del incumbent[key]
+        skip("allocation_to_a_dropped_vehicle")
+
+    meta = dict(rich.get("meta") or {})
+    if skips:
+        excluded = dict(meta.get("excluded") or {})
+        excluded["flatten_skips"] = dict(sorted(skips.items()))
+        meta["excluded"] = excluded
 
     return Snapshot(
         orders=orders,
@@ -107,6 +160,7 @@ def flatten(rich: dict) -> Snapshot:
         incumbent=incumbent,
         disruption=rich.get("disruption", {}),
         now=parse_date(rich["meta"]["now"]),
+        meta=meta,
     )
 
 

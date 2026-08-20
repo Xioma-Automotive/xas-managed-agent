@@ -41,9 +41,10 @@ DATA_DIR = REPO_ROOT / "data"
 BASE_DATE = date(2026, 8, 3)  # a Monday
 HORIZON_WEEKS = 13
 
-# Model-level sales-model codes. In real XAS a VSO SalesModelCode is model+config
-# (e.g. T5040UECLMQ0009) and a vehicle carries only the model half via
-# ModelId.Code (T5040); the match is model-level. The mock keeps them equal.
+# Sales-model codes. In real XAS a VSO's SalesModelCode is a full trim/colour
+# code (T5040UECLMQ0009) and matches a vehicle's SalesModel byte-for-byte;
+# ModelId.Code holds the model above it (T5040) and matches no order. The mock
+# keeps SalesModel == ModelId.Code so both readings of the fake agree.
 SALES_MODELS = ("SM1", "SM2", "SM3", "SM4", "SM5")
 MODEL_NAMES = {
     "SM1": "Chery Tiggo 8",
@@ -81,23 +82,32 @@ def _customers(n: int) -> list[tuple[str, str, str]]:
 def _make_vehicle(rng: random.Random, model: str, eta: date, code: int) -> dict:
     """One vehicle record in the pool, real (`Vehicle`) or future (`Future`).
 
-    Emits the real-field subset the API nests; ``flatten`` reads only
-    ``VehicleCode / VehicleClassification / ModelId.Code / EtaDealer``. The rest
+    Emits the real-field subset the API nests; ``flatten`` reads
+    ``VehicleCode / VehicleClassification / SalesModel / EtaDealer``. The rest
     (Vin, Make, Status, InventoryStatus, IsReserved, Owner) is realistic
     passthrough. ``ExpectedCustomerDeliveryDate`` is emitted equal to
-    ``EtaDealer`` (the read field is EtaDealer; a one-line switch if that flips)."""
+    ``EtaDealer`` (the read field is EtaDealer; a one-line switch if that flips).
+
+    ``SalesModel`` is the real eligibility key and carries the same value as
+    ``ModelId.Code`` here, so the fake stays substitutable for the real source
+    (which is what makes ``tests/test_invariant.py`` mean anything). On real data
+    the two differ — ``SalesModel`` is the trim/colour code an order names,
+    ``ModelId.Code`` the model above it — and only ``SalesModel`` ever matches."""
     classification = rng.choices((HARD, SOFT), weights=[60, 40])[0]
     is_real = classification == HARD
     return {
         "VehicleCode": f"VEH-{code}",
         # A future car has no VIN yet; a real one does.
         "Vin": f"VIN{code:08d}" if is_real else "",
+        "SalesModel": model,
         "ModelId": {"Code": model, "Name": MODEL_NAMES.get(model, model)},
         "Make": "Chery",
         "VehicleClassification": classification,
-        # Coarse status enum (the only populated position signal on the real API).
+        # The tenant's real vehicle-status codes (skills/xas-qa/index.md):
+        # 03 = In Stock, 01 = Ordered. Descriptive only — the future/real split
+        # the solver uses comes from VehicleClassification above.
         "Status": (
-            {"Code": "05", "Name": "In Stock"} if is_real else {"Code": "01", "Name": "Ordered"}
+            {"Code": "03", "Name": "In Stock"} if is_real else {"Code": "01", "Name": "Ordered"}
         ),
         "InventoryStatus": "Available" if is_real else "Future",
         "EtaDealer": _iso(eta),

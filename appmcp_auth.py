@@ -98,6 +98,29 @@ def _b64u(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
+# The three vars the gateway login itself needs — a subset of REQUIRED_ENV, named
+# separately because `datasource.XASApiSource` needs the login WITHOUT the vault
+# and encryption config that only the MCP bearer uses.
+LOGIN_ENV = ("APPMCP_COMPANY_DB", "APPMCP_LOGIN_EMAIL", "APPMCP_LOGIN_PASSWORD")
+
+
+def login_request() -> tuple[str, dict]:
+    """The gateway login call — its URL and JSON body. ONE definition of the
+    credential, two transports: `_fetch_user_token` (async, for the MCP bearer)
+    and `datasource.XASApiSource._login` (sync, for the allocation pull) both
+    issue exactly this. Read per call, never at import — see `configured()`.
+
+    `forceLogin` invalidates any other session for this user, so every call here
+    kicks a browser logged in as the same account.
+    """
+    return GATEWAY_LOGIN, {
+        "companyId": os.environ["APPMCP_COMPANY_DB"],
+        "email": os.environ["APPMCP_LOGIN_EMAIL"],
+        "password": os.environ["APPMCP_LOGIN_PASSWORD"],
+        "forceLogin": True,
+    }
+
+
 async def _fetch_user_token(http: httpx.AsyncClient) -> str:
     """Log in and take the `__DMS_app_token` off the Set-Cookie header.
 
@@ -105,15 +128,8 @@ async def _fetch_user_token(http: httpx.AsyncClient) -> str:
     not work: the gateway validates the session server-side, not just the
     signature.
     """
-    response = await http.post(
-        GATEWAY_LOGIN,
-        json={
-            "companyId": os.environ["APPMCP_COMPANY_DB"],
-            "email": os.environ["APPMCP_LOGIN_EMAIL"],
-            "password": os.environ["APPMCP_LOGIN_PASSWORD"],
-            "forceLogin": True,
-        },
-    )
+    url, body = login_request()
+    response = await http.post(url, json=body)
     response.raise_for_status()
     token = response.cookies.get(USER_TOKEN_COOKIE)
     if not token:

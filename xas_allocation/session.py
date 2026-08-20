@@ -98,19 +98,103 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
     return out
 
 
+# What the pull filtered out, in the planner's words. The keys are the reasons
+# `datasource.map_response` (host-side) and `flatten` (here) count; each has one
+# plain-English phrase, because the reply must never print a reason code.
+DROP_PHRASES = {
+    "no_model_on_the_order": "no model on the order",
+    "no_promised_date": "no promised date",
+    "order_without_a_promised_date": "no promised date",
+    "order_line_without_a_model": "no model on the order",
+    "vehicle_without_a_model": "no model on the car",
+    "vehicle_without_an_arrival_date": "no arrival date on the car",
+    "allocation_to_a_dropped_vehicle": "allocated to a car that is out of scope",
+}
+
+
+def _phrase(reason: str) -> str:
+    return DROP_PHRASES.get(reason, reason.replace("_", " "))
+
+
+def exclusion_note(snapshot: Snapshot) -> str:
+    """The sales orders and cars that are NOT in this plan, and why.
+
+    Mandatory on turn 1, BEFORE the discrepancy map. Real data is patchy — a
+    sales order with no model on it has nothing to match a car against, so it
+    cannot be planned — and a plan covering three of twenty-five orders that
+    does not say so reads as the whole book. Empty string when the pull filtered
+    nothing (the fabricated dataset), so this costs nothing there.
+    """
+    excluded = dict((snapshot.meta or {}).get("excluded") or {})
+    conflicts = (snapshot.meta or {}).get("conflicts") or []
+    drops: dict[str, int] = {}
+    for bucket in ("order_drops", "flatten_skips"):
+        for reason, n in (excluded.get(bucket) or {}).items():
+            drops[_phrase(reason)] = drops.get(_phrase(reason), 0) + n
+
+    lines: list[str] = []
+    # A field the source does not return at all is not a data problem the planner
+    # can fix by completing an order — say so, or they will go looking in the app
+    # for something that is missing in the plumbing.
+    gaps = (snapshot.meta or {}).get("projection_gaps") or {}
+    if gaps:
+        lines.append(
+            "**The system is not returning some of the fields this needs** — "
+            f"{', '.join(sorted({n for names in gaps.values() for n in names}))}. "
+            "Until that is fixed the plan below can only cover part of the book, "
+            "and it is not something you can correct on the orders themselves."
+        )
+    seen, kept = excluded.get("orders_seen"), excluded.get("orders_kept")
+    if drops and seen:
+        why = ", ".join(f"{n} with {phrase}" for phrase, n in sorted(drops.items()))
+        # With a projection gap the reasons below are ARTEFACTS of it — every order
+        # looks incomplete because the field never arrived. Telling the planner to
+        # go complete 25 orders would send them after work that is already done.
+        cause = (
+            "That is the missing fields above, not the orders themselves — these "
+            "counts mean nothing until the system returns them."
+            if gaps
+            else "They need completing in the system before they can be allocated."
+        )
+        lines.append(
+            f"**{seen - (kept or 0)} of {seen} sales orders are not in this plan** — {why}. {cause}"
+        )
+    for c in conflicts:
+        lines.append(
+            f"Car {c['vehicle']} is allocated to {len(c['orders'])} orders at once "
+            f"({', '.join(c['orders'])}); none of them is treated as allocated here."
+        )
+    no_car = excluded.get("orders_with_no_eligible_car") or []
+    if no_car:
+        shown = ", ".join(no_car[:6]) + ("…" if len(no_car) > 6 else "")
+        lines.append(
+            f"{len(no_car)} order(s) have no compatible car in stock or on order: {shown}."
+        )
+    units_seen, units_kept = excluded.get("units_seen"), excluded.get("units_kept")
+    if units_seen and units_kept is not None:
+        lines.append(
+            f"Car pool: {units_kept} of {units_seen} cars in stock or on order match "
+            "something someone has ordered."
+        )
+    return "\n\n".join(lines)
+
+
 def discrepancy_report(snapshot: Snapshot, override: dict | None = None) -> str:
     """Turn-1 planner-facing map: what broke, split into fixable vs locked-in.
 
     ``override`` is optional and used only to speak durations in the active
     time-scale (DECIDE-14); the discrepancy set itself is scale-independent."""
     discs = find_discrepancies(snapshot)
+    note = exclusion_note(snapshot)
     if not discs:
-        return "No orders are late — every allocated car still meets its promised date."
+        clear = "No orders are late — every allocated car still meets its promised date."
+        return f"{note}\n\n{clear}" if note else clear
     scale, unit_days = _scale_of(override)
     stuck = [x for x in discs if not x.fixable]
     movable = [x for x in discs if x.fixable]
 
-    lines = [f"**A supply delay pushed {len(discs)} order(s) past their promised date.**"]
+    lines = [note] if note else []
+    lines.append(f"**A supply delay pushed {len(discs)} order(s) past their promised date.**")
     if stuck:
         lines.append(
             f"\n**{len(stuck)} locked in** — too close to delivery to re-slot; they will stay "

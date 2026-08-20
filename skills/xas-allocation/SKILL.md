@@ -36,19 +36,36 @@ before real dealer data).
 ## The data model (dates, real XAS vocabulary — DECIDE-7, `docs/xasdatamodel.md`)
 
 The pull is `{meta, vsos, vehicles, disruption}`. A **VSO** (Vehicle Sales
-Order, one customer) has a header + **JobItems**, one per **wanted car**; the
-**jobitem** is the allocatable order, keyed `{JobKey}-{LineNum}` (e.g.
-`VSO-4000-2`). Each order is allocated to one **vehicle** from a single pool.
-A vehicle's `VehicleClassification` is `"Vehicle"` (a real car with a VIN — a
-**hard** binding) or `"Future"` (a not-yet-built car — a **soft** binding).
-There is no PO/PDN/slot layer and no qty-expansion — one flat vehicle list. The
-pull comes from a callable data source resolved host-side (`datasource.py` — the
-`scenario_engine/` fake by default, the real XAS endpoint by config; DECIDE-7),
-which `web.py` fetches and mounts into your sandbox as a file.
+Order, one customer) carries the wanted car on its **header** — `SalesModelCode`,
+`DueDateTime`, and the car it already has — and its **JobItems** are the parts
+and services on the deal. On real XAS data the header is the grain: **one VSO is
+one wanted car**, emitted as a single line, keyed `{JobKey}-{LineNum}` (e.g.
+`502361-1`). Do not read the job items as car lines — a helmet, labour in AW and
+a car all arrive with the same `JobItemType`, and the item that looks like a car
+often names a different model than the header. The fabricated dataset still has
+several car lines per VSO, so the key shape holds either way.
+
+Each order is allocated to one **vehicle** from a single pool. There is no
+PO/PDN/slot layer and no qty-expansion — one flat vehicle list.
+
+**`vehicle_classification` is the BINDING, not the XAS field of the same name.**
+`"Vehicle"` = a car you can hand over now (a **hard** binding); `"Future"` = a
+car still coming (a **soft** binding). In real XAS, `VehicleClassification` is
+something else entirely — `Truck` / `Vehicle` / `InventoryVehicles` /
+`Motorcycle` / `Equipment`, which pool the car sits in — and the binding is
+derived from the vehicle's **`Status`**: `Ordered` / `On The Way` are future,
+`In Stock` / `Available For Sale` are here now. The names collide; the host-side
+mapper does the deriving, so what reaches you is already the binding.
+
+The pull comes from a callable data source resolved host-side (`datasource.py` —
+the `scenario_engine/` fake by default, the live system read through the app MCP
+by config; DECIDE-7), which `web.py` fetches and mounts into your sandbox as a
+file. **You never fetch it yourself**: it is one frozen snapshot per repair cycle,
+which is what makes re-applying the same override reproducible.
 `xas_allocation.flatten` maps it — **pure code, no judgment** — into the three
 arrays the solver reads:
 
-- **`orders[]`** (VSO car lines): `so_id · line · customer · customer_id ·
+- **`orders[]`** (the wanted cars): `so_id · line · customer · customer_id ·
   sales_model · priority · delivery_date · price · n_prior_delays ·
   days_backordered · times_rescheduled` (key = `{so_id}-{line}`)
 - **`units[]`** (the vehicle pool): `vehicle_id · vehicle_classification ·
@@ -58,21 +75,29 @@ arrays the solver reads:
 Everything is **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
 `eta_dealer` (from a vehicle's `EtaDealer`) is the one field a disruption moves
 (a delayed shipment slips it on the affected vehicles). `delivery_date` (from the
-VSO's `DeliveryDate`) is the commitment tardiness is measured against; a
+VSO's `DueDateTime`) is the commitment tardiness is measured against; a
 discrepancy is when the allocated vehicle's `eta_dealer` now runs past it.
 
-Field mapping (real XAS → solver): jobitem `SalesModelCode` → `sales_model`;
-`VehicleId.Code` ↔ `VehicleCode` is the hard incumbent link; a soft incumbent is
-the jobitem's Alloc link to a Future vehicle; `ModelId.Code` is the vehicle's
-`sales_model`; `JobPriority.Code` → `priority`.
+Field mapping (real XAS → solver): `SalesModelCode` → `sales_model`;
+`DueDateTime` → `delivery_date` (the promise — **not** `DeliveryDate`, which
+exists on a VSO and means something else); `VehicleDMSCode` ↔ `VehicleCode` is
+the incumbent link; vehicle `SalesModel` → the unit's `sales_model`;
+`EtaDealer` (or `AvailableBy`) → `eta_dealer`; `JobPriority.Code` → `priority`.
 
 **Eligibility (the sparse arc rule) — computed, never stored:** an arc
-`order → vehicle` exists iff `order.sales_model == vehicle.sales_model`
-(model-level: jobitem `SalesModelCode` == vehicle `ModelId.Code`). Hard equality,
-not a fuzzy match — no LLM spec-residual. The solver treats a real and a future
+`order → vehicle` exists iff `order.sales_model == vehicle.sales_model` — the
+order's `SalesModelCode` against the vehicle's **`SalesModel`**, a full
+trim/colour code (`T5040UECLMQ0009`) on both sides. Not `ModelId.Code`, which
+holds the model above it (`T5040`) and matches no real order. Hard equality, not
+a fuzzy match — no LLM spec-residual. The solver treats a real and a future
 vehicle identically for matching (both are capacity-1 supply with a date), so an
 order can be re-linked between them. Lateness is **priced**, not forbidden, so a
 slightly-late vehicle can still be placed instead of backordering.
+
+**Real data is patchy, and that is part of the answer.** A sales order with no
+model on it has nothing to match a car against, so the host-side pull leaves it
+out and counts why — see "What is not in the plan" below. Never fill a gap in by
+reasoning: a guessed date or model moves the plan and breaks the invariant.
 
 ## The words people actually use
 
@@ -98,10 +123,12 @@ Each order line records where its car comes from: `AllocSourceClassification`
 `"VGR"` = the car has been received (a real VIN, a **hard** binding), `"VPO"` =
 still on order from the factory (a **Future** vehicle, a **soft** binding, free
 to reshuffle). So "is the VPO delayed?" is answerable — it is the arrival date of
-the cars still on order. What this pull does NOT carry is a VPO *number*: there
-are no VPO ids and no per-VPO rows, so you cannot list "the open VPOs" or group
-by one. Say so plainly and offer what you do have — the cars on order and when
-they now land.
+the cars still on order. What this pull does NOT carry is a VPO *number*: it
+holds no VPO ids and no per-VPO rows, so you cannot list "the open VPOs" or group
+by one. (That is a choice about what the pull fetches, not a gap in XAS — the
+purchase orders exist. It stays out because the plan is over cars and orders, and
+a VPO adds a layer the solver has no use for.) Say so plainly and offer what you
+do have — the cars on order and when they now land.
 
 ## The cost model (verbatim — §2)
 
@@ -161,11 +188,12 @@ tests**, never as live-session code.
    pull into `orders/units/incumbent` — pure code; never re-shape the data by
    reasoning. This is the data-prep step;
    `xas_allocation.session.data_prep_flowchart` draws it as a mermaid flow chart.
-3. **Map discrepancies** — print `session.discrepancy_report(snapshot)`. It lists
-   the VSO car lines whose allocated vehicle now delivers past its `delivery_date`
-   **and classifies each fixable vs locked-in** (frozen fence). Show
-   this **before** solving — it is the turn-1 truth of what the disruption broke
-   *and* which of it re-allocation can't touch.
+3. **Map discrepancies** — print `session.discrepancy_report(snapshot)`. It opens
+   with what the pull could not use and why (`exclusion_note`), then lists the
+   orders whose allocated vehicle now delivers past its `delivery_date` **and
+   classifies each fixable vs locked-in** (frozen fence). Show this **before**
+   solving — it is the turn-1 truth of what is in scope at all, what the
+   disruption broke, and which of it re-allocation can't touch.
 4. Apply the current combined override (weights / pins / forbid / lambda / scope /
    bump), build the graph (§4), run the **λ sweep**. `session.repair_and_report`
    does all of this and returns the finished reply.
@@ -211,7 +239,19 @@ re-slot" (frozen fence), "prioritizing Colmobil" (weight on a customer id),
 "planning in whole weeks" (`time_scale`), "no compatible car free" (no eligible
 arc). Use the translation.
 
-**Turn 1 is the discrepancy map, and it must say what's stuck.**
+**Turn 1 opens with what is NOT in the plan — before anything else.**
+`discrepancy_report` prints it (`session.exclusion_note`): the sales orders the
+pull could not use and why, any car two orders both claim, and how much of the
+stock matches something someone ordered. Real data is incomplete — a sales order
+with no model on it cannot be matched to a car — so a plan may legitimately cover
+a handful of the book. **Never present it as the whole book.** If 24 of 25 orders
+are missing, that is the first thing the planner needs, and it is an answer they
+can act on: those orders need completing in the system. Say it in their words —
+"no model on the order", "no promised date" — never a reason code, and never a
+count without the reason. On the fabricated dataset nothing is excluded and the
+note is empty, so this costs nothing there.
+
+**Turn 1 is also the discrepancy map, and it must say what's stuck.**
 `discrepancy_report` splits the broken orders into **can be repaired** vs
 **locked in** (too close to delivery to re-slot — the frozen fence).
 Say this up front — an order that's frozen won't be helped by any re-allocation,
@@ -268,7 +308,8 @@ carries a decision:
   only when the rows genuinely differ and the planner has a point to pick.
 - **Self-check field dumps** (`every_order_placed`, `unfilled_count`,
   double-booked). Report it as one word — "checks passed" — or, on a violation,
-  the plain-English violation only.
+  the plain-English violation only. (This is about the SOLVER's self-check. The
+  pull's exclusion census is the opposite — it must always be reported.)
 - **Node indices, objective-in-micros, solver status, λ internals.** (NOT the
   supply ids — the VehicleCode of the actual swap DOES belong in the change
   table; the planner allocates by them. Keep them out of the one-line *headline*,
@@ -388,6 +429,7 @@ upgrade, deferred.
 
 ```bash
 uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
+uv run python -m datasource --census             # what the configured source collected vs kept
 uv run python -m xas_allocation.flatten          # rich pull -> snapshot (sanity check)
 uv run python -m xas_allocation.session          # full §8 loop over the repo dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default

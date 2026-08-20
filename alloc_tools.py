@@ -161,6 +161,13 @@ def summarize(rich: dict) -> dict[str, Any]:
         "flatten": flatten_command(),
         "snapshot_path": SNAPSHOT_FILENAME,
         "now": meta.get("now"),
+        # What the source collected and then filtered OUT, by reason, plus any
+        # vehicle two orders both claim. This crosses into the agent's context on
+        # purpose: the turn-1 reply has to account for the sales orders that are
+        # not in the plan. A plan over 1 of 25 that doesn't say so reads as the
+        # whole book. Empty dicts for a pull that filtered nothing (the fake).
+        "excluded": meta.get("excluded", {}),
+        "conflicts": meta.get("conflicts", []),
         "sales_orders": len(vsos),
         "orders": len(rows),  # VSO car lines — the allocatable grain
         "supply": len(vehicles),  # the vehicle pool: real ∪ future

@@ -49,11 +49,15 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-3",
         title="Break cost: soft vs hard allocation (real vs future vehicle)",
-        default="hard (VehicleClassification 'Vehicle') = expensive-but-movable; soft ('Future') = free; BREAK_COST",
+        default="hard (binding 'Vehicle') = expensive-but-movable; soft ('Future') = free; BREAK_COST",
         rationale=(
-            "A VSO row bound to a REAL vehicle (VehicleClassification 'Vehicle', a VIN) is a "
-            "HARD allocation; one bound to a FUTURE vehicle (VehicleClassification 'Future', "
-            "not yet built) is SOFT. Hard is NOT a wall — the repair loop may bump it 'for the "
+            "A VSO row bound to a REAL vehicle (the 'Vehicle' binding, a car on the lot) is a "
+            "HARD allocation; one bound to a FUTURE vehicle (the 'Future' binding, still "
+            "coming) is SOFT. On real data the binding is DERIVED from the vehicle's Status "
+            "name — Ordered/On The Way are future, In Stock/Available For Sale are real, and "
+            "everything else (Customer, Reserved-*, Used, Demo, Disabled, no status) is out of "
+            "the pool entirely; XAS's own VehicleClassification field is a different axis "
+            "(Truck/Vehicle/InventoryVehicles) despite sharing a name and a value. Hard is NOT a wall — the repair loop may bump it 'for the "
             "sake of another' order, it just pays a large finite BREAK_COST['hard'] to do so; "
             "soft costs BREAK_COST['soft'] (0 by default). The cost applies only to displacing "
             "an ON-TIME binding (a kept promise); an already-LATE binding protects nothing, so "
@@ -106,17 +110,25 @@ DECISIONS: list[Decision] = [
         key="DECIDE-7",
         title="XAS API data contract (fields + endpoints)",
         default=(
-            "pull comes from a callable DataSource resolved HOST-SIDE (datasource.py): the "
-            "scenario-engine fake by default, the real XAS endpoint by config. Either returns "
-            "the rich {meta, pos, sos, supply, disruption} contract; field shapes per "
-            "docs/xasdatamodel.md"
+            "SETTLED for dev: AppMcpSource reads VSOs + vehicles through the app MCP's own "
+            "tools host-side, filters and maps them into the rich {meta, vsos, vehicles, "
+            "disruption} contract. ScenarioEngineSource stays the offline default"
         ),
         rationale=(
-            "The real XAS API does not exist yet, so ScenarioEngineSource fabricates the "
-            "contract and XASApiSource is a documented stub. web.py calls the source host-side "
-            "at session start and mounts the result into the sandbox as a file (the agent never "
-            "calls XAS, never holds a credential). Flip XAS_DATA_SOURCE=xas and implement the "
-            "response->contract mapping when a sample lands; nothing downstream changes."
+            "One data seam for both lanes: the reporting lane already answers over these "
+            "tools. The MCP PROJECTS, though, and does not return everything the solver needs "
+            "yet — SalesModel, VehicleDMSCode, EtaDealer, AvailableBy are off the allowlist, "
+            "and it asks for DueDate where XAS stores DueDateTime, so no VSO returns a "
+            "promised date. docs/mcp-field-spec.md is the change request; missing_projection() "
+            "names any gap so it cannot be mistaken for empty data. Key facts the mapping "
+            "encodes: the order grain is the VSO HEADER (job items are parts); the "
+            "eligibility key is vehicle SalesModel, not ModelId.Code; future-vs-real comes from "
+            "Status NAME, never code (02 is both 'On The Way' and 'Available For Sale'); the "
+            "disruption is DERIVED (XAS records no delay manifest); a vehicle claimed by two "
+            "orders yields no incumbent for either. What remains open is the DATA, not the "
+            "contract — 1 of 25 dev VSOs carries both a model and a promised date. "
+            "`python -m datasource --census` prints the funnel. Still host-side, still mounted "
+            "as a file: the agent never calls XAS and never holds a credential."
         ),
     ),
     Decision(

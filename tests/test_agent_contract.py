@@ -499,3 +499,31 @@ def test_html_charts_are_framed_not_trusted():
     frame = ui[ui.index('<iframe class="output-frame"') :][:200]
     assert 'sandbox="allow-scripts"' in frame
     assert "allow-same-origin" not in frame
+
+
+def test_skill_requires_the_exclusion_census_on_turn_one():
+    """Real data is patchy: a sales order with no model on it cannot be matched
+    to a car, so a plan may cover a handful of the book. Presenting that as the
+    whole book is the worst failure this change can produce, and the only thing
+    stopping it is the prose — nothing structural forces the agent to mention it.
+    """
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "exclusion_note" in skill
+    assert "Never present it as the whole book" in skill
+    # and it must be excluded from the "stays internal" suppression list
+    assert "must always be reported" in skill
+
+
+def test_skill_names_the_real_eligibility_key():
+    """`ModelId.Code` is the model (T5040); an order names the trim/colour code.
+    Documenting the wrong one backorders every order on real data."""
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "vehicle's **`SalesModel`**" in skill
+    assert "matches no real order" in skill
+
+
+def test_skill_warns_that_VehicleClassification_collides():
+    """The solver's binding and the XAS field share a name AND one value."""
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "is the BINDING, not the XAS field of the same name" in skill
+    assert "InventoryVehicles" in skill

@@ -25,7 +25,7 @@ Everything is keyed on **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 DATE_FMT = "%Y-%m-%d"
@@ -123,7 +123,7 @@ class Unit:
 
     vehicle_id: str  # VehicleCode — the supply id the incumbent/plan keys on
     vehicle_classification: str  # "Vehicle" (real, hard) | "Future" (future, soft)
-    sales_model: str  # ModelId.Code (model-level eligibility key)
+    sales_model: str  # SalesModel — the trim/colour eligibility key
     eta_dealer: date  # EtaDealer — the ONE mutable field disruptions write
 
     @property
@@ -159,6 +159,11 @@ class Snapshot:
     incumbent: dict[str, str]  # order_key -> vehicle_id (current allocation)
     disruption: dict  # the delayed vehicles + who they touched
     now: date  # the pull date; the time fence reads this
+    # The pull's own provenance, carried through so the sandbox can report it:
+    # `meta["excluded"]` is what the source filtered out and why, which the turn-1
+    # reply MUST say — a plan over 1 of 25 sales orders that doesn't mention the
+    # other 24 reads as the whole book. Empty for a pull that filtered nothing.
+    meta: dict = field(default_factory=dict)
 
     def order_by_key(self) -> dict[str, Order]:
         return {o.key: o for o in self.orders}
@@ -173,6 +178,7 @@ class Snapshot:
             "incumbent": self.incumbent,
             "disruption": self.disruption,
             "now": date_label(self.now),
+            "meta": self.meta,
         }
 
     @classmethod
@@ -183,4 +189,5 @@ class Snapshot:
             incumbent={str(k): str(v) for k, v in d["incumbent"].items()},
             disruption=d.get("disruption", {}),
             now=parse_date(d["now"]),
+            meta=d.get("meta", {}),
         )

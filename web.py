@@ -381,7 +381,10 @@ async def new_session(body: NewSession) -> dict:
         # The sandbox never calls the source and never sees a credential; it only
         # finds the rows waiting as a file the flatten command reads. One pull
         # backs the whole repair cycle — the invariant "same snapshot every turn".
-        rich = datasource.get_source().pull()
+        # `pull()` is sync and the real source makes two blocking HTTP calls, so
+        # it goes to a thread: on the event loop it would stall every other
+        # session's tool answers for the duration of the fetch.
+        rich = await asyncio.to_thread(datasource.get_source().pull)
         pull_meta = await _upload(
             MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"
         )

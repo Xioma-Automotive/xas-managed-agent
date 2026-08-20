@@ -12,6 +12,7 @@ from datetime import date
 
 from xas_allocation.session import (
     discrepancy_report,
+    exclusion_note,
     planner_report,
     repair_and_report,
     run_cycle,
@@ -170,3 +171,108 @@ def test_the_two_tables_say_what_they_are_for():
     report = repair_and_report(_snapshot())
     assert "**What I moved**" in report
     assert "**Still needs your call**" in report
+
+
+# --- what is NOT in the plan (real data is patchy) ---------------------------
+
+EXCLUDED_META = {
+    "excluded": {
+        "orders_seen": 25,
+        "orders_kept": 1,
+        "order_drops": {"no_model_on_the_order": 23, "no_promised_date": 1},
+        "units_seen": 432,
+        "units_kept": 10,
+        "unit_drops": {"no_arrival_date": 21},
+        "orders_with_no_eligible_car": ["502391-1"],
+    },
+    "conflicts": [{"vehicle": "10831", "orders": ["502323", "502324", "502325"]}],
+}
+
+
+def _snapshot_with(meta: dict) -> Snapshot:
+    """A snapshot with nothing late, so only the exclusion note can show up."""
+    order = Order(
+        so_id="502361",
+        line=1,
+        customer="Colmobil",
+        customer_id="CUST-001",
+        sales_model="T5040UECLMQ0009",
+        priority="C",
+        delivery_date=MOV_PROMISED,
+        price=0.0,
+        n_prior_delays=0,
+        days_backordered=0,
+    )
+    unit = Unit(
+        vehicle_id="930103",
+        vehicle_classification="Vehicle",
+        sales_model="T5040UECLMQ0009",
+        eta_dealer=MOV_PROMISED,
+    )
+    return Snapshot(
+        orders=[order],
+        units=[unit],
+        incumbent={order.key: unit.vehicle_id},
+        disruption={},
+        now=NOW,
+        meta=meta,
+    )
+
+
+def test_the_excluded_orders_are_reported_in_plain_words():
+    note = exclusion_note(_snapshot_with(EXCLUDED_META))
+    assert "24 of 25 sales orders are not in this plan" in note
+    assert "no model on the order" in note
+    assert "no promised date" in note
+    # a reason CODE must never reach the planner
+    assert "no_model_on_the_order" not in note
+    assert "order_drops" not in note
+
+
+def test_a_double_booked_car_is_surfaced_not_swallowed():
+    note = exclusion_note(_snapshot_with(EXCLUDED_META))
+    assert "Car 10831 is allocated to 3 orders at once" in note
+    assert "502323" in note
+
+
+def test_an_order_with_no_car_and_the_pool_size_are_both_named():
+    note = exclusion_note(_snapshot_with(EXCLUDED_META))
+    assert "no compatible car in stock or on order" in note
+    assert "10 of 432" in note
+
+
+def test_the_note_leads_the_turn_one_report():
+    """It has to come BEFORE the discrepancy map — a planner who reads the plan
+    first has already formed the wrong picture of how much it covers."""
+    report = discrepancy_report(_snapshot_with(EXCLUDED_META))
+    assert report.startswith("**24 of 25 sales orders are not in this plan")
+
+
+def test_a_pull_that_filtered_nothing_says_nothing():
+    """The fabricated dataset excludes nothing, so the note must be silent rather
+    than printing a row of zeroes."""
+    assert exclusion_note(_snapshot_with({})) == ""
+    assert discrepancy_report(_snapshot_with({})).startswith("No orders are late")
+
+
+def test_a_projection_gap_is_not_blamed_on_the_orders():
+    """A field the MCP does not return cannot be fixed by completing an order, so
+    the note must not send the planner into the app looking for it."""
+    note = exclusion_note(
+        _snapshot_with({**EXCLUDED_META, "projection_gaps": {"get_vehicles": ["SalesModel"]}})
+    )
+    assert "not returning some of the fields" in note
+    assert "SalesModel" in note
+    assert "not something you can correct on the orders themselves" in note
+    # and it comes first — it explains every count under it
+    assert note.index("not returning") < note.index("not in this plan")
+    # the drop counts must NOT then be blamed on incomplete orders: with a gap,
+    # every order looks incomplete because the field never arrived
+    assert "these counts mean nothing until the system returns them" in note
+    assert "need completing in the system" not in note
+
+
+def test_without_a_projection_gap_the_drops_ARE_the_orders():
+    note = exclusion_note(_snapshot_with(EXCLUDED_META))
+    assert "need completing in the system" in note
+    assert "counts mean nothing" not in note
