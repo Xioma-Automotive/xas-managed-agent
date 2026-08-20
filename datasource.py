@@ -23,13 +23,9 @@ The contract every source returns is the rich pull shape `flatten()` and
 
 Select with the ``XAS_DATA_SOURCE`` env var (``scenario`` | ``xas``).
 
-The REPORTING lane mounts one more file from here — the job-card records. They
-are returned as **bytes**: unlike the pull, the host never parses them (nothing
-host-side consumes them; they exist only to be mounted), so decoding would be
-waste. They are deliberately NOT unified with the pull's fabricator — the two
-lanes fabricate by different mechanisms, decided 2026-08-18, so the two datasets
-describe overlapping business objects with no guarantee they agree. Only the
-solver may speak for the allocation.
+This serves the ALLOCATION lane only. The REPORTING lane used to mount a
+fabricated ``jobcards.json`` from here as well; it reads the live system through
+the `xas-app-mcp` tools now, so nothing host-side fetches records.
 
 The tenant TAXONOMY used to be mounted from here too. It now ships inside the
 `xas-qa` skill bundle instead (see `setup_agent.qa_bundle`) — one tenant, so a
@@ -49,7 +45,6 @@ from typing import Protocol, runtime_checkable
 REPO_ROOT = Path(__file__).resolve().parent
 DATA_DIR = REPO_ROOT / "data"
 DATASET_PATH = DATA_DIR / "pull.json"
-RECORDS_PATH = DATA_DIR / "jobcards.json"
 
 
 @runtime_checkable
@@ -129,17 +124,3 @@ def get_source() -> DataSource:
     if kind == "scenario":
         return ScenarioEngineSource()
     raise RuntimeError(f"unknown XAS_DATA_SOURCE {kind!r} (expected 'scenario' or 'xas')")
-
-
-# --------------------------------------------------------------------------
-# Reporting mount: the job-card records. (The taxonomy ships in the skill.)
-# --------------------------------------------------------------------------
-
-
-def get_records() -> bytes:
-    """The job-card records the reporting lane answers over.
-
-    A fixed sample for the prototype. NOT the allocation pull and not derived
-    from it — see the module docstring.
-    """
-    return RECORDS_PATH.read_bytes()

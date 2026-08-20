@@ -117,16 +117,17 @@ def test_setup_refreshes_the_environment_it_reuses():
     assert source.count("update_environment(ALLOC_ENV_ID)") == 2
 
 
-def test_prompt_fences_answers_to_the_three_data_sources():
+def test_prompt_fences_answers_to_the_two_data_sources():
     """Observed 2026-08-20: asked which car David Bowie drove, the agent answered
     from model memory (a Volvo 262C, a Mercedes 600) because a customer in the
     tenant happens to carry that name. Nothing sourced it, so nothing could
     contradict it — the same failure mode as an unresolved term, one step further
-    out. The fence has to name the three sources and forbid the gap-filling."""
+    out. The fence has to name the sources it does have and forbid the
+    gap-filling. Two of them since the fabricated records went away."""
     prompt = setup_agent.SYSTEM_PROMPT
     rule = prompt.split("Hard rules (never violate)")[1][:1600]
     assert "Answer only from this dealership's data" in rule
-    assert "three sources" in rule
+    assert "two sources" in rule
     assert "ROW, not the thing it resembles" in rule, "a familiar name must stay a row"
     assert "do not spend a tool call on it" in rule, "an off-topic ask must not cost tokens"
 
@@ -167,9 +168,9 @@ def test_prompt_caps_the_effort_an_off_topic_ask_may_spend():
 
 
 def test_prompt_forbids_sourcing_allocation_from_the_mcp():
-    """The records rule guards a PATH; a tool has no path to forbid. Without
-    this the live MCP is the easiest way to answer 'which orders are late' with
-    a number that is real, plausible, and not reproducible."""
+    """The MCP is the easiest way to answer 'which orders are late' with a number
+    that is real, plausible, and not reproducible. It is also now REPORTING's
+    only source, so this rule is the whole fence between the two lanes."""
     prompt = setup_agent.SYSTEM_PROMPT
     rule = prompt.split("The plan comes from the solver, not from you.")[1][:900]
     assert "NEVER from an `xas-app-mcp` tool" in rule
@@ -184,10 +185,9 @@ def test_prompt_stops_claiming_there_is_no_network():
 
 
 def test_prompt_makes_the_agent_name_its_reporting_source():
-    """Two reporting sources that can disagree, and the planner cannot tell
-    which produced a number unless the agent says so."""
+    """Reporting reads the LIVE system, so a number is only true as of the moment
+    it was asked. The planner cannot tell that from the number."""
     assert "from the live system" in setup_agent.SYSTEM_PROMPT
-    assert "never silently mix them" in setup_agent.SYSTEM_PROMPT
 
 
 # --------------------------------------------------------------------------
@@ -195,18 +195,28 @@ def test_prompt_makes_the_agent_name_its_reporting_source():
 # --------------------------------------------------------------------------
 
 
-def test_prompt_forbids_answering_allocation_from_records():
+def test_prompt_forbids_answering_allocation_from_a_file_read():
+    """The fabricated job-card records are gone, so the rule can no longer forbid
+    a PATH -- but a file read is still the other way to produce an allocation
+    number without the solver (the pull is mounted, and the agent can cat it)."""
     prompt = setup_agent.SYSTEM_PROMPT
     assert "The plan comes from the solver, not from you." in prompt
-    assert web.RECORDS_MOUNT_PATH in prompt
-    # The prohibition must name the records path, not just gesture at it.
     rule = prompt.split("The plan comes from the solver, not from you.")[1][:700]
-    assert "NEVER" in rule and web.RECORDS_MOUNT_PATH in rule
+    assert "NEVER" in rule and "NEVER from a file you read yourself" in rule
+
+
+def test_prompt_names_no_records_mount():
+    """The reporting lane reads the live MCP now. A path the host does not mount
+    sends the agent looking for a file that is not there -- which is exactly how
+    it silently substituted the live system for the records."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "/workspace/reports" not in prompt
+    assert "jobcards.json" not in prompt
 
 
 def test_prompt_names_every_mount():
     prompt = setup_agent.SYSTEM_PROMPT
-    for path in (alloc_tools.MOUNT_PATH, web.RECORDS_MOUNT_PATH):
+    for path in (alloc_tools.MOUNT_PATH,):
         assert path in prompt, f"{path} is mounted but never explained to the agent"
 
 
@@ -273,11 +283,10 @@ def test_qa_bundle_ships_the_phrasebook_builder_and_the_taxonomy():
 
 @pytest.mark.parametrize("bundle", [setup_agent.alloc_bundle(), setup_agent.qa_bundle()])
 def test_no_session_dataset_is_bundled(bundle):
-    """The pull and the records are mounted per session, so regenerating either
-    needs no redeploy. (The taxonomy is the deliberate exception — DECIDE-16.)"""
+    """The pull is mounted per session, so regenerating it needs no redeploy.
+    (The taxonomy is the deliberate exception — DECIDE-16.)"""
     for name, _ in bundle:
         assert "pull.json" not in name
-        assert "jobcards" not in name
 
 
 # --------------------------------------------------------------------------
@@ -285,16 +294,19 @@ def test_no_session_dataset_is_bundled(bundle):
 # --------------------------------------------------------------------------
 
 
-def test_mount_paths_are_distinct_and_reports_are_namespaced():
-    assert alloc_tools.MOUNT_PATH != web.RECORDS_MOUNT_PATH
-    assert web.RECORDS_MOUNT_PATH.startswith(web.REPORTS_MOUNT_DIR + "/")
-    assert not alloc_tools.MOUNT_PATH.startswith(web.REPORTS_MOUNT_DIR)
+def test_the_pull_is_the_only_mount():
+    """Reporting used to get a second mount under /workspace/reports/. It reads
+    the live MCP now, so a session that mounts anything else is a session whose
+    reporting numbers came from somewhere this design does not control."""
+    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.MOUNTED_PULL_FILENAME})
+    source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
+    assert source.count('"type": "file"') == 1, "one resource, or the fence moved"
 
 
 def test_every_mounted_input_is_filtered_from_outputs():
     """files.list(scope_id=...) returns the inputs too; handing a planner their
     own pull back as an 'output' is noise, and downloading it is worse."""
-    mounted = {Path(alloc_tools.MOUNT_PATH).name, Path(web.RECORDS_MOUNT_PATH).name}
+    mounted = {Path(alloc_tools.MOUNT_PATH).name}
     assert mounted == set(web.MOUNTED_INPUT_FILENAMES)
 
 
@@ -345,14 +357,15 @@ def test_flatten_command_never_searches_from_root():
     assert "p != root" in command
 
 
-def test_qa_skill_points_at_the_path_web_mounts():
-    """Namespacing the mount under /workspace/reports/ silently orphaned the
-    skill's instructions -- it still said /workspace/jobcards.json."""
+def test_qa_skill_sends_the_agent_to_the_mcp_not_to_a_file():
+    """Every records path the skill named is gone. One left behind sends the
+    agent hunting a mount that does not exist, and the recovery it improvises is
+    the live MCP with no mention of where the number came from."""
     skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "/workspace/index.md" not in skill
     assert "/workspace/jobcards.json" not in skill
-    assert web.REPORTS_MOUNT_DIR in skill
-    assert alloc_tools.UPLOAD_PREFIX in skill, "skill must mention the upload fallback"
+    assert "/workspace/reports" not in skill
+    assert "xas-app-mcp" in skill, "the skill must say where records come from"
 
 
 @pytest.mark.parametrize(

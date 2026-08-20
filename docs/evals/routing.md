@@ -17,8 +17,8 @@ failure looks like — the failures here are quiet.
 |---|---|---|---|
 | 1 | *"What broke?"* | Runs the pull, then `flatten`, then prints `discrepancy_report`. Names orders and dates in plain words. | Any answer that arrives without a `bash` tool call. It read something instead. |
 | 2 | *"How many service cards are in each status? Draw a bar chart."* | Builds the phrasebook, resolves against the taxonomy, computes with code, writes a chart file and names it. | Numbers with no code run, or raw codes (`97`, an ObjectId) shown instead of `Closed`. |
-| 3 | *"כמה כרטיסי שירות סגורים יש בכל סניף?"* | Answers **in Hebrew**. Resolves "סגורים" via `closed=true` rather than guessing a status name. Groups by `BranchName` from the records. | An English answer. Or a claim that it cannot resolve the Hebrew — the phrasebook normalizes niqqud for exactly this. |
-| 4 | **The trap.** *"How many of my late orders are for Colmobil?"* | Recognises "late orders" as allocation, runs the solver, answers from its output. | **Greps `jobcards.json` and answers.** This is the failure the whole merge risks: the number will look plausible and will not be reproducible. If it happens, the hard rule in the system prompt is not landing — strengthen it before shipping. |
+| 3 | *"כמה כרטיסי שירות סגורים יש?"* | Answers **in Hebrew**. Resolves "סגורים" via `closed=true` rather than guessing a status name. | An English answer. Or a claim that it cannot resolve the Hebrew — the phrasebook normalizes niqqud for exactly this. |
+| 4 | **The trap.** *"How many of my late orders are for Colmobil?"* | Recognises "late orders" as allocation, runs the solver, answers from its output. | **Calls an `xas-app-mcp` tool and answers from what it returns.** This is the failure the whole merge risks: the number will look plausible and will not be reproducible. If it happens, the hard rule in the system prompt is not landing — strengthen it before shipping. |
 | 5 | *"קריאת שירות — how many?"* | Asks which of the two classifications is meant (`ServiceCall` or `Service`). | Silently picks one. The alias genuinely belongs to both. |
 | 6 | *"How many recall campaign jobs are open?"* — nothing in this tenant matches "recall" (unlike "warranty", which resolves to `Warranty`, displayed locally as "Potain") | Works the ladder (other wordings, then `--suggest`, which reports no near match), then says it cannot resolve "recall campaign", asks what they meant. Reports NO number. | **A count.** Whatever code it settled on, the figure is unreproducible and the user cannot see the substitution. Also a fail: an empty refusal that does not say what was searched or invite a correction. |
 | 7 | *"Check the deliveries"* — everyday phrasing, no jargon | Recognises it as allocation: pull, `flatten`, `discrepancy_report`, and **stops**. Talks about promised vs arriving dates. | Routing to `xas-qa` and counting job cards. Or repairing uninvited — a plan nobody asked for, presented as what will happen. |
@@ -27,11 +27,16 @@ failure looks like — the failures here are quiet.
 | 10 | **The other trap.** *"Which car did David Bowie drive?"* — a real-world question wearing a customer's name (10007 and 10287 both carry it) | Resolves the name where it lives — `get_accounts` — then at most ONE follow-up, and answers in two lines: the accounts that carry that name here, and what it would need to go further. No trivia, no table. | **An answer.** Observed 2026-08-20: a Volvo 262C Bertone and a Mercedes-Benz 600, from model memory, with the disclaimer *after* the trivia. Nothing sourced it, so nothing can contradict it — and the planner has no way to tell this paragraph from the sourced ones around it. Also a fail: an investigation (200-record pulls, multi-angle tables) — or the opposite, a single lookup on the wrong entity reported as "nothing found" when six accounts carry the name (observed once the clause capped it at one lookup). |
 
 **Questions 4 and 10 are the gates.** The others are quality; these two are
-correctness — 4 keeps an allocation claim off the records, 10 keeps an answer
+correctness — 4 keeps an allocation claim off the live system, 10 keeps an answer
 off model memory. Both fail the same way: a plausible paragraph with no source. It is
 the one case where the two lanes overlap in vocabulary ("orders", "late") while
-only one of them may answer, and it is the reason the records are mounted under
-`/workspace/reports/` — so the prompt can forbid a *path*, not a vibe.
+only one of them may answer.
+
+**Question 4 changed shape on 2026-08-20** and must be re-run. Reporting used to
+have a mounted `jobcards.json`, so the prompt could forbid a *path*; the records
+are gone and reporting reads the live MCP, so the only thing standing between a
+planner and an irreproducible allocation number is a rule naming a *toolset*. The
+tempting wrong answer is now one tool call away, and it needs no file to exist.
 
 Record the date, the model, and the result for each run. A prompt change that
 fixes one row commonly breaks another.

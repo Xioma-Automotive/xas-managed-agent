@@ -1,7 +1,7 @@
 ---
 name: xas-qa
 description: >-
-  Answer REPORTING questions over the mounted job-card records — counts,
+  Answer REPORTING questions over the dealership's job-card records — counts,
   breakdowns, filters, charts — resolving the business vocabulary a user types
   (any language) to this tenant's system codes via this skill's taxonomy and its
   normalized phrasebook. Use for questions ABOUT the data: how many, which
@@ -19,19 +19,13 @@ The tenant's taxonomy is `index.md`, **in this skill's directory** beside
 what the records store. Never guess a code, an ObjectId, or a status name from
 memory — resolve it here.
 
-The job-card records are mounted separately, under `/workspace/reports/`.
+The records themselves are NOT here and NOT mounted: they come from the
+`xas-app-mcp` read tools, against the live system. Nothing on disk holds job
+cards, so there is no file to find, no snapshot to fall back on, and a number you
+cannot get from a tool call is a number you do not have.
 
-**Find that mount before you use it.** The host requests
-`/workspace/reports/jobcards.json`, but the platform may materialize it under
-`/mnt/session/uploads` (i.e. `/mnt/session/uploads/workspace/reports/…`). One
-`ls` settles it:
-
-```bash
-ls /workspace/reports /mnt/session/uploads/workspace/reports 2>/dev/null
-```
-
-The taxonomy needs no such search: `phrasebook.py` finds it beside itself, so
-Step 0 just works — you only need a path yourself when reading the records.
+The taxonomy needs no search either: `phrasebook.py` finds `index.md` beside
+itself, so Step 0 just works.
 
 ## Step 0 — build the phrasebook (once per session)
 
@@ -153,10 +147,8 @@ Resolve these from the **records**, not from the index or phrasebook — asking 
 taxonomy for them wastes a turn and invites invention:
 
 - **Field names.** The index reports only a `fields=<n>` count, never the field
-  names or labels. Learn the real shape by reading one record
-  (`head -c 2000 <mounted jobcards.json>`, or `jq '.[0]'`).
-- **Branches.** There is no branch list. Records carry `BranchId` **and**
-  `BranchName` inline — group and label on those.
+  names or labels. Learn the real shape from one record — fetch a single card
+  (`get_job_cards` with `paging: {"count": 1}`) and read its keys.
 
 ## Charts
 
@@ -178,7 +170,7 @@ matplotlib.use("Agg")  # no display in the sandbox
 import matplotlib.pyplot as plt
 
 fig, ax = plt.subplots(figsize=(12, 6))
-# ... plot from the solver's output or the records ...
+# ... plot the numbers you resolved ...
 fig.tight_layout()
 
 buf = io.StringIO()

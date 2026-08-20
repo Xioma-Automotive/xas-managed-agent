@@ -7,7 +7,7 @@ the code.
 
 **One agent, two skills.** Specialisation lives in the skills, not in separate
 agent objects: `xas-allocation` drives the deterministic solver,
-`xas-qa` answers reporting questions over the mounted job-card records. Both are
+`xas-qa` answers reporting questions over the live job-card records. Both are
 declared on the single agent behind `ALLOC_AGENT_ID`; `setup_agent.py` sends both
 every time. The reporting lane's own agent was never created — it exists only as
 a skill.
@@ -90,12 +90,14 @@ XAS endpoint and its credential never touch the sandbox.
   they could reach nothing anyway; this also keeps them out of the agent's context.)
 - **The app MCP is the reporting lane's, and the prompt is the only fence.**
   `xas-app-mcp` (added 2026-08-19) gives the agent six read tools against the LIVE
-  dev system. The records rule forbids a *path*; a tool has no path, so the hard
-  rule names the toolset explicitly — "NEVER from an `xas-app-mcp` tool" — and the
-  prompt makes the agent say which source a reporting number came from. An
-  allocation claim sourced from live data is worse than one read from
-  `jobcards.json`: it changes under you, so the turn is not even reproducible in
-  principle. `tests/test_agent_contract.py` pins the rule and the two-place
+  dev system, and since 2026-08-20 it is the reporting lane's ONLY source — the
+  fabricated `jobcards.json` mount is gone. A tool has no path to forbid, so the
+  hard rule names the toolset explicitly — "NEVER from an `xas-app-mcp` tool" —
+  and the prompt makes the agent say a reporting number came from the live
+  system. An allocation claim sourced from live data is worse than one read from a
+  file: it changes under you, so the turn is not even reproducible in principle.
+  That rule is now the WHOLE fence between the two lanes; nothing structural
+  backs it up. `tests/test_agent_contract.py` pins the rule and the two-place
   declaration (`MCP_SERVERS` + the `mcp_toolset` that grants it — a server nothing
   references is a validation error, and so is the reverse).
 - **Three places must agree on the MCP URL, and a mismatch is silent.** The agent
@@ -132,7 +134,7 @@ XAS endpoint and its credential never touch the sandbox.
   Effort drives how many tool calls a turn spends, so this is a cost knob as much
   as a quality one; changing it means re-running `docs/evals/routing.md`.
 - **The session budget is create-only, so it is set on every create or not at
-  all.** `web.py`'s `SESSION_BUDGET` caps ONE session's list-priced spend at $10
+  all.** `web.py`'s `SESSION_BUDGET` caps ONE session's list-priced spend at $5
   (model tokens + web search + $0.08/hour of runtime). At the cap the session goes
   `idle` with `stop_reason: budget_reached`, keeps its container and history, and
   accepts only settle events — a new `user.message` is a 400, which `/message`
@@ -147,26 +149,31 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, and one dataset.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-qa/` (SKILL.md + `phrasebook.py` + `index.md`). The two SESSION datasets
-  are still mounted per session by `web.py` — the pull from
-  `datasource.get_source()`, the records from `get_records()` — so regenerating
-  either needs no re-deploy. The tenant taxonomy is the exception (DECIDE-16):
-  it rides in the `xas-qa` bundle because there is one tenant, `phrasebook.py`
+  `xas-qa/` (SKILL.md + `phrasebook.py` + `index.md`). The one SESSION dataset is
+  still mounted per session by `web.py` — the pull from
+  `datasource.get_source()` — so regenerating it needs no re-deploy. The tenant
+  taxonomy is the exception (DECIDE-16): it rides in the `xas-qa` bundle
+  because there is one tenant, `phrasebook.py`
   finds it beside itself, and the price is that the caller can no longer pick a
   dealership per session. **Change either skill, the solver package, or the
   taxonomy and you must re-run `setup_agent.py`.**
-- **Two mounts, and the namespace is load-bearing.** `/workspace/pull.json` is
-  the allocation snapshot; `/workspace/reports/jobcards.json` is the reporting
-  lane's. The records stay namespaced so the system prompt can forbid a **path**:
-  every allocation claim comes from the solver, never from reading the records.
-  With both lanes in one sandbox that rule is the only thing standing between a
-  planner and a plausible, irreproducible answer — `tests/test_agent_contract.py`
-  pins it, and `docs/evals/routing.md` question 4 is the behavioural gate.
-- **The two datasets are not one world.** `pull.json` holds VSOs;
-  `jobcards.json` holds Service job cards, fabricated by a different mechanism on
-  purpose (decided 2026-08-18). They describe overlapping business objects with
-  no guarantee they agree. Do not let the current disjoint fixtures stand in for
-  the rule above.
+- **One mount, and reporting has no file at all.** `/workspace/pull.json` is the
+  allocation snapshot, and it is the only thing `web.py` mounts. The reporting
+  lane had a second mount — a fabricated `jobcards.json` under
+  `/workspace/reports/`, whose namespace existed so the prompt could forbid a
+  **path** — removed 2026-08-20 because the records were only ever mock data.
+  Reporting reads the live system through `xas-app-mcp` instead, so the fence is
+  toolset-shaped: every allocation claim comes from the solver, never from an MCP
+  tool, never from a file the agent read itself. With both lanes in one sandbox
+  that rule is the only thing standing between a planner and a plausible,
+  irreproducible answer — `tests/test_agent_contract.py` pins it, and
+  `docs/evals/routing.md` question 4 is the behavioural gate (re-run it: it used
+  to test a path).
+- **The two views are not one world.** `pull.json` holds VSOs fabricated by
+  `scenario_engine`; the MCP serves whatever the dev DMS holds right now, Service
+  job cards included. They describe overlapping business objects with no
+  guarantee they agree, and the live side changes between turns. Do not let a
+  quiet fixture stand in for the rule above.
 - **The pull mounts a file, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
   context. So the tool returns only a summary + a `flatten` command; the rows
