@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 import alloc_tools
+import appmcp_auth
 import datasource
 
 logging.basicConfig(
@@ -58,11 +59,24 @@ DOWNLOAD_DIR = Path(
 # Per-session model overrides. The agent resource keeps whatever
 # setup_agent.py gave it; picking a model here never mutates it.
 MODELS = {
-    "opus": {"id": "claude-opus-5", "label": "Opus 5"},
+    "opus48": {"id": "claude-opus-4-8", "label": "Opus 4.8"},
+    "opus5": {"id": "claude-opus-5", "label": "Opus 5"},
     "sonnet": {"id": "claude-sonnet-5", "label": "Sonnet 5"},
     "haiku": {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5"},
 }
-DEFAULT_MODEL = "opus"
+DEFAULT_MODEL = "opus48"
+
+# Hard ceiling on one session's spend, priced at Anthropic's LIST rates (model
+# tokens + web search + $0.08/hour of session runtime), in cents as an integer
+# string. $10 sits well above a full repair cycle — the heaviest single turn
+# observed was 87c — so it is a runaway backstop, not a working limit.
+#
+# CREATE-ONLY, and that is the whole reason it is here: a session started
+# without a budget can never be given one. At the cap the session goes idle with
+# `stop_reason: budget_reached` (the SSE relay already forwards that) and keeps
+# its container and history; only raising or removing the budget resumes it, and
+# removal is one-way.
+SESSION_BUDGET = {"type": "limit", "max_list_cost": {"amount": "1000", "currency": "USD"}}
 
 app = FastAPI(title="XAS Allocation Agent")
 client = AsyncAnthropic()
@@ -70,6 +84,10 @@ client = AsyncAnthropic()
 # The one active session, and the task answering its custom tool calls.
 _active: str | None = None
 _answering: asyncio.Task | None = None
+# The task keeping the app-MCP bearer fresh in its vault. Session-owned like the
+# tool answerer, and for the same reason: the inner user token expires in 30
+# minutes, so a session outlives its own credential unless something re-mints.
+_rotating: asyncio.Task | None = None
 _lock = asyncio.Lock()
 
 # The rich pull we fetched and mounted for each session, so the tool answerer can
@@ -196,6 +214,37 @@ async def _answer_custom_tools(session_id: str) -> None:
         log.exception("tool runner for %s stopped", session_id)
 
 
+async def _refresh_appmcp_credential() -> None:
+    """Re-mint the app-MCP bearer into its vault, tolerating failure.
+
+    The reporting lane loses its live tools if this fails; the allocation lane
+    does not care, because the pull is mounted and needs no credential. So this
+    never blocks a session from starting — but it logs loudly, because the
+    symptom on the agent's side is a 401 or "chat session has expired" from a
+    tool call, which reads like an MCP outage rather than a stale credential.
+    """
+    if not appmcp_auth.configured():
+        # Loudly, because the symptom is otherwise a confusing MCP-side error:
+        # no vault attached means the tool call goes out with no credential.
+        log.warning(
+            "app-MCP not configured (%s) — its tools will fail this session",
+            ", ".join(n for n in appmcp_auth.REQUIRED_ENV if not os.environ.get(n)),
+        )
+        return
+    try:
+        await appmcp_auth.rotate_once(client)
+    except Exception:
+        log.exception("app-MCP credential not refreshed — its tools will fail this session")
+
+
+def _start_rotating() -> asyncio.Task | None:
+    return (
+        asyncio.create_task(appmcp_auth.rotate_forever(client))
+        if appmcp_auth.configured()
+        else None
+    )
+
+
 async def _interrupt(session_id: str) -> None:
     await client.beta.sessions.events.send(
         session_id=session_id, events=[{"type": "user.interrupt"}]
@@ -208,15 +257,16 @@ async def _detach(session_id: str) -> None:
     planner can switch back to it from the sidebar. Only the active session's
     pulls are answered; that is the one-at-a-time design, unchanged.
     """
-    global _answering
+    global _answering, _rotating
     try:
         await _interrupt(session_id)
     except APIError as e:  # already terminated, or idle with nothing to interrupt
         log.info("interrupt on %s: %s", session_id, e)
-    if _answering:
-        _answering.cancel()
-        await asyncio.gather(_answering, return_exceptions=True)
-        _answering = None
+    for task in (_answering, _rotating):
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    _answering = _rotating = None
 
 
 async def _stop(session_id: str) -> None:
@@ -321,7 +371,7 @@ async def new_session(body: NewSession) -> dict:
     if body.model not in MODELS:
         raise HTTPException(400, f"unknown model {body.model!r}")
 
-    global _answering
+    global _answering, _rotating
     async with _lock:
         previous = None
         if _active:
@@ -340,6 +390,11 @@ async def new_session(body: NewSession) -> dict:
             _upload(MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"),
             _upload(MOUNTED_RECORDS_FILENAME, datasource.get_records(), "application/json"),
         )
+        # Mint the app-MCP bearer into its vault before the session exists, so
+        # the agent's first reporting call cannot land on a stale one. Failing
+        # here costs the MCP, not the session: allocation needs no credential,
+        # so log it and carry on rather than refusing to start.
+        await _refresh_appmcp_credential()
         session = await client.beta.sessions.create(
             agent={
                 "type": "agent_with_overrides",
@@ -348,16 +403,23 @@ async def new_session(body: NewSession) -> dict:
             },
             environment_id=ALLOC_ENV_ID,
             title=body.title or "XAS session",
+            # `budget` via extra_body: the API takes it, anthropic 0.120.2 does
+            # not model it yet. Drop the wrapper once the SDK grows the field.
+            extra_body={"budget": SESSION_BUDGET},
             resources=[
                 {"type": "file", "file_id": pull_meta.id, "mount_path": alloc_tools.MOUNT_PATH},
                 {"type": "file", "file_id": records_meta.id, "mount_path": RECORDS_MOUNT_PATH},
             ],
+            # Create-only: `vault_ids` is rejected on session update, so a vault
+            # not attached here can never be attached to this session.
+            **({"vault_ids": [appmcp_auth.vault_id()]} if appmcp_auth.configured() else {}),
         )
         _active = session.id
         _pull_by_session[session.id] = rich
         # Start answering before the planner can send anything: a pull that
         # arrives with no runner attached parks the session indefinitely.
         _answering = asyncio.create_task(_answer_custom_tools(session.id))
+        _rotating = _start_rotating()
 
     log.info("session %s started (%s)", session.id, MODELS[body.model]["id"])
     return {"id": session.id, "model": body.model, "stopped": previous}
@@ -372,14 +434,18 @@ async def activate(session_id: str) -> dict:
     back up from the sidebar. Idempotent when it is already active.
     """
     _require_config()
-    global _active, _answering
+    global _active, _answering, _rotating
     async with _lock:
         if _active == session_id:
             return {"active": _active}
         if _active:
             await _detach(_active)
         _active = session_id
+        # Same as a fresh session: the credential is 30 minutes old at most, and
+        # a session resumed from the sidebar was very likely idle for longer.
+        await _refresh_appmcp_credential()
         _answering = asyncio.create_task(_answer_custom_tools(session_id))
+        _rotating = _start_rotating()
     log.info("activated session %s", session_id)
     return {"active": _active}
 
@@ -439,10 +505,17 @@ async def events(session_id: str) -> EventSourceResponse:
 async def message(body: Message) -> dict:
     if not _active:
         raise HTTPException(409, "no active session")
-    await client.beta.sessions.events.send(
-        session_id=_active,
-        events=[{"type": "user.message", "content": [{"type": "text", "text": body.text}]}],
-    )
+    try:
+        await client.beta.sessions.events.send(
+            session_id=_active,
+            events=[{"type": "user.message", "content": [{"type": "text", "text": body.text}]}],
+        )
+    except APIError as e:
+        # A session paused at its budget takes only events that settle work
+        # already in progress, so a new message is a 400 that would otherwise
+        # reach the browser as an opaque 500.
+        log.warning("message rejected for %s: %s", _active, e)
+        raise HTTPException(409, f"session will not accept a new message: {e}") from e
     return {"sent": _active}
 
 

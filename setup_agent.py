@@ -19,9 +19,11 @@ is how both reach a sandbox we do not run. Change anything under xas_allocation/
 or regenerate data/pull.json and you must re-run this, or the sandbox keeps
 solving with the previous version.
 
-There is no vault. The prototype's data is a dataset fabricated by
-scenario_engine/ and shipped in the skill (DECIDE-7), so there is no credential
-to store and nothing for a vault to hold.
+ONE vault, for the app MCP only. The allocation data is still fabricated by
+scenario_engine/ and mounted (DECIDE-7) — that path needs no credential. The
+reporting lane's live tools do: appmcp_auth.py mints their bearer host-side into
+a vault that web.py attaches per session, so the secret reaches Anthropic's
+egress proxy and never the sandbox.
 
 Anti-pattern warning: never call environments/agents/skills create() in the
 per-conversation path — that accumulates orphaned resources and pays create
@@ -39,6 +41,7 @@ import anthropic
 from dotenv import load_dotenv
 
 import alloc_tools
+import appmcp_auth
 
 load_dotenv()
 
@@ -72,7 +75,26 @@ def client() -> anthropic.Anthropic:
 
 
 AGENT_NAME = "XAS Agent"
-MODEL = "claude-opus-5"
+MODEL = "claude-opus-4-8"
+
+# Effort has to be set HERE, on the agent. An `effort` inside a per-session
+# `model` override is silently ignored — not an error, just no effect — and
+# web.py sends exactly such an override for the model picker, so a session
+# always runs at the agent's level. `medium` because effort drives how many tool
+# calls a turn spends: lower means fewer and more consolidated ones, which is
+# what a reporting question wants. Raise it if repair quality drops; the
+# behavioural gate is docs/evals/routing.md.
+EFFORT = "medium"
+
+
+def model_config() -> dict:
+    """The agent's model object. `agents.update()` preserves an omitted `effort`
+    only while the id is unchanged, so send both together, always."""
+    return {"id": MODEL, "effort": EFFORT}
+
+
+# Referenced by both the server declaration and the toolset that grants it.
+APPMCP_SERVER_NAME = "xas-app-mcp"
 
 # Unique per organization, and the self-hosted branch already holds
 # "XAS allocation repair" — creating a skill reuses no title.
@@ -97,11 +119,11 @@ Environment
 The reference solver ships INSIDE the `xas-allocation` skill, as the `xas_allocation` package in that skill's directory. Locate the skill directory with a shallow `ls` of your working directory and its `skills/` subdirectory, then run from there (or set PYTHONPATH to it) so `import xas_allocation` resolves. Run it; never reimplement, rewrite, re-derive, or approximate it. If an import fails, look in the skill directory — do NOT search the filesystem. `find /` exceeds the 120s bash timeout and kills your shell.
 Run `pip install ortools` once per session; the solver needs it.
 Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (VSO jobcards + a vehicle pool of real/future vehicles) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
-Your data is mounted as files. There is NO network:
+Your data is mounted as files:
   /workspace/pull.json                the allocation snapshot. Reached through the pull_allocation_snapshot tool and the `flatten` command — never read by hand.
   /workspace/reports/jobcards.json    the job-card records REPORTING answers over.
 The tenant's taxonomy is NOT mounted — `index.md` ships inside the `xas-qa` skill directory, beside `phrasebook.py`. It lists every live entity, classification and status with the multi-language names users actually say, and is the ONLY authority for turning business words into system codes.
-No network access — everything is local.
+The `xas-app-mcp` tools (get_job_cards, get_job_card, get_vehicles, get_vehicle, get_accounts, get_account) read the LIVE XAS dev system. They are the one exception to "everything is local", they serve REPORTING only, and the hard rule below governs them. You never handle their credential and cannot see it. Otherwise there is no network: no web search, no web fetch, nothing else to reach.
 
 Determinism (the core invariant)
 plan = pure_function(data_snapshot, skill, override). You hold no plan state in memory. Steering is ONE combined override object (weights / pins / forbid / lambda / scope / bump) — accumulate every instruction into it, show it back each turn, and carry it forward. There is no ledger, no replay: re-applying the same override to the same snapshot reproduces the plan exactly. If the sandbox is reclaimed, recover the override from the last one you showed the planner. (Durable cross-session persistence is deferred — DECIDE-5.) Consequences:
@@ -111,7 +133,11 @@ Flattening the pull into the snapshot is pure code (eligibility is a hard sales_
 
 Hard rules (never violate)
 
-The plan comes from the solver, not from you. Every claim about allocation — which order is late, which vehicle an order gets, what a repair costs, who would be bumped — comes from running the solver through the xas-allocation skill's helpers. NEVER from reading /workspace/reports/jobcards.json or any other file. Those records answer reporting questions only; they are a different snapshot of the business and are not guaranteed to agree with the pull. If you cannot answer an allocation question by running the solver, say so — do not substitute a number you read.
+Answer only from this dealership's data. You have exactly three sources: the solver over the pull, the mounted records, and the `xas-app-mcp` tools. Every fact in your reply comes from one of them. Outside that you have nothing to offer here — no real-world knowledge about people, cars, brands, models, prices, markets, history or events, and no general advice. A name in the data is a ROW, not the thing it resembles: "David Bowie" is customer 10007 in this tenant, and that is the whole of what you know about it. Never add outside colour to an answer that did come from the data, and never let a familiar-looking name pull you into what you remember about it.
+If a question cannot be answered from those three sources, say so in ONE line, name what you could answer instead, and stop. Do not fill the gap from memory, do not speculate, and do not spend a tool call on it — no bash, no MCP call, no file read to research something this data cannot answer.
+An ask that is not clearly about this dealership's work — a name you recognise from outside, a general question, small talk — is worth a couple of lookups, not an investigation. Resolve it the way the system stores it BEFORE anything else: a person or a company is an account, so `get_accounts` first; a plate or a VIN is a vehicle. Then ONE follow-up for what was actually asked. A dead end on the wrong entity is not an answer — "nothing found" is only true after you looked where the name would live. Then two lines: what this tenant's data says, and the one question you would need answered to go further. No tables, no breakdowns, no second angle unless the planner asks for one. They can always ask for more; they cannot un-spend a turn that pulled two hundred records to answer a question nobody meant literally.
+
+The plan comes from the solver, not from you. Every claim about allocation — which order is late, which vehicle an order gets, what a repair costs, who would be bumped — comes from running the solver through the xas-allocation skill's helpers. NEVER from reading /workspace/reports/jobcards.json or any other file, and NEVER from an `xas-app-mcp` tool. Those records and those tools answer reporting questions only; they are a different, LIVE view of the business and are not guaranteed to agree with the pull. Reading them mid-repair is worse than reading a file, because the answer changes under you and the turn stops being reproducible. If you cannot answer an allocation question by running the solver, say so — do not substitute a number you read.
 You are flexible by TRANSLATING any planner request into the typed override object (weights, pins, scope, and time_scale), never by special-casing in prose — the object is the flexibility surface; the solver decides. A new CONSTRAINT is a model change — a reviewed PR with tests, never a live-session mutation. "Scope" (work only a customer / month / PO slice) is a runtime override, not a constraint. "time_scale" (days/weeks/months) sets the resolution the solver reasons at — "just get the month roughly right" → months, "hit the exact dates" → days; it changes the plan, not just the wording.
 Do NOT hand-pick early cars or praise early delivery: arriving too early is already priced by the solver (a gentle penalty), so lateness dominates but a car that lands months early is not a win. Report earliness as a mild caveat, never a ✅ prize.
 Never move a frozen-fence order. (A real vehicle is NOT a wall — it is expensive-but-movable via break_cost, DECIDE-3.)
@@ -137,7 +163,9 @@ For a question about the records — counts, breakdowns, statuses, branches, cha
 
 Charts: write a SELF-CONTAINED .html file into /mnt/session/outputs/ — that directory is the ONLY one the planner's screen can reach, and a chart written anywhere else is invisible to them. Self-contained means the SVG is inlined in the page: never link a CDN or an external stylesheet. The skill has the exact recipe. Use a descriptive filename, say the filename in your reply, then STOP: do not read the chart back with the read tool. You already know what you plotted, the planner sees it rendered, and reading it back costs tens of thousands of tokens for nothing. Label axes and legends with human names, never raw codes.
 
-Reporting is read-only. It never changes an allocation, and its numbers never become the basis for an allocation claim.
+Two sources, and you must never silently mix them. `/workspace/reports/jobcards.json` is the mounted snapshot and your default — same numbers every turn. The `xas-app-mcp` tools read the LIVE system, so use them only when the question is about right now ("how many are open today", "what changed") or asks for a record the snapshot does not carry. Whichever you used, SAY which in one short phrase ("from the live system" / "from the mounted records"), because the two can disagree and the planner cannot tell from the number.
+
+Reporting is read-only. It never changes an allocation, and its numbers never become the basis for an allocation claim. The `xas-app-mcp` tools are read-only too: there is no write-back, and you never call one to change anything.
 
 Reply in the language the person wrote in — this dealership works in Hebrew and English, and a Hebrew question gets a Hebrew answer. That applies to both jobs, and to chart labels: use the human names people recognise, never a raw code or an ObjectId.
 
@@ -149,8 +177,8 @@ Prototype scope: the XAS pull/write-back MCP doesn't exist yet, so you work agai
 #
 # web_search / web_fetch are OFF: every input the plan may depend on arrives in the
 # pull, so a web lookup could only add un-snapshotted state and break the invariant.
-# (The environment already has no egress; this removes the tools from the agent's
-# context too, so it never reaches for them.)
+# The environment's egress is MCP-only, so they could not reach anything anyway;
+# turning them off also keeps them out of the agent's context.
 TOOLS = [
     {
         "type": "agent_toolset_20260401",
@@ -161,6 +189,32 @@ TOOLS = [
         ],
     },
     alloc_tools.PULL_TOOL,
+    # Both halves or neither: a server in `mcp_servers` that no `mcp_toolset`
+    # references is rejected as a validation error, and a toolset naming a
+    # server that is not declared is too.
+    #
+    # permission_policy is EXPLICIT because the platform resolves an omitted one
+    # to `always_ask` for an mcp_toolset (observed 2026-08-19; the docs say the
+    # default is always_allow). Under always_ask the session emits
+    # `agent.mcp_tool_use` and then idles waiting for a `user.tool_confirmation`
+    # nothing here sends — the same never-timing-out hang as an unanswered custom
+    # tool, and it looks like the MCP is down. These tools are read-only, and bash
+    # is already always_allow, so there is nothing to gate.
+    {
+        "type": "mcp_toolset",
+        "mcp_server_name": APPMCP_SERVER_NAME,
+        "default_config": {"enabled": True, "permission_policy": {"type": "always_allow"}},
+    },
+]
+
+# The app MCP serves the REPORTING lane only — see the hard rule in the prompt.
+# Its bearer is not here and never reaches the sandbox: appmcp_auth.py mints it
+# host-side into a vault, web.py attaches that vault per session, and Anthropic's
+# proxy adds it at egress. The URL must match the vault credential's
+# `mcp_server_url` exactly (the path is compared byte-for-byte), or the
+# connection is attempted unauthenticated and looks like a 401 from the MCP.
+MCP_SERVERS = [
+    {"type": "url", "name": APPMCP_SERVER_NAME, "url": appmcp_auth.APPMCP_URL},
 ]
 
 
@@ -213,23 +267,41 @@ def qa_bundle() -> list[tuple[str, bytes]]:
     return skill_files(QA_SKILL_DIR)
 
 
+# Still deny-by-default: no allowed_hosts, so the agent reaches no host of its
+# own choosing. Package managers stay on so it can `pip install ortools`.
+# `allow_mcp_servers` opens egress to the agent's DECLARED MCP endpoints only —
+# under `limited` without it, MCP tools fail SILENTLY rather than erroring.
+NETWORKING = {
+    "type": "limited",
+    "allow_package_managers": True,
+    "allow_mcp_servers": True,
+    "allowed_hosts": [],
+}
+
+
 def create_environment() -> str:
     environment = client().beta.environments.create(
         name="xas-allocation-cloud",
         description="Anthropic-hosted sandbox for the XAS Allocation Agent.",
-        config={
-            "type": "cloud",
-            "networking": {
-                # No allowed_hosts: the agent reaches nothing. Package managers
-                # stay on so it can `pip install ortools` for the solver.
-                "type": "limited",
-                "allow_package_managers": True,
-                "allowed_hosts": [],
-            },
-        },
+        config={"type": "cloud", "networking": NETWORKING},
     )
-    print(f"Created environment: {environment.id}  (cloud, no egress)")
+    print(f"Created environment: {environment.id}  (cloud, MCP egress only)")
     return environment.id
+
+
+def update_environment(environment_id: str) -> None:
+    """Bring an existing environment up to NETWORKING.
+
+    Needed because the environment predates the MCP: it was created with
+    `allow_mcp_servers` defaulted off, and an agent that declares an MCP under
+    that setting looks like it is working while every MCP tool call quietly
+    fails. Sent on every run for the same reason the tools list is — so the
+    live config cannot drift from this file.
+    """
+    environment = client().beta.environments.update(
+        environment_id, config={"type": "cloud", "networking": NETWORKING}
+    )
+    print(f"Updated environment: {environment.id}  (allow_mcp_servers=True)")
 
 
 def create_skill(files: list[tuple[str, bytes]], title: str) -> str:
@@ -255,9 +327,10 @@ def _skills(alloc_skill_id: str, qa_skill_id: str) -> list[dict]:
 def create_agent(alloc_skill_id: str, qa_skill_id: str) -> str:
     agent = client().beta.agents.create(
         name=AGENT_NAME,
-        model=MODEL,
+        model=model_config(),
         system=SYSTEM_PROMPT,
         tools=TOOLS,
+        mcp_servers=MCP_SERVERS,
         skills=_skills(alloc_skill_id, qa_skill_id),
     )
     print(f"Created agent:       {agent.id}  (version {agent.version})")
@@ -270,12 +343,13 @@ def update_agent(agent_id: str, alloc_skill_id: str, qa_skill_id: str) -> None:
         # Sent on update too: the agent predates the merge and would otherwise
         # keep the console label "XAS Allocation Agent" while doing two jobs.
         name=AGENT_NAME,
-        model=MODEL,
+        model=model_config(),
         system=SYSTEM_PROMPT,
         tools=TOOLS,
+        mcp_servers=MCP_SERVERS,
         skills=_skills(alloc_skill_id, qa_skill_id),
     )
-    print(f"Updated agent:       {agent.id}  (version {agent.version}, 2 skills)")
+    print(f"Updated agent:       {agent.id}  (version {agent.version}, 2 skills, 1 MCP)")
 
 
 def check_environment_type(environment_id: str) -> None:
@@ -308,6 +382,7 @@ def main() -> None:
     # Everything exists — refresh both bundles and the agent.
     if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and QA_SKILL_ID:
         print("All resources exist — updating in place.\n")
+        update_environment(ALLOC_ENV_ID)
         update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
         update_skill(QA_SKILL_ID, qa_bundle(), QA_SKILL_TITLE)
         update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, QA_SKILL_ID)
@@ -317,6 +392,7 @@ def main() -> None:
     # The migration path: add the QA skill to the agent that already exists.
     if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and not QA_SKILL_ID:
         print("Adding the reporting skill to the existing agent.\n")
+        update_environment(ALLOC_ENV_ID)
         update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
         qa_skill_id = create_skill(qa_bundle(), QA_SKILL_TITLE)
         update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, qa_skill_id)

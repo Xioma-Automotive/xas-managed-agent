@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 import alloc_tools
+import appmcp_auth
 import datasource
 import setup_agent
 import web
@@ -56,6 +57,137 @@ def test_web_search_and_fetch_stay_off():
     toolset = next(t for t in setup_agent.TOOLS if t.get("type") == "agent_toolset_20260401")
     disabled = {c["name"] for c in toolset["configs"] if not c["enabled"]}
     assert {"web_search", "web_fetch"} <= disabled
+
+
+# --------------------------------------------------------------------------
+# The app MCP — declared in two places that must agree, credentialed in a third
+# --------------------------------------------------------------------------
+
+
+def test_every_mcp_server_is_granted_by_a_toolset():
+    """A declared server no toolset references is a validation error on create,
+    and a toolset naming an undeclared server is too."""
+    declared = {s["name"] for s in setup_agent.MCP_SERVERS}
+    granted = {t["mcp_server_name"] for t in setup_agent.TOOLS if t.get("type") == "mcp_toolset"}
+    assert declared == granted == {setup_agent.APPMCP_SERVER_NAME}
+
+
+def test_mcp_tools_run_without_a_confirmation_nobody_sends():
+    """Observed 2026-08-19: an mcp_toolset with no permission_policy resolves to
+    `always_ask`, NOT the documented `always_allow`. The session then emits
+    agent.mcp_tool_use and idles forever waiting for a user.tool_confirmation
+    web.py never sends — indistinguishable from the MCP being down."""
+    toolset = next(t for t in setup_agent.TOOLS if t.get("type") == "mcp_toolset")
+    assert toolset["default_config"]["permission_policy"] == {"type": "always_allow"}
+
+
+def test_mcp_url_matches_the_credential_the_host_mints_for():
+    """Vault matching normalizes host case and default ports but compares the
+    PATH byte-for-byte. A mismatch is not an error: the connection is attempted
+    unauthenticated, so it surfaces as a 401 from the MCP instead."""
+    assert [s["url"] for s in setup_agent.MCP_SERVERS] == [appmcp_auth.APPMCP_URL]
+
+
+def test_credential_config_is_read_after_the_environment_loads(monkeypatch):
+    """Regression (2026-08-20): appmcp_auth read its config at IMPORT time, and
+    web.py imports it before calling load_dotenv(). Every value came back None,
+    so configured() was False, `vault_ids` was silently omitted from the session,
+    and the agent's first MCP call failed with "no credential is stored for this
+    server URL" — a message that points at the URL, not at the real cause."""
+    for name in appmcp_auth.REQUIRED_ENV:
+        monkeypatch.delenv(name, raising=False)
+    assert appmcp_auth.configured() is False
+
+    for name in appmcp_auth.REQUIRED_ENV:
+        monkeypatch.setenv(name, "set-after-import")
+    assert appmcp_auth.configured() is True, "config must be read per call, not at import"
+    assert appmcp_auth.vault_id() == "set-after-import"
+
+
+def test_environment_allows_mcp_egress():
+    """Under `limited` networking without this, MCP tools fail SILENTLY."""
+    assert setup_agent.NETWORKING["allow_mcp_servers"] is True
+    assert setup_agent.NETWORKING["allowed_hosts"] == [], "the agent still reaches nothing else"
+
+
+def test_setup_refreshes_the_environment_it_reuses():
+    """The environment predates the MCP and was created with allow_mcp_servers
+    off; updating the agent alone would leave every MCP call failing quietly."""
+    source = (REPO_ROOT / "setup_agent.py").read_text(encoding="utf-8")
+    assert source.count("update_environment(ALLOC_ENV_ID)") == 2
+
+
+def test_prompt_fences_answers_to_the_three_data_sources():
+    """Observed 2026-08-20: asked which car David Bowie drove, the agent answered
+    from model memory (a Volvo 262C, a Mercedes 600) because a customer in the
+    tenant happens to carry that name. Nothing sourced it, so nothing could
+    contradict it — the same failure mode as an unresolved term, one step further
+    out. The fence has to name the three sources and forbid the gap-filling."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    rule = prompt.split("Hard rules (never violate)")[1][:1600]
+    assert "Answer only from this dealership's data" in rule
+    assert "three sources" in rule
+    assert "ROW, not the thing it resembles" in rule, "a familiar name must stay a row"
+    assert "do not spend a tool call on it" in rule, "an off-topic ask must not cost tokens"
+
+
+def test_effort_is_set_on_the_agent_not_the_session_override():
+    """`effort` inside a per-session `model` override is silently ignored — no
+    error, no effect. web.py sends such an override for the model picker, so
+    effort only lands if the AGENT carries it."""
+    config = setup_agent.model_config()
+    assert config["id"] == setup_agent.MODEL
+    assert config["effort"] == setup_agent.EFFORT
+    source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
+    assert "effort" not in source, "an effort in web.py's override would do nothing"
+
+
+def test_session_carries_a_spend_ceiling_from_the_start():
+    """`budget` is create-only: a session started without one can never be given
+    one, so this has to be on every create or the ceiling does not exist."""
+    budget = web.SESSION_BUDGET
+    assert budget["type"] == "limit"
+    amount = budget["max_list_cost"]["amount"]
+    assert amount.isdigit() and not amount.startswith("0"), "cents, integer string"
+    assert budget["max_list_cost"]["currency"] == "USD", "the only supported currency"
+    source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
+    assert 'extra_body={"budget": SESSION_BUDGET}' in source, "sent at create, or never"
+
+
+def test_prompt_caps_the_effort_an_off_topic_ask_may_spend():
+    """Two failures, one clause. A vague ask first pulled 200 job cards and
+    rendered a 17-row table; capped at a single lookup it then spent that lookup
+    on vehicles, found nothing, and reported "nothing found" for a name that has
+    six accounts. So: resolve the entity first, then ONE follow-up, then stop."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    rule = prompt.split("Hard rules (never violate)")[1][:2600]
+    assert "`get_accounts` first" in rule, "a name lives on an account"
+    assert "ONE follow-up" in rule
+    assert "No tables, no breakdowns" in rule
+
+
+def test_prompt_forbids_sourcing_allocation_from_the_mcp():
+    """The records rule guards a PATH; a tool has no path to forbid. Without
+    this the live MCP is the easiest way to answer 'which orders are late' with
+    a number that is real, plausible, and not reproducible."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    rule = prompt.split("The plan comes from the solver, not from you.")[1][:900]
+    assert "NEVER from an `xas-app-mcp` tool" in rule
+
+
+def test_prompt_stops_claiming_there_is_no_network():
+    """It said 'No network access — everything is local', which is now false and
+    contradicts a tool the agent holds."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "No network access — everything is local." not in prompt
+    assert 'one exception to "everything is local"' in prompt
+
+
+def test_prompt_makes_the_agent_name_its_reporting_source():
+    """Two reporting sources that can disagree, and the planner cannot tell
+    which produced a number unless the agent says so."""
+    assert "from the live system" in setup_agent.SYSTEM_PROMPT
+    assert "never silently mix them" in setup_agent.SYSTEM_PROMPT
 
 
 # --------------------------------------------------------------------------

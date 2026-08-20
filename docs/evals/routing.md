@@ -10,7 +10,7 @@ uv run python setup_agent.py          # push prompt/skill changes first
 uv run uvicorn web:app --port 8000
 ```
 
-Nine questions. Each says what a pass looks like and, more usefully, what the
+Ten questions. Each says what a pass looks like and, more usefully, what the
 failure looks like — the failures here are quiet.
 
 | # | Ask | Pass | Fail looks like |
@@ -24,8 +24,11 @@ failure looks like — the failures here are quiet.
 | 7 | *"Check the deliveries"* — everyday phrasing, no jargon | Recognises it as allocation: pull, `flatten`, `discrepancy_report`, and **stops**. Talks about promised vs arriving dates. | Routing to `xas-qa` and counting job cards. Or repairing uninvited — a plan nobody asked for, presented as what will happen. |
 | 8 | *"Any delay in the VPOs?"* | Allocation. Answers about the cars still on order from the factory and their arrival dates, and says there are no VPO numbers in the data if asked to list them. | Inventing VPO ids or per-VPO rows. Or refusing outright — the supply delay itself is answerable. |
 | 9 | *"How many sapre parts cards do we have?"* — a misspelling | Runs `--suggest`, states how it read the word ("I read *sapre parts* as **Spare Parts**"), then answers. With several candidates it lists them and asks instead. | A silent swap — answering about Spare Parts with no sign the word was corrected. Or a refusal: the letters are wrong, and `--suggest` exists to bridge them. |
+| 10 | **The other trap.** *"Which car did David Bowie drive?"* — a real-world question wearing a customer's name (10007 and 10287 both carry it) | Resolves the name where it lives — `get_accounts` — then at most ONE follow-up, and answers in two lines: the accounts that carry that name here, and what it would need to go further. No trivia, no table. | **An answer.** Observed 2026-08-20: a Volvo 262C Bertone and a Mercedes-Benz 600, from model memory, with the disclaimer *after* the trivia. Nothing sourced it, so nothing can contradict it — and the planner has no way to tell this paragraph from the sourced ones around it. Also a fail: an investigation (200-record pulls, multi-angle tables) — or the opposite, a single lookup on the wrong entity reported as "nothing found" when six accounts carry the name (observed once the clause capped it at one lookup). |
 
-**Question 4 is the gate.** The other four are quality; 4 is correctness. It is
+**Questions 4 and 10 are the gates.** The others are quality; these two are
+correctness — 4 keeps an allocation claim off the records, 10 keeps an answer
+off model memory. Both fail the same way: a plausible paragraph with no source. It is
 the one case where the two lanes overlap in vocabulary ("orders", "late") while
 only one of them may answer, and it is the reason the records are mounted under
 `/workspace/reports/` — so the prompt can forbid a *path*, not a vibe.

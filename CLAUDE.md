@@ -55,11 +55,15 @@ client lazily rather than at import.
 
 | Where | Holds | Runs |
 | --- | --- | --- |
-| `web.py` here | organization API key (`.env`) | the one custom tool, and the three host-side fetches that become mounts |
-| Anthropic's sandbox | nothing of ours | bash, file tools, the solver |
+| `web.py` here | organization API key, `MCP_TOKEN_ENC_KEY`, the dev login (`.env`) | the one custom tool, the host-side fetches that become mounts, and the 20-min bearer rotation |
+| Anthropic's vault | the app-MCP bearer only (write-only; never returned) | credential injection at egress |
+| Anthropic's sandbox | nothing of ours | bash, file tools, the solver, the MCP tool calls |
 
 The agent's shell is on Anthropic's side, so it has no path to this host's
-filesystem, credentials, or network. That is the whole reason this branch
+filesystem, credentials, or network. The app MCP does not change that: the bearer
+is stored in the vault and added by Anthropic's proxy *after* the request leaves
+the sandbox, so code the agent writes cannot read or exfiltrate it even under
+prompt injection. That is the whole reason this branch
 exists.
 
 **A custom tool is answered by the client wherever the sandbox lives.** That is
@@ -82,8 +86,61 @@ XAS endpoint and its credential never touch the sandbox.
   `setup_agent.py` keeps the rest of `agent_toolset_20260401` and turns
   those two off per-tool. Everything the plan may depend on arrives in the pull, so
   a web lookup could only add state the snapshot doesn't hold — the invariant's
-  first input stops being a snapshot. (The cloud environment already has no egress;
-  this also keeps the two tools out of the agent's context.)
+  first input stops being a snapshot. (The environment's egress is MCP-only, so
+  they could reach nothing anyway; this also keeps them out of the agent's context.)
+- **The app MCP is the reporting lane's, and the prompt is the only fence.**
+  `xas-app-mcp` (added 2026-08-19) gives the agent six read tools against the LIVE
+  dev system. The records rule forbids a *path*; a tool has no path, so the hard
+  rule names the toolset explicitly — "NEVER from an `xas-app-mcp` tool" — and the
+  prompt makes the agent say which source a reporting number came from. An
+  allocation claim sourced from live data is worse than one read from
+  `jobcards.json`: it changes under you, so the turn is not even reproducible in
+  principle. `tests/test_agent_contract.py` pins the rule and the two-place
+  declaration (`MCP_SERVERS` + the `mcp_toolset` that grants it — a server nothing
+  references is a validation error, and so is the reverse).
+- **Three places must agree on the MCP URL, and a mismatch is silent.** The agent
+  declares it (`MCP_SERVERS`), the vault credential is keyed by it
+  (`appmcp_auth.APPMCP_URL`), and the environment must allow the egress
+  (`NETWORKING["allow_mcp_servers"]`). Vault matching normalizes host case, default
+  ports and a trailing slash but compares the PATH byte-for-byte; no match means
+  the call goes out **unauthenticated** and looks like a 401 from the MCP. Without
+  `allow_mcp_servers` under `limited` networking, MCP tools fail with no error at
+  all. `setup_agent.py` re-sends the networking config every run so the live
+  environment cannot drift from the file.
+- **The MCP bearer is two nested credentials, and only the outer one is ours.**
+  `appmcp_auth.py` mints an AES-256-GCM JWE (7 days) around a `__DMS_app_token`
+  the gateway issues at login (**30 minutes**), and rotates it into the vault every
+  20 minutes — awaited once at session start, then on a session-owned task
+  alongside the tool answerer. `mcp_oauth` auto-refresh cannot do this: its
+  `token_endpoint` is a standard OAuth grant, and our outer token has to be
+  encrypted here with `MCP_TOKEN_ENC_KEY`. The two expiries fail differently — a
+  stale outer token is a flat `401`, a stale inner one is `200` + `isError` +
+  "chat session has expired" — and `tools/list` never reaches the gateway, so it
+  keeps working under both and proves nothing.
+- **`appmcp_auth` reads its config per call, not at import.** `web.py` imports it
+  *above* its own `load_dotenv()`, so module-level `os.environ.get` captures
+  `None` for all six vars: `configured()` goes False, `vault_ids` is dropped from
+  the session without comment, and the agent's first MCP call fails
+  `initialize failed: no credential is stored for this server URL` — a message
+  that points at the URL while the URL is fine. Fixed 2026-08-20; pinned by
+  `test_credential_config_is_read_after_the_environment_loads`, and `web.py` now
+  names the missing vars in a warning.
+- **`effort` only works on the agent, and the failure is silence.** `setup_agent.model_config()`
+  sends `{"id": MODEL, "effort": "medium"}`. An `effort` inside a per-session
+  `model` override is IGNORED — not rejected — and `web.py` sends exactly such an
+  override for the model picker, so a session always runs at the agent's level.
+  Effort drives how many tool calls a turn spends, so this is a cost knob as much
+  as a quality one; changing it means re-running `docs/evals/routing.md`.
+- **The session budget is create-only, so it is set on every create or not at
+  all.** `web.py`'s `SESSION_BUDGET` caps ONE session's list-priced spend at $10
+  (model tokens + web search + $0.08/hour of runtime). At the cap the session goes
+  `idle` with `stop_reason: budget_reached`, keeps its container and history, and
+  accepts only settle events — a new `user.message` is a 400, which `/message`
+  turns into a 409 rather than an opaque 500. Only raising or removing the budget
+  resumes it, removal is one-way, and it can never be ADDED to a running session.
+  It rides in `extra_body` because anthropic 0.120.2 does not model the field yet.
+  There is no step or iteration cap on the platform — this budget and the prompt's
+  frugality clause are the only ceilings.
 - **The tool answerer is owned by the session, not the browser.** `web.py` starts
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull

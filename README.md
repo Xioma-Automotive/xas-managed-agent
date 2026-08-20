@@ -3,7 +3,7 @@
 A Claude **Managed Agent** for Xioma Automotive, running against an
 **Anthropic-hosted** sandbox. The agent's bash and file tools execute in
 Anthropic's container; nothing on your machine runs them. Uses the Managed
-Agents REST surface via the Python `anthropic` SDK, model `claude-opus-5`.
+Agents REST surface via the Python `anthropic` SDK, model `claude-opus-4-8` (Opus 5 / Sonnet 5 / Haiku 4.5 selectable per session).
 
 > The self-hosted variant is on `claude/agent-spec-managed-i6tn8r`. It runs the
 > agent's shell as your own uid — in testing, an agent there enumerated every
