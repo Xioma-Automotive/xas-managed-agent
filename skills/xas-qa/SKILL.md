@@ -141,6 +141,46 @@ answer. Every figure you report traces back to a row in the phrasebook.
     `(\w+)="([^"]*)"` regex silently drops every boolean, `closed` included. The
     phrasebook has already handled this — one more reason to use it.
 
+## Getting the number — filter, never page
+
+Every `get_job_cards` response carries **`totalCount` for the filter you sent**,
+independent of how many rows come back. That is the count. Ask for one row and
+read it:
+
+```
+get_job_cards  filter: {…}  paging: {"count": 1}   ->  totalCount
+```
+
+**Never page through records to compute an aggregate.** A breakdown is one
+filtered call per bucket, each with `count: 1` — ten buckets is ten cheap calls.
+Pulling the rows instead costs roughly forty times as much, because every record
+you fetch stays in this conversation and is re-read on every later turn of the
+session. It also arrives padded: a job card carries eleven account-role objects
+and the owner's whole contact list, none of which a count needs.
+
+| Goal | Call |
+| --- | --- |
+| One count | `filter: {…}`, `paging: {"count": 1}` -> `totalCount` |
+| Breakdown by classification | one call per `code`: `filter: {"JobClassification": "<code>"}` |
+| Breakdown by status | one call per status `id`: `filter: {"JobStatus.ID": "<id>"}` |
+| Still-open only | `filter: {"OpenJobCards": true}` |
+| The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/phrasebook.tsv \| sort -u` |
+
+Fetch actual rows only when the planner wants to **see** cards — then keep
+`paging.count` small and name the ones you show.
+
+**Dates are compared in UTC; this tenant's records are stamped `+03:00`.** Convert
+the local month boundary yourself or you clip the first three hours of the month
+and silently absorb three hours of the next one:
+
+```
+July 2026  ->  start "2026-06-30T21:00:00.000Z"   end "2026-07-31T20:59:59.999Z"
+```
+
+**A tool result big enough to be offloaded to a file is a symptom, not a
+convenience.** It means you asked for rows you did not need — the tokens are
+already spent by the time you read the file. Re-ask with `count: 1` instead.
+
 ## What the taxonomy does NOT contain
 
 Resolve these from the **records**, not from the index or phrasebook — asking the

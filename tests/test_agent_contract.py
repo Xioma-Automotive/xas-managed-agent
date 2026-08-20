@@ -357,6 +357,19 @@ def test_flatten_command_never_searches_from_root():
     assert "p != root" in command
 
 
+def test_qa_skill_counts_with_totalcount_not_by_paging_records():
+    """Observed 2026-08-20: asked for last month's job cards by type, the agent
+    paged 245 full records into context (~83k tokens, re-read on every later
+    turn) to compute ten integers. The filter's `totalCount` was in every
+    response. Also pins the +03:00 boundary — filters compare in UTC, so a local
+    month asked for naively clips its first three hours."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "totalCount" in skill
+    assert 'paging: {"count": 1}' in skill
+    assert "Never page through records to compute an aggregate" in skill
+    assert "+03:00" in skill, "the UTC/local boundary rule must be spelled out"
+
+
 def test_qa_skill_sends_the_agent_to_the_mcp_not_to_a_file():
     """Every records path the skill named is gone. One left behind sends the
     agent hunting a mount that does not exist, and the recovery it improvises is
