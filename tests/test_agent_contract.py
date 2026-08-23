@@ -42,8 +42,8 @@ def _description(skill_md: Path) -> str:
 
 
 def test_agent_carries_both_skills():
-    skills = setup_agent._skills("sk_alloc", "sk_qa")
-    assert [s["skill_id"] for s in skills] == ["sk_alloc", "sk_qa"]
+    skills = setup_agent._skills("sk_alloc", "sk_reporting")
+    assert [s["skill_id"] for s in skills] == ["sk_alloc", "sk_reporting"]
     assert all(s["type"] == "custom" for s in skills)
 
 
@@ -224,7 +224,7 @@ def test_prompt_says_where_the_taxonomy_lives():
     """It is no longer a mount (DECIDE-16), so the prompt must send the agent to
     the skill directory instead of a path that does not exist."""
     prompt = setup_agent.SYSTEM_PROMPT
-    assert "index.md` ships inside the `xas-qa` skill directory" in prompt
+    assert "index.md` ships inside the `xas-reporting` skill directory" in prompt
     assert "/workspace/reports/index.md" not in prompt
 
 
@@ -239,17 +239,17 @@ def test_prompt_answers_in_the_users_language():
 
 
 def test_skill_descriptions_are_disjoint():
-    qa = _description(setup_agent.QA_SKILL_DIR / "SKILL.md")
+    reporting = _description(setup_agent.REPORTING_SKILL_DIR / "SKILL.md")
     alloc = _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md")
-    assert "Do NOT use for allocation repair" in qa
+    assert "Do NOT use for allocation repair" in reporting
     assert "Do NOT use for general reporting" in alloc
 
 
-def test_qa_skill_does_not_claim_every_turn():
+def test_reporting_skill_does_not_claim_every_turn():
     """It once said 'use on every turn that names a document type' — alone on its
     own agent that was fine; beside xas-allocation it fires on allocation turns,
     because a VSO *is* a document type."""
-    assert "every turn" not in _description(setup_agent.QA_SKILL_DIR / "SKILL.md")
+    assert "every turn" not in _description(setup_agent.REPORTING_SKILL_DIR / "SKILL.md")
 
 
 # --------------------------------------------------------------------------
@@ -259,7 +259,10 @@ def test_qa_skill_does_not_claim_every_turn():
 
 @pytest.mark.parametrize(
     "bundle,root",
-    [(setup_agent.alloc_bundle(), "xas-allocation"), (setup_agent.qa_bundle(), "xas-qa")],
+    [
+        (setup_agent.alloc_bundle(), "xas-allocation"),
+        (setup_agent.reporting_bundle(), "xas-reporting"),
+    ],
 )
 def test_bundle_has_skill_md_at_its_root(bundle, root):
     assert any(name == f"{root}/SKILL.md" for name, _ in bundle)
@@ -270,18 +273,18 @@ def test_alloc_bundle_ships_the_solver():
     assert "xas-allocation/xas_allocation/solver.py" in names
 
 
-def test_qa_bundle_ships_the_phrasebook_builder_and_the_taxonomy():
+def test_reporting_bundle_ships_the_phrasebook_builder_and_the_taxonomy():
     """The taxonomy is the ONE dataset that ships in a bundle (DECIDE-16) — it is
     static config for the single tenant, and phrasebook.py finds it beside
     itself instead of hunting for a mount."""
-    assert [n for n, _ in setup_agent.qa_bundle()] == [
-        "xas-qa/SKILL.md",
-        "xas-qa/index.md",
-        "xas-qa/phrasebook.py",
+    assert [n for n, _ in setup_agent.reporting_bundle()] == [
+        "xas-reporting/SKILL.md",
+        "xas-reporting/index.md",
+        "xas-reporting/phrasebook.py",
     ]
 
 
-@pytest.mark.parametrize("bundle", [setup_agent.alloc_bundle(), setup_agent.qa_bundle()])
+@pytest.mark.parametrize("bundle", [setup_agent.alloc_bundle(), setup_agent.reporting_bundle()])
 def test_no_session_dataset_is_bundled(bundle):
     """The pull is mounted per session, so regenerating it needs no redeploy.
     (The taxonomy is the deliberate exception — DECIDE-16.)"""
@@ -316,7 +319,7 @@ def test_every_mounted_input_is_filtered_from_outputs():
 
 
 def test_bundled_taxonomy_is_the_real_index():
-    bundled = dict(setup_agent.qa_bundle())["xas-qa/index.md"]
+    bundled = dict(setup_agent.reporting_bundle())["xas-reporting/index.md"]
     assert bundled.startswith(b"# Taxonomy")
 
 
@@ -357,41 +360,53 @@ def test_flatten_command_never_searches_from_root():
     assert "p != root" in command
 
 
-def test_qa_skill_counts_with_totalcount_not_by_paging_records():
+def test_reporting_skill_counts_with_totalcount_not_by_paging_records():
     """Observed 2026-08-20: asked for last month's job cards by type, the agent
     paged 245 full records into context (~83k tokens, re-read on every later
     turn) to compute ten integers. The filter's `totalCount` was in every
     response. Also pins the +03:00 boundary — filters compare in UTC, so a local
-    month asked for naively clips its first three hours.
+    month asked for naively clips its first three hours. That boundary moved to
+    `index.md` on 2026-08-23 (it sits beside the bounds shape, which was only ever
+    documented there); the skill must still point at it.
 
     Refined 2026-08-23: the old wording ("never page through records") also banned
-    reading ONE page and tallying it, so a split by type over a 3-card day cost a
-    `count: 1` probe plus a re-send of the same filter for the rows. Walking pages
-    is still forbidden; one modest page is now the cheaper plan when the population
-    is smaller than the bucket list."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    reading ONE page when the cards themselves were the answer. Walking pages to
+    add up a total is still forbidden."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "totalCount" in skill
     assert 'paging: {"count": 1}' in skill
     assert "Never walk pages to compute an aggregate" in skill
-    assert "+03:00" in skill, "the UTC/local boundary rule must be spelled out"
+    index = (setup_agent.REPORTING_SKILL_DIR / "index.md").read_text(encoding="utf-8")
+    assert "+03:00" in index, "the UTC/local boundary rule must be spelled out"
+    assert "index.md" in skill.split("## Getting the number")[1], (
+        "and the counting section must send the agent there before it builds a date filter"
+    )
 
 
-def test_qa_skill_does_not_probe_then_refetch_the_same_filter():
+def test_reporting_skill_does_not_probe_then_refetch_the_same_filter():
     """Observed 2026-08-23: "job cards opened last Thursday as a chart" sent the
     same filter twice — `count: 1` for totalCount (3), then `count: 3` for the rows
     it needed to split by type. `totalCount` rides on every response, so the first
-    call was the second call with the rows thrown away."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    call was the second call with the rows thrown away.
+
+    Simplified 2026-08-23: the fix was first a cost rule (tally one page when the
+    population is smaller than the bucket list), which took three paragraphs and a
+    threshold to state. It is now a question-shape rule — a count question gets
+    `count: 1`, a "show me the cards" question gets the rows — and the no-refetch
+    line rides on the second one."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "same query twice" in skill
     assert "rides on every response" in skill
-    assert "at or below the number of buckets" in skill, "the plan-choice rule"
+    assert '"Show me the cards that' in skill, "the rows case must have its own heading"
+    assert "Up to 5 buckets" in skill, "the bucket threshold, or a breakdown has no rule"
+    assert "More than 5" in skill
 
 
-def test_qa_skill_sends_the_agent_to_the_mcp_not_to_a_file():
+def test_reporting_skill_sends_the_agent_to_the_mcp_not_to_a_file():
     """Every records path the skill named is gone. One left behind sends the
     agent hunting a mount that does not exist, and the recovery it improvises is
     the live MCP with no mention of where the number came from."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "/workspace/index.md" not in skill
     assert "/workspace/jobcards.json" not in skill
     assert "/workspace/reports" not in skill
@@ -407,13 +422,13 @@ def test_alloc_description_carries_the_words_users_type(phrase):
     assert phrase in _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md").lower()
 
 
-def test_qa_description_disclaims_the_allocation_vocabulary():
+def test_reporting_description_disclaims_the_allocation_vocabulary():
     """ "How many VSOs are late" is a COUNT, which reads like reporting -- and is
     an allocation question. Both descriptions must say so or the platform picks
     on surface form."""
-    qa = _description(setup_agent.QA_SKILL_DIR / "SKILL.md").lower()
+    reporting = _description(setup_agent.REPORTING_SKILL_DIR / "SKILL.md").lower()
     for phrase in ("deliveries", "vso", "vpo", "supply"):
-        assert phrase in qa
+        assert phrase in reporting
 
 
 def test_alloc_skill_stops_a_status_question_at_the_report():
@@ -428,11 +443,11 @@ def test_prompt_routes_the_everyday_words():
         assert phrase in prompt
 
 
-def test_qa_skill_has_a_dead_end_rule():
+def test_reporting_skill_has_a_dead_end_rule():
     """A term that resolves to nothing used to be undefined behaviour, so the
     model improvised -- sometimes answering with the closest-looking code, which
     returns a real-looking number nobody can tell is wrong."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Never answer with an unresolved term." in skill
     assert "--suggest" in skill, "the typo rung must be documented or it is never run"
 
@@ -446,7 +461,7 @@ def test_reporting_reply_keeps_the_procedure_out_of_it():
     covers, not a work log. Observed before this rule: answers that opened with
     the phrasebook build, the resolved code and the filtered call, and closed with
     the path a chart was written to — none of which the planner can act on."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "none of it belongs in the reply" in skill
     for internal in ("phrasebook", "totalCount", "no file path, no filename"):
         assert internal in skill.split("## Presenting the answer")[1]
@@ -460,7 +475,7 @@ def test_between_tool_calls_the_agent_says_nothing():
     "Let me check the timeframe first", "28 Service cards — small", and "all 16
     buckets sum to 28 — the split is clean". Every line between tool calls reaches
     the planner, so the rule has to cover the whole turn, not just the answer."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Everything you type is the reply." in skill
     prompt = setup_agent.SYSTEM_PROMPT
     assert "there is no working-notes channel" in prompt
@@ -474,7 +489,7 @@ def test_agent_does_not_report_where_the_chart_was_written():
     prompt = setup_agent.SYSTEM_PROMPT
     assert "say the filename in your reply" not in prompt
     assert "Not the filename, not the directory" in prompt
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Not the filename, not the directory" in skill
 
 
@@ -482,11 +497,11 @@ def test_phrasebook_reads_the_taxonomy_beside_itself():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "phrasebook", setup_agent.QA_SKILL_DIR / "phrasebook.py"
+        "phrasebook", setup_agent.REPORTING_SKILL_DIR / "phrasebook.py"
     )
     phrasebook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(phrasebook)
-    assert phrasebook.INDEX_PATH == (setup_agent.QA_SKILL_DIR / "index.md").resolve()
+    assert phrasebook.INDEX_PATH == (setup_agent.REPORTING_SKILL_DIR / "index.md").resolve()
     assert phrasebook.default_index() is not None
 
 
@@ -501,7 +516,7 @@ def test_agent_is_told_where_charts_must_go():
     """Only /mnt/session/outputs is captured by the Files API. A chart written
     anywhere else runs successfully and is seen by nobody."""
     assert OUTPUTS_DIR in setup_agent.SYSTEM_PROMPT
-    assert OUTPUTS_DIR in (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert OUTPUTS_DIR in (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_agent_is_told_not_to_read_the_chart_back():
@@ -510,7 +525,7 @@ def test_agent_is_told_not_to_read_the_chart_back():
     assert "do not read the chart back" in prompt
     assert (
         "do not read the chart back"
-        in (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
+        in (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
     )
 
 
@@ -538,7 +553,7 @@ def test_charts_are_self_contained_html():
     """Inline SVG, not a CDN link: the page is opened later in another browser,
     so anything it must fetch is a dependency that can fail. It also measures
     SMALLER than the equivalent PNG (39.5KB vs 55.5KB for the same chart)."""
-    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "self-contained" in skill.lower()
     assert 'format="svg"' in skill, "the recipe must save SVG, not PNG"
     assert "matplotlib.use" in skill, "no display in the sandbox — Agg backend required"

@@ -2,7 +2,7 @@
 """Control-plane setup for the XAS Agent (Managed Agent).
 
 ONE agent, TWO skills. Specialisation lives in the skills, not in separate agent
-objects: `xas-allocation` drives the deterministic solver, `xas-qa` answers
+objects: `xas-allocation` drives the deterministic solver, `xas-reporting` answers
 reporting questions over the dealership's job-card records. The API allows 20 skills
 per agent; we use 2.
 
@@ -47,13 +47,13 @@ load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent
 ALLOC_SKILL_DIR = REPO_ROOT / "skills" / "xas-allocation"
-QA_SKILL_DIR = REPO_ROOT / "skills" / "xas-qa"
+REPORTING_SKILL_DIR = REPO_ROOT / "skills" / "xas-reporting"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
 ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
 ALLOC_SKILL_ID = os.environ.get("ALLOC_SKILL_ID")
-QA_SKILL_ID = os.environ.get("QA_SKILL_ID")
+REPORTING_SKILL_ID = os.environ.get("REPORTING_SKILL_ID")
 
 # The credential check and the client are deliberately NOT module-level: the
 # prompt, the tool list and the skill bundles are the agent's contract, and
@@ -99,7 +99,7 @@ APPMCP_SERVER_NAME = "xas-app-mcp"
 # Unique per organization, and the self-hosted branch already holds
 # "XAS allocation repair" — creating a skill reuses no title.
 ALLOC_SKILL_TITLE = "XAS allocation repair (cloud sandbox)"
-QA_SKILL_TITLE = "XAS terminology resolution (reporting)"
+REPORTING_SKILL_TITLE = "XAS reporting (cloud sandbox)"
 
 # §10 — the system prompt carries identity, the one-line job, and the HARD RULES.
 # Everything procedural (cost model, spec-compat, reference solver) lives in the
@@ -108,7 +108,7 @@ SYSTEM_PROMPT = """\
 You are the XAS Agent for Xioma Automotive. You do two jobs for dealership staff:
 
 1. ALLOCATION REPAIR — help a planner repair a vehicle-to-order allocation after a disruption (delayed shipment, changed inbound, manual steering). Driven by the `xas-allocation` skill.
-2. REPORTING — answer questions about the dealership's job-card records (how many, which branch, what status) and draw charts. Driven by the `xas-qa` skill.
+2. REPORTING — answer questions about the dealership's job-card records (how many, which branch, what status) and draw charts. Driven by the `xas-reporting` skill.
 
 Read what was asked and use the matching skill, and expect the everyday words rather than ours. Deliveries, arrivals, "what's late", a VSO / vehicle sales order / sales order / customer order, a delay in supply or in a VPO / vehicle purchase order, which car an order gets — all ALLOCATION. The Service job-card records (how many, which branch, what status, charts) — REPORTING. Nobody says "snapshot": a question about where the deliveries stand is an allocation turn that STOPS at the discrepancy report, not a repair — never re-allocate, and never offer a plan, until they ask for one. The hard rules below apply to both, and the first one is what keeps the two jobs from contaminating each other.
 
@@ -121,7 +121,7 @@ Run `pip install ortools` once per session; the solver needs it.
 Call pull_allocation_snapshot to get data. It returns a summary plus a `flatten` command — run that command verbatim to write snapshot.json into your sandbox. `flatten` maps the rich pull (VSO jobcards + a vehicle pool of real/future vehicles) into the solver's orders/units/incumbent arrays; it is pure code (`xas_allocation.flatten`), not something to reason out by hand. Then read the file from your solver code, never into this conversation.
 Your data is mounted as one file:
   /workspace/pull.json    the allocation snapshot. Reached through the pull_allocation_snapshot tool and the `flatten` command — never read by hand.
-The tenant's taxonomy is NOT mounted — `index.md` ships inside the `xas-qa` skill directory, beside `phrasebook.py`. It lists every live entity, classification and status with the multi-language names users actually say, and is the ONLY authority for turning business words into system codes.
+The tenant's taxonomy is NOT mounted — `index.md` ships inside the `xas-reporting` skill directory, beside `phrasebook.py`. It lists every live entity, classification and status with the multi-language names users actually say, and is the ONLY authority for turning business words into system codes.
 The `xas-app-mcp` tools (get_job_cards, get_job_card, get_vehicles, get_vehicle, get_accounts, get_account) read the LIVE XAS dev system. They are the one exception to "everything is local", they are REPORTING's only source of records, and the hard rule below governs them. You never handle their credential and cannot see it. Otherwise there is no network: no web search, no web fetch, nothing else to reach.
 
 Determinism (the core invariant)
@@ -160,7 +160,7 @@ Say the one thing they would otherwise miss in a single sentence, and end with t
 
 Reporting (the other job)
 
-For a question about the records — counts, breakdowns, statuses, branches, charts — use the xas-qa skill. It holds the procedure: build the phrasebook once, resolve the user's words against it exact-first, then compute the answer from what the `xas-app-mcp` tools return. Never eyeball the records and never invent a number. Resolve every business term through the taxonomy rather than guessing a code, translate codes back to human names before answering, and if a term matches more than one classification ask ONE short question instead of picking. If a term matches NOTHING, work the skill's ladder — other wordings first (the grep confirms them, not you), then `phrasebook.py --suggest` for a misspelling — and if it still does not resolve, say so, offer the nearest entries and ask. NEVER answer with a term you could not resolve: the closest-looking code returns a real-looking number the user cannot tell is wrong. None of that procedure appears in the reply: the planner gets the business answer — the figure, what it covers, and anything that changes how they read it — never the lookups, the tool calls, the filters, or a file you wrote.
+For a question about the records — counts, breakdowns, statuses, branches, charts — use the xas-reporting skill. It holds the procedure: build the phrasebook once, resolve the user's words against it exact-first, then compute the answer from what the `xas-app-mcp` tools return. Never eyeball the records and never invent a number. Resolve every business term through the taxonomy rather than guessing a code, translate codes back to human names before answering, and if a term matches more than one classification ask ONE short question instead of picking. If a term matches NOTHING, work the skill's ladder — other wordings first (the grep confirms them, not you), then `phrasebook.py --suggest` for a misspelling — and if it still does not resolve, say so, offer the nearest entries and ask. NEVER answer with a term you could not resolve: the closest-looking code returns a real-looking number the user cannot tell is wrong. None of that procedure appears in the reply: the planner gets the business answer — the figure, what it covers, and anything that changes how they read it — never the lookups, the tool calls, the filters, or a file you wrote.
 
 Charts: write a SELF-CONTAINED .html file into /mnt/session/outputs/ — that directory is the ONLY one the planner's screen can reach, and a chart written anywhere else is invisible to them. Self-contained means the SVG is inlined in the page: never link a CDN or an external stylesheet. The skill has the exact recipe. Name the file in the planner's words — they see it as the caption above the chart, so never a code or an id — then say in ONE line what the chart shows and STOP. Not the filename, not the directory, not that a file was written at all; and do not read the chart back with the read tool. You already know what you plotted, the planner sees it rendered, and reading it back costs tens of thousands of tokens for nothing. Label axes and legends with human names, never raw codes.
 
@@ -232,7 +232,7 @@ def skill_files(skill_dir: Path, package: Path | None = None) -> list[tuple[str,
     rather than duplicating files, so the tests and the skill run against the
     same source. The pull is never bundled — it is mounted per session (see
     web.py), so regenerating it needs no redeploy.
-    Changing this code does, and so does editing the taxonomy the QA bundle now
+    Changing this code does, and so does editing the taxonomy the reporting bundle now
     carries (DECIDE-16).
     """
     files: list[tuple[str, bytes]] = []
@@ -253,7 +253,7 @@ def alloc_bundle() -> list[tuple[str, bytes]]:
     return skill_files(ALLOC_SKILL_DIR, REPO_ROOT / "xas_allocation")
 
 
-def qa_bundle() -> list[tuple[str, bytes]]:
+def reporting_bundle() -> list[tuple[str, bytes]]:
     """SKILL.md + phrasebook.py + index.md. No package: grep over a flattened
     table is the matcher.
 
@@ -265,7 +265,7 @@ def qa_bundle() -> list[tuple[str, bytes]]:
     reverted from this commit); do NOT fix it by bundling every tenant's
     taxonomy, which shows each session all the others.
     """
-    return skill_files(QA_SKILL_DIR)
+    return skill_files(REPORTING_SKILL_DIR)
 
 
 # Still deny-by-default: no allowed_hosts, so the agent reaches no host of its
@@ -316,29 +316,29 @@ def update_skill(skill_id: str, files: list[tuple[str, bytes]], title: str) -> N
     print(f"Updated skill:       {skill_id} -> version {version.version}  ({title})")
 
 
-def _skills(alloc_skill_id: str, qa_skill_id: str) -> list[dict]:
+def _skills(alloc_skill_id: str, reporting_skill_id: str) -> list[dict]:
     """Both entries, every time — agents.update() PRESERVES omitted array fields,
     so a skills list that is not sent is a skills list that does not change."""
     return [
         {"type": "custom", "skill_id": alloc_skill_id},
-        {"type": "custom", "skill_id": qa_skill_id},
+        {"type": "custom", "skill_id": reporting_skill_id},
     ]
 
 
-def create_agent(alloc_skill_id: str, qa_skill_id: str) -> str:
+def create_agent(alloc_skill_id: str, reporting_skill_id: str) -> str:
     agent = client().beta.agents.create(
         name=AGENT_NAME,
         model=model_config(),
         system=SYSTEM_PROMPT,
         tools=TOOLS,
         mcp_servers=MCP_SERVERS,
-        skills=_skills(alloc_skill_id, qa_skill_id),
+        skills=_skills(alloc_skill_id, reporting_skill_id),
     )
     print(f"Created agent:       {agent.id}  (version {agent.version})")
     return agent.id
 
 
-def update_agent(agent_id: str, alloc_skill_id: str, qa_skill_id: str) -> None:
+def update_agent(agent_id: str, alloc_skill_id: str, reporting_skill_id: str) -> None:
     agent = client().beta.agents.update(
         agent_id,
         # Sent on update too: the agent predates the merge and would otherwise
@@ -348,7 +348,7 @@ def update_agent(agent_id: str, alloc_skill_id: str, qa_skill_id: str) -> None:
         system=SYSTEM_PROMPT,
         tools=TOOLS,
         mcp_servers=MCP_SERVERS,
-        skills=_skills(alloc_skill_id, qa_skill_id),
+        skills=_skills(alloc_skill_id, reporting_skill_id),
     )
     print(f"Updated agent:       {agent.id}  (version {agent.version}, 2 skills, 1 MCP)")
 
@@ -374,32 +374,32 @@ def main() -> None:
     """Three paths, because the allocation agent already exists.
 
     The common one after the merge is the MIDDLE case: agent, environment and
-    allocation skill are live, the QA skill is not. That path creates one skill
+    allocation skill are live, the reporting skill is not. That path creates one skill
     and updates the agent to carry both — it never creates a second agent.
     """
     if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)
 
     # Everything exists — refresh both bundles and the agent.
-    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and QA_SKILL_ID:
+    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and REPORTING_SKILL_ID:
         print("All resources exist — updating in place.\n")
         update_environment(ALLOC_ENV_ID)
         update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
-        update_skill(QA_SKILL_ID, qa_bundle(), QA_SKILL_TITLE)
-        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, QA_SKILL_ID)
+        update_skill(REPORTING_SKILL_ID, reporting_bundle(), REPORTING_SKILL_TITLE)
+        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, REPORTING_SKILL_ID)
         print("\nDone. The IDs in .env are unchanged.")
         return
 
-    # The migration path: add the QA skill to the agent that already exists.
-    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and not QA_SKILL_ID:
+    # The migration path: add the reporting skill to the agent that already exists.
+    if ALLOC_AGENT_ID and ALLOC_ENV_ID and ALLOC_SKILL_ID and not REPORTING_SKILL_ID:
         print("Adding the reporting skill to the existing agent.\n")
         update_environment(ALLOC_ENV_ID)
         update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
-        qa_skill_id = create_skill(qa_bundle(), QA_SKILL_TITLE)
-        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, qa_skill_id)
+        reporting_skill_id = create_skill(reporting_bundle(), REPORTING_SKILL_TITLE)
+        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, reporting_skill_id)
         print("\n" + "=" * 60)
         print("Add this ONE line to your .env (the others are unchanged):\n")
-        print(f"QA_SKILL_ID={qa_skill_id}")
+        print(f"REPORTING_SKILL_ID={reporting_skill_id}")
         print("=" * 60)
         return
 
@@ -407,15 +407,17 @@ def main() -> None:
     environment_id = ALLOC_ENV_ID or create_environment()
     check_environment_type(environment_id)
     alloc_skill_id = ALLOC_SKILL_ID or create_skill(alloc_bundle(), ALLOC_SKILL_TITLE)
-    qa_skill_id = QA_SKILL_ID or create_skill(qa_bundle(), QA_SKILL_TITLE)
-    agent_id = ALLOC_AGENT_ID or create_agent(alloc_skill_id, qa_skill_id)
+    reporting_skill_id = REPORTING_SKILL_ID or create_skill(
+        reporting_bundle(), REPORTING_SKILL_TITLE
+    )
+    agent_id = ALLOC_AGENT_ID or create_agent(alloc_skill_id, reporting_skill_id)
 
     print("\n" + "=" * 60)
     print("Setup complete. Paste these into your .env:\n")
     print(f"ALLOC_AGENT_ID={agent_id}")
     print(f"ALLOC_ENV_ID={environment_id}")
     print(f"ALLOC_SKILL_ID={alloc_skill_id}")
-    print(f"QA_SKILL_ID={qa_skill_id}")
+    print(f"REPORTING_SKILL_ID={reporting_skill_id}")
     print("=" * 60)
     print(
         "\nThe environment is Anthropic-hosted — there is no worker to start and no\n"

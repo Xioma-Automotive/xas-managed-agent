@@ -103,7 +103,7 @@ def _make_vehicle(rng: random.Random, model: str, eta: date, code: int) -> dict:
         "ModelId": {"Code": model, "Name": MODEL_NAMES.get(model, model)},
         "Make": "Chery",
         "VehicleClassification": classification,
-        # The tenant's real vehicle-status codes (skills/xas-qa/index.md):
+        # The tenant's real vehicle-status codes (skills/xas-reporting/index.md):
         # 03 = In Stock, 01 = Ordered. Descriptive only — the future/real split
         # the solver uses comes from VehicleClassification above.
         "Status": (

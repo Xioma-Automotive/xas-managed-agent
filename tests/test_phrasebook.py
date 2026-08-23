@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INDEX = REPO_ROOT / "skills" / "xas-qa" / "index.md"
+INDEX = REPO_ROOT / "skills" / "xas-reporting" / "index.md"
 
 _spec = importlib.util.spec_from_file_location(
-    "phrasebook", REPO_ROOT / "skills" / "xas-qa" / "phrasebook.py"
+    "phrasebook", REPO_ROOT / "skills" / "xas-reporting" / "phrasebook.py"
 )
 phrasebook = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(phrasebook)

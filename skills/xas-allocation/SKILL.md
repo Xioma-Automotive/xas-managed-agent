@@ -13,7 +13,7 @@ description: >-
   solver, run the λ sweep, self-check hard constraints, and emit a reason-coded
   change list. Does NOT allocate by reasoning — it drives the reference solver.
   Do NOT use for general reporting over job-card records (counts, breakdowns,
-  charts) — that is xas-qa.
+  charts) — that is xas-reporting.
 ---
 
 # XAS allocation repair skill

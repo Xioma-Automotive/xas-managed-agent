@@ -7,7 +7,7 @@ the code.
 
 **One agent, two skills.** Specialisation lives in the skills, not in separate
 agent objects: `xas-allocation` drives the deterministic solver,
-`xas-qa` answers reporting questions over the live job-card records. Both are
+`xas-reporting` answers reporting questions over the live job-card records. Both are
 declared on the single agent behind `ALLOC_AGENT_ID`; `setup_agent.py` sends both
 every time. The reporting lane's own agent was never created — it exists only as
 a skill.
@@ -149,10 +149,10 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, and one dataset.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-qa/` (SKILL.md + `phrasebook.py` + `index.md`). The one SESSION dataset is
+  `xas-reporting/` (SKILL.md + `phrasebook.py` + `index.md`). The one SESSION dataset is
   still mounted per session by `web.py` — the pull from
   `datasource.get_source()` — so regenerating it needs no re-deploy. The tenant
-  taxonomy is the exception (DECIDE-16): it rides in the `xas-qa` bundle
+  taxonomy is the exception (DECIDE-16): it rides in the `xas-reporting` bundle
   because there is one tenant, `phrasebook.py`
   finds it beside itself, and the price is that the caller can no longer pick a
   dealership per session. **Change either skill, the solver package, or the
@@ -229,6 +229,17 @@ XAS endpoint and its credential never touch the sandbox.
   searched for: it's read from the known `MOUNT_PATH` the host mounted it at.) An
   unbounded `find /` exceeds the 120s bash timeout and kills the agent's shell;
   that is not hypothetical, it happened on the self-hosted build.
+- **A skill's `name` is immutable per `skill_id`, and `display_title` is unique
+  per organization.** Renaming a skill is therefore a NEW skill object, not a new
+  version: `versions.create` 400s with "must be consistent across all versions",
+  and `skills.create` 400s again if the title is one an existing skill already
+  holds. `xas-qa` became `xas-reporting` this way on 2026-08-23 — new
+  `REPORTING_SKILL_ID`, new title, and the old object left behind. Clearing
+  `REPORTING_SKILL_ID` puts `setup_agent.py` on its create-and-attach path, which
+  is the migration. Retiring the old object frees its title, but `skills.delete`
+  400s with "Cannot delete skill with existing versions" — every version goes
+  first (`versions.delete(version, skill_id=...)`, in that argument order), and
+  only then the skill.
 - **`agents.update()` preserves omitted array fields.** `setup_agent.py`
   always sends `tools` and `skills` explicitly. Changing `PULL_TOOL` without
   re-running setup does nothing.
@@ -253,7 +264,7 @@ moves to a version-pinned repo before real dealer data), DECIDE-5 (no durable
 session persistence assumed — steering is one combined override carried in the
 conversation; a host-side store is the deferred real fix), DECIDE-10
 (reserved_for_customer eligibility, deferred), DECIDE-16 (the taxonomy ships in
-the `xas-qa` skill instead of being mounted — one tenant only; a second one moves
+the `xas-reporting` skill instead of being mounted — one tenant only; a second one moves
 it back to a host-side mount).
 
 Not in the prototype, per spec: the CP-SAT + LNS escape hatch for *coupled*

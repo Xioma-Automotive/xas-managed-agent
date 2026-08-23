@@ -62,7 +62,7 @@ separate agents:
 | Lane | Skill | Reads | Answers |
 | --- | --- | --- | --- |
 | Allocation repair | `xas-allocation` | `/workspace/pull.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
-| Reporting | `xas-qa` | `index.md` in its own skill dir + the `xas-app-mcp` read tools (LIVE) | how many, what status — and charts |
+| Reporting | `xas-reporting` | `index.md` in its own skill dir + the `xas-app-mcp` read tools (LIVE) | how many, what status — and charts |
 
 Both skills are on the same session, so a planner can repair an allocation and
 then ask for a chart without switching tools.
@@ -77,7 +77,7 @@ prompt forbids it by toolset and `tests/test_agent_contract.py` pins the rule �
 but whether the agent OBEYS it is model behaviour, and nothing here checks that.
 
 **Reporting vocabulary.** Dealerships rename things — in the shipped tenant the
-code `Service` displays as `Distinct_name`. `xas-qa` flattens the taxonomy into a
+code `Service` displays as `Distinct_name`. `xas-reporting` flattens the taxonomy into a
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
 exact-first, then loosely, then through other wordings it proposes and the grep
@@ -86,7 +86,7 @@ all of that unresolved gets no answer: the skill makes the agent name it, offer
 the nearest entries and ask, because the closest-looking code returns a
 real-looking number nobody can tell is wrong.
 
-The taxonomy itself ships **inside the `xas-qa` skill** as
+The taxonomy itself ships **inside the `xas-reporting` skill** as
 `index.md` (DECIDE-16): one tenant, so static config beats a per-session upload,
 at the cost of a redeploy when it changes and no per-session choice of
 dealership. A second tenant moves it back to a host-side mount.
@@ -140,7 +140,7 @@ committed, so nothing above needs the engine re-run.
 uv sync
 cp .env.example .env                  # fill in ANTHROPIC_API_KEY
 uv run python setup_agent.py
-#   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_SKILL_ID / QA_SKILL_ID into .env
+#   paste the printed ALLOC_AGENT_ID / ALLOC_ENV_ID / ALLOC_SKILL_ID / REPORTING_SKILL_ID into .env
 
 uv run uvicorn web:app --port 8000    # the only process — open localhost:8000
 ```

@@ -34,6 +34,14 @@ whether `ClosedDateTime` / `UpdateDateTime` / `EntryDate` / `DueDate` take the s
 Assume only `CreateDateTime` until someone checks, and remember `EntryDate` and `DueDate`
 are date-only on some records, so a timestamp range may not mean anything there.
 
+Bounds are compared in UTC, and this tenant's records are stamped `+03:00`, so a local period
+has to be converted before it is sent — asking for July as `2026-07-01T00:00:00.000Z` clips
+the month's first three hours and silently absorbs three hours of August:
+
+```
+July 2026  ->  start "2026-06-30T21:00:00.000Z"   end "2026-07-31T20:59:59.999Z"
+```
+
 `dump_taxonomy` does not emit this paragraph either — it is hand-maintained here, like the
 BRANCH lines and the Vehicle status block, and a regeneration drops it.
 

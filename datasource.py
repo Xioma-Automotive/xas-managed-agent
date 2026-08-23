@@ -39,7 +39,7 @@ fabricated ``jobcards.json`` from here as well; it reads the live system through
 the `xas-app-mcp` tools now, so nothing host-side fetches records.
 
 The tenant TAXONOMY used to be mounted from here too. It now ships inside the
-`xas-qa` skill bundle instead (see `setup_agent.qa_bundle`) — one tenant, so a
+`xas-reporting` skill bundle instead (see `setup_agent.reporting_bundle`) — one tenant, so a
 static file beats a per-session upload. That collapses the caller's choice of
 dealership: DECIDE-16 in `xas_allocation.decisions` is the note to undo this the
 day a second tenant exists.
@@ -125,7 +125,7 @@ IN_SCOPE_STATUS_CODES = ("01", "02", "03")
 # The future/real split, BY NAME — never by code alone. Code `02` is "On The Way"
 # on 218 vehicles and 'Available For Sale ' (trailing space, hence .strip()) on
 # 106 more, so the code merges a future car with a car on the lot: exactly the
-# distinction allocation turns on. See skills/xas-qa/index.md.
+# distinction allocation turns on. See skills/xas-reporting/index.md.
 FUTURE_STATUS_NAMES = frozenset({"Ordered", "On The Way"})
 REAL_STATUS_NAMES = frozenset({"In Stock", "Available For Sale"})
 

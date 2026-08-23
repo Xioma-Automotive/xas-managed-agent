@@ -233,14 +233,14 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-16",
         title="Where the tenant taxonomy comes from: bundled in the skill vs mounted per session",
-        default="bundled — index.md ships inside the xas-qa skill",
+        default="bundled — index.md ships inside the xas-reporting skill",
         rationale=(
             "There is exactly one tenant, so the taxonomy is static config and shipping it "
             "beside phrasebook.py beats uploading it on every session start. The price: the "
             "caller can no longer pick a dealership, and editing the taxonomy needs a "
             "setup_agent.py redeploy. A SECOND TENANT flips this back to a host-side mount at "
             "/workspace/reports/index.md — bundling every tenant's taxonomy is not the fix, "
-            "since that shows each session all the others. See setup_agent.qa_bundle."
+            "since that shows each session all the others. See setup_agent.reporting_bundle."
         ),
     ),
 ]

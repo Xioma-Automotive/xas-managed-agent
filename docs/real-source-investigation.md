@@ -73,7 +73,7 @@ Three traps:
    on the code merges a car still shipping with a car on the lot (the exact
    distinction allocation turns on), and matching the name without `.strip()`
    drops all 106. Match on code AND the stripped name. The full enum now ships in
-   `skills/xas-qa/index.md`, the off-dictionary value included, flagged
+   `skills/xas-reporting/index.md`, the off-dictionary value included, flagged
    `unresolved=true`.
 2. **`VehicleClassification` partitions the pool.** All 92 "Available For Sale"
    rows are `InventoryVehicles`; `Ordered` / `On The Way` / `In Stock` sit under
@@ -82,7 +82,7 @@ Three traps:
 3. **Five more status axes**, each with its own change date, each a bare `1`–`5`
    with no label in the payload: `InventoryStatus`, `SalesStatus`,
    `PurchaseStatus`, `RegulatoryStatus`, `OperationalStatus` (41 of 50 populated
-   each). Their labels are now recorded in `skills/xas-qa/index.md` (from the
+   each). Their labels are now recorded in `skills/xas-reporting/index.md` (from the
    tenant's DB collections — there is **no API route and no dictionary endpoint**
    for any of them), and the live data does not respect the enums: 108 vehicles
    carry `InventoryStatus: "13"` and one carries `"blue"` against a 5-value list.
@@ -241,7 +241,7 @@ belongs in the snapshot's provenance, not in our code.
   labels — both look load-bearing for the fence.
 - `VehicleFitRating` (present on 1 VSO, and the name is suggestive for
   allocation). The five numeric status axes are now labelled in
-  `skills/xas-qa/index.md` — but see §2: the live values don't respect the enums.
+  `skills/xas-reporting/index.md` — but see §2: the live values don't respect the enums.
 - **Not opened** (the dev session expires every 30 min and each MCP mint kicks
   it): a VSO **detail page** in the UI — where `DueDateTime` is edited and whether
   car lines carry their own dates — and the `AI Insight` / `Card Fields` tabs of
