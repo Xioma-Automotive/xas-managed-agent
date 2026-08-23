@@ -11,6 +11,15 @@ documented — the two differ, and that difference is half of this page.**
 Rendered version (same content, easier to scan):
 <https://claude.ai/code/artifact/da6788d2-8c37-48c5-8b9b-4ba316373fbe>
 
+**Superseded on the order grain.** `mcp-response-schema.md` is the response
+*shape* per call. It records the 2026-08-23 decisions that the eligibility key
+comes off `jobItems[].JobItemCode` through a NEW tool — not the header's
+`SalesModelCode`, as the "wanted car is on the header" section below concludes —
+and that **there is no header call at all**: the new item tool returns
+`DueDateTime`, `EntryDateTime` and `Accounts.Owner` per row. The field
+*additions* below all still stand; the order-side ones just belong to the item
+tool now, not to `jobCards.helpers.ts`.
+
 > **One of these is not an omission.** `PROJECT_FIELDS` asks for `DueDate` and
 > `EntryDate`. XAS stores `DueDateTime` and `EntryDateTime`; neither `DueDate` nor
 > `EntryDate` exists on a job card, so the projection matches nothing and drops
