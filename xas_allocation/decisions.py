@@ -158,7 +158,8 @@ DECISIONS: list[Decision] = [
         title="reserved_for_customer eligibility",
         default="ignored (a reserved vehicle is eligible for anyone) — DEFERRED, not in the minimal build",
         rationale=(
-            "docs/xasdatamodel + the data-model diagram flag a reserved_for_customer field: a "
+            "XAS carries a reserved-for-customer notion (`docs/real-source-investigation.md` "
+            "§2: a `Reserved-*` status, NOT the `IsReserved` flag): a "
             "vehicle earmarked for a dealer should be eligible only for that dealer's orders. "
             "Not modelled in the minimal 30-customer build; when added, it becomes an extra "
             "term in the sparse-arc eligibility rule."

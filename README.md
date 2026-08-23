@@ -46,7 +46,7 @@ override, get the same plan.
 
 This build is a **runnable prototype against fabricated data** shaped like XAS
 (`PO → PDN → Vehicle`, `Customer → SO` with vehicle order **rows**, supply =
-vehicles ∪ PO-line slots, real dates; see `docs/xasdatamodel.md`). The pull comes
+vehicles ∪ PO-line slots, real dates). The pull comes
 from a callable data source (`datasource.py`) — a standalone `scenario_engine/`
 fabricates the world by default, the real XAS endpoint by config; the agent can
 work the whole book or a
@@ -222,7 +222,7 @@ Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
 | 4 | Pin mechanism | inf-cost (soft) for instruction pins; pre-commit for data pins |
 | 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred |
 | 6 | xas-code MCP liveness pattern | single `directory_tree` at start (skipped in prototype) |
-| 7 | XAS API data contract | callable `datasource.py` (host-side): `scenario_engine/` fake by default, real XAS by config (see `docs/xasdatamodel.md`) |
+| 7 | XAS API data contract | callable `datasource.py` (host-side): `scenario_engine/` fake by default, real XAS by config (see `docs/mcp-response-schema.md`) |
 | 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) |
 | 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION` |
 | 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |

@@ -5,7 +5,7 @@ human runs it to produce a dataset (`data/pull.json` + `data/baseline.json`);
 the host fetches that dataset and mounts it into the sandbox, where
 `xas_allocation.flatten` turns it into the solver snapshot.
 
-It emits the real-XAS vocabulary (`docs/xasdatamodel.md`):
+It emits the real-XAS vocabulary:
 
     VSO jobcard (car lines)  --allocated to-->  Vehicle (pool: real ∪ future)
 

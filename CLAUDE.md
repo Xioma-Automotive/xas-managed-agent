@@ -17,8 +17,11 @@ because a self-hosted sandbox runs tools as your own uid — an agent there
 enumerated every credential file on the host through `bash`, which is what
 prompted this branch. Don't merge the two; they are alternatives.
 
-Design docs: `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`,
-platform notes in `docs/managed-agents-adoption.md`.
+Docs: `docs/mcp-response-schema.md` is the response shape the pull needs from the
+app MCP, `docs/mcp-field-spec.md` the allowlist diff behind it,
+`docs/real-source-investigation.md` what the live system actually holds, and
+`docs/appmcp-connect.md` how to call the dev MCP by hand. The self-hosted plans,
+specs and platform notes were retired on 2026-08-23.
 
 ## The invariant everything serves
 

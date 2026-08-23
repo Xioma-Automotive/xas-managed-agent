@@ -33,7 +33,7 @@ Reference solver version pinned by this skill: **0.2.0-prototype**
 (`xas_allocation/` package; DECIDE-9 — canonical version moves to a tested repo
 before real dealer data).
 
-## The data model (dates, real XAS vocabulary — DECIDE-7, `docs/xasdatamodel.md`)
+## The data model (dates, real XAS vocabulary — DECIDE-7)
 
 The pull is `{meta, vsos, vehicles, disruption}`. A **VSO** (Vehicle Sales
 Order, one customer) carries the wanted car on its **header** — `SalesModelCode`,
