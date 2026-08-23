@@ -175,16 +175,44 @@ read it:
 get_job_cards  filter: {…}  paging: {"count": 1}   ->  totalCount
 ```
 
-**Never page through records to compute an aggregate.** A breakdown is one
-filtered call per bucket, each with `count: 1` — ten buckets is ten cheap calls.
-Pulling the rows instead costs roughly forty times as much, because every record
-you fetch stays in this conversation and is re-read on every later turn of the
-session. It also arrives padded: a job card carries eleven account-role objects
-and the owner's whole contact list, none of which a count needs.
+**Never walk pages to compute an aggregate.** Asking for page 2, 3, 4 is the thing
+that costs roughly forty times as much, because every record you fetch stays in
+this conversation and is re-read on every later turn of the session. Records arrive
+padded, too: eleven account-role objects and the owner's whole contact list, none of
+which a count needs. Reading ONE modest page and tallying it yourself is not paging
+— see the two plans below.
+
+**`totalCount` rides on every response, whatever `paging.count` you sent.** So if
+you are going to need the rows anyway — to split a small set, to name the cards, to
+chart them — ask for them on the FIRST call and read `totalCount` off that same
+response. Sending `count: 1` and then re-sending the same filter for rows is the
+same query twice.
+
+**A breakdown has two plans. Pick one before the first call.**
+
+| Plan | Costs | Cheaper when |
+| --- | --- | --- |
+| One filtered count per bucket | one call per bucket, no rows | the population is bigger than the bucket list |
+| Fetch one page of rows and tally them yourself | one call, `totalCount` rows | `totalCount` is at or below the number of buckets |
+
+There are 23 JobCard classifications. A split by type over a single day — three or
+four cards — is 23 calls the bucket way and **one** the tally way. A narrow window
+is the tally case nearly every time; a month or "all time" is not.
+
+You do not know `totalCount` before the first call, so make that call decide it:
+set `count` to the most rows you would be willing to tally (20–30 is sane), send it
+once, and read `totalCount`.
+
+- `totalCount` at or below what you asked for → you already hold every row. Tally
+  and answer. One call, done.
+- `totalCount` above it → the population is large after all. Now loop the buckets.
+  The rows you fetched were the price of finding that out, which is why the ask
+  stays modest.
 
 | Goal | Call |
 | --- | --- |
-| One count | `filter: {…}`, `paging: {"count": 1}` -> `totalCount` |
+| A count and nothing else | `filter: {…}`, `paging: {"count": 1}` -> `totalCount` |
+| A count you will then break down | `paging: {"count": 25}` once — `totalCount` **and** the rows, in one call |
 | Breakdown by classification | one call per `code`: `filter: {"JobClassification": "<code>"}` |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — **an array**; a bare string is a 500 |
 | Breakdown by status | one call per status `id`, each in its own one-element array |
@@ -199,8 +227,7 @@ Fetch actual rows only when the planner wants to **see** cards — then keep
 **"Open" is a state; "opened" is a date.** Two different questions, one letter
 apart:
 
-- *"open job cards"* — lifecycle, resolved through `state` / `closed` (rule 7).
-  No date involved.
+- *"open job cards"* — the status named `Open`, one id, no date involved (rule 7).
 - *"cards opened in July"* — when the card was **created**: `CreateDateTime`.
   Every card carries one.
 - *"opened in July and still open"* — both, and it is the common ask. Send the

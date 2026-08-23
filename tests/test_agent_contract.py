@@ -362,12 +362,29 @@ def test_qa_skill_counts_with_totalcount_not_by_paging_records():
     paged 245 full records into context (~83k tokens, re-read on every later
     turn) to compute ten integers. The filter's `totalCount` was in every
     response. Also pins the +03:00 boundary — filters compare in UTC, so a local
-    month asked for naively clips its first three hours."""
+    month asked for naively clips its first three hours.
+
+    Refined 2026-08-23: the old wording ("never page through records") also banned
+    reading ONE page and tallying it, so a split by type over a 3-card day cost a
+    `count: 1` probe plus a re-send of the same filter for the rows. Walking pages
+    is still forbidden; one modest page is now the cheaper plan when the population
+    is smaller than the bucket list."""
     skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "totalCount" in skill
     assert 'paging: {"count": 1}' in skill
-    assert "Never page through records to compute an aggregate" in skill
+    assert "Never walk pages to compute an aggregate" in skill
     assert "+03:00" in skill, "the UTC/local boundary rule must be spelled out"
+
+
+def test_qa_skill_does_not_probe_then_refetch_the_same_filter():
+    """Observed 2026-08-23: "job cards opened last Thursday as a chart" sent the
+    same filter twice — `count: 1` for totalCount (3), then `count: 3` for the rows
+    it needed to split by type. `totalCount` rides on every response, so the first
+    call was the second call with the rows thrown away."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "same query twice" in skill
+    assert "rides on every response" in skill
+    assert "at or below the number of buckets" in skill, "the plan-choice rule"
 
 
 def test_qa_skill_sends_the_agent_to_the_mcp_not_to_a_file():
