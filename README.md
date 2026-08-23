@@ -73,8 +73,8 @@ itself. Reporting reads the LIVE system, which is a different view of the
 business with no guarantee it agrees with the pull — so an allocation number
 taken from it would look right and not be reproducible, the exact thing
 `plan = pure_function(snapshot, skill, override)` exists to prevent. The system
-prompt forbids it by toolset, `tests/test_agent_contract.py` pins the rule, and
-`docs/evals/routing.md` is the hand-run behavioural check.
+prompt forbids it by toolset and `tests/test_agent_contract.py` pins the rule —
+but whether the agent OBEYS it is model behaviour, and nothing here checks that.
 
 **Reporting vocabulary.** Dealerships rename things — in the shipped tenant the
 code `Service` displays as `Distinct_name`. `xas-qa` flattens the taxonomy into a
@@ -84,7 +84,7 @@ exact-first, then loosely, then through other wordings it proposes and the grep
 confirms, then `phrasebook.py --suggest` for a misspelling. A term that survives
 all of that unresolved gets no answer: the skill makes the agent name it, offer
 the nearest entries and ask, because the closest-looking code returns a
-real-looking number nobody can tell is wrong (`docs/evals/routing.md` q6).
+real-looking number nobody can tell is wrong.
 
 The taxonomy itself ships **inside the `xas-qa` skill** as
 `index.md` (DECIDE-16): one tenant, so static config beats a per-session upload,

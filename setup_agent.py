@@ -82,8 +82,8 @@ MODEL = "claude-opus-4-8"
 # web.py sends exactly such an override for the model picker, so a session
 # always runs at the agent's level. `medium` because effort drives how many tool
 # calls a turn spends: lower means fewer and more consolidated ones, which is
-# what a reporting question wants. Raise it if repair quality drops; the
-# behavioural gate is docs/evals/routing.md.
+# what a reporting question wants. Raise it if repair quality drops — by hand,
+# since no test reaches it.
 EFFORT = "medium"
 
 

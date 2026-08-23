@@ -132,7 +132,7 @@ XAS endpoint and its credential never touch the sandbox.
   `model` override is IGNORED — not rejected — and `web.py` sends exactly such an
   override for the model picker, so a session always runs at the agent's level.
   Effort drives how many tool calls a turn spends, so this is a cost knob as much
-  as a quality one; changing it means re-running `docs/evals/routing.md`.
+  as a quality one, and no test covers what changing it does to a turn.
 - **The session budget is create-only, so it is set on every create or not at
   all.** `web.py`'s `SESSION_BUDGET` caps ONE session's list-priced spend at $5
   (model tokens + web search + $0.08/hour of runtime). At the cap the session goes
@@ -166,9 +166,9 @@ XAS endpoint and its credential never touch the sandbox.
   toolset-shaped: every allocation claim comes from the solver, never from an MCP
   tool, never from a file the agent read itself. With both lanes in one sandbox
   that rule is the only thing standing between a planner and a plausible,
-  irreproducible answer — `tests/test_agent_contract.py` pins it, and
-  `docs/evals/routing.md` question 4 is the behavioural gate (re-run it: it used
-  to test a path).
+  irreproducible answer — `tests/test_agent_contract.py` pins the RULE's
+  presence, and nothing pins that the agent follows it. Verify by hand: ask for a
+  count over "late orders" and check the answer came from the solver.
 - **The disruption is derived, and the incumbent may be invalid.** XAS records no
   "this shipment slipped 21 days" manifest, but `solver.partition` builds the free
   set from `disruption.disrupted_orders`, so `map_response` derives it: an
