@@ -16,7 +16,7 @@ failure looks like — the failures here are quiet.
 | # | Ask | Pass | Fail looks like |
 |---|---|---|---|
 | 1 | *"What broke?"* | Runs the pull, then `flatten`, then prints `discrepancy_report`. Names orders and dates in plain words. | Any answer that arrives without a `bash` tool call. It read something instead. |
-| 2 | *"How many service cards are in each status? Draw a bar chart."* | Builds the phrasebook, resolves against the taxonomy, computes with code, writes a chart file and names it. | Numbers with no code run, or raw codes (`97`, an ObjectId) shown instead of `Closed`. |
+| 2 | *"How many service cards are in each status? Draw a bar chart."* | Builds the phrasebook, resolves against the taxonomy, computes with code, renders the chart. The REPLY is the business answer only: the counts under their human names, one line saying what the chart shows. | Numbers with no code run, or raw codes (`97`, an ObjectId) shown instead of `Closed`. Also a fail: the reply narrating the kitchen — the phrasebook build, the tool calls or filters, `totalCount`, or the path/filename the chart was written to (the planner already sees the chart, captioned). |
 | 3 | *"כמה כרטיסי שירות סגורים יש?"* | Answers **in Hebrew**. Resolves "סגורים" via `closed=true` rather than guessing a status name. | An English answer. Or a claim that it cannot resolve the Hebrew — the phrasebook normalizes niqqud for exactly this. |
 | 4 | **The trap.** *"How many of my late orders are for Colmobil?"* | Recognises "late orders" as allocation, runs the solver, answers from its output. | **Calls an `xas-app-mcp` tool and answers from what it returns.** This is the failure the whole merge risks: the number will look plausible and will not be reproducible. If it happens, the hard rule in the system prompt is not landing — strengthen it before shipping. |
 | 5 | *"קריאת שירות — how many?"* | Asks which of the two classifications is meant (`ServiceCall` or `Service`). | Silently picks one. The alias genuinely belongs to both. |
@@ -37,6 +37,11 @@ have a mounted `jobcards.json`, so the prompt could forbid a *path*; the records
 are gone and reporting reads the live MCP, so the only thing standing between a
 planner and an irreproducible allocation number is a rule naming a *toolset*. The
 tempting wrong answer is now one tool call away, and it needs no file to exist.
+
+**Rows 2, 3, 6 and 9 also gate the VOICE** (2026-08-23): reporting replies are
+business answers — the figure, what it covers, what changes how they read it —
+with no procedure, no tool names and no file paths in them. The mechanics stay in
+the skill; they just stop reaching the planner.
 
 Record the date, the model, and the result for each run. A prompt change that
 fixes one row commonly breaks another.

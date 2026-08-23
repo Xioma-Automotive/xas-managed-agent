@@ -50,8 +50,9 @@ normalized  surface  role  kind  entity  classification  code  id  name  state  
 ```
 
 `role` is where the string came from (`code` / `name` / `alias` / `businessType`),
-`kind` is `entity` / `classification` / `status`. `code` is what you filter on;
-`name` is what you display.
+`kind` is `entity` / `classification` / `status` / `branch`. `code` is what you
+filter on; `name` is what you display. A `branch` row has no `code` — its `id` is
+the filter value (rule 11).
 
 ## Lookup recipes
 
@@ -67,6 +68,7 @@ python phrasebook.py --normalize "<what the user said>"
 | Fuzzy tail, if exact misses | `grep -i '<term>' /workspace/phrasebook.tsv` |
 | Multi-word, any word order | `grep -i 'vehicle' … \| grep -i 'purchase' \| grep -i 'order'` |
 | All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/phrasebook.tsv` |
+| Every branch, id and name | `awk -F'\t' '$4=="branch" {print $8, $9}' /workspace/phrasebook.tsv` |
 | Only the closed ones | add `&& $11=="true"` |
 | Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/phrasebook.tsv` |
 | Typo / near-miss, after everything missed | `python phrasebook.py --suggest "<what they said>"` |
@@ -97,8 +99,9 @@ Work down this ladder and stop at the first step that returns rows.
    read *sapre parts* as **Spare Parts**"). Several: list them and ask. Either
    way the substitution is visible — never swap a word silently.
 5. **Ask, and answer nothing else.** Name the term you could not resolve, say you
-   searched this dealership's dictionary for it, and list the nearest entries you
-   did find — or say there were none. Then stop.
+   looked for it among the terms this dealership uses, and list the nearest ones
+   you did find — in their own words — or say there were none. Then stop. Do not
+   name this file, the phrasebook, or the command that came back empty.
 
 **Never answer with an unresolved term.** Not with the closest code, not with a
 count for "something like it". A wrong-but-close code returns a real-looking
@@ -126,11 +129,19 @@ answer. Every figure you report traces back to a row in the phrasebook.
 6. **A status `id` does not identify a classification.** The same ObjectId
    (`…5b6764` = "Closed") appears under Parts, ServiceCall, VPO, Service and
    more. Always scope a status lookup by its classification.
-7. **Use `state` and `closed` for lifecycle words.** "closed", "finished",
-   "still open", "in progress" resolve to the `closed` flag or the `state`
-   bucket (`New` / `In Process` / `Closed` / `Has Alert`) — not to a status name
-   you picked. More reliable than matching a label, and it covers the languages
-   the status rows have no aliases for.
+7. **A lifecycle word IS a status — take it literally.** "open" means the status
+   named `Open`, not "everything unfinished". Each lifecycle word is exactly one
+   `id`, and that id spans every classification that has it, so it is ONE
+   array-valued call and never a loop: `Open` = `6530d9a89c098a33be3e0c73` (8
+   classifications), `Closed` = `…05a65b6764` (9), `Canceled` = `…05a65b6765` (6).
+   Do not widen a word the planner did not widen. They will say "everything not
+   closed" or "all unfinished" when they mean the span — **only then** reach for
+   the `closed` flag or the `state` bucket (`New` / `In Process` / `Closed` /
+   `Has Alert`), and say in the answer that you read it that way. The two are not
+   the same set: `closed=true` is `Closed` **and** `Canceled`, so the status is
+   always the narrower reading. Status rows carry no aliases — only `code` and
+   `name` — so a lifecycle word in another language resolves by translating to
+   the English status name (ladder step 3), not by widening to `state`.
 8. **`unresolved=true` in the index means the dictionary is missing that
    status.** Those rows have no `name` and no `state`. Report them as "unknown
    status (code NN)" and count them separately. Never invent a label.
@@ -140,6 +151,19 @@ answer. Every figure you report traces back to a row in the phrasebook.
     booleans and counts are not (`closed=true`, `fields=649`). A
     `(\w+)="([^"]*)"` regex silently drops every boolean, `closed` included. The
     phrasebook has already handled this — one more reason to use it.
+11. **Send a branch `id` from the phrasebook, and nothing else.**
+    `{"Branch": ["69f07fdaf930e4ee6d524dc1"]}` is Main;
+    `{"Branch": ["Main"]}` returns 0 with no error. `{"Branch": true}` is
+    whichever branch the login sits in, not the branch the user named — look the
+    name up and send the id. The filter also accepts values that are neither an
+    id nor a name — the app's own UI sends `{"Branch": ["-2"]}` — and what those
+    select is **not established**. Never send one: a value you cannot resolve to
+    a branch name is a count you cannot report. Branch lives on job cards only: vehicle records have
+    the field but no usable value, so "which branch is this car at" has no answer
+    here.
+12. **Job cards with no branch are real.** 610 of this tenant's cards carry none,
+    so per-branch buckets do not sum to the total. Say the remainder rather than
+    letting it disappear into the biggest branch.
 
 ## Getting the number — filter, never page
 
@@ -162,12 +186,39 @@ and the owner's whole contact list, none of which a count needs.
 | --- | --- |
 | One count | `filter: {…}`, `paging: {"count": 1}` -> `totalCount` |
 | Breakdown by classification | one call per `code`: `filter: {"JobClassification": "<code>"}` |
-| Breakdown by status | one call per status `id`: `filter: {"JobStatus.ID": "<id>"}` |
-| Still-open only | `filter: {"OpenJobCards": true}` |
+| Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — **an array**; a bare string is a 500 |
+| Breakdown by status | one call per status `id`, each in its own one-element array |
+| Breakdown by branch | one call per branch `id`: `filter: {"Branch": ["<id>"]}` |
+| Open cards | `filter: {"JobStatus.ID": ["6530d9a89c098a33be3e0c73"]}` — one id, every classification (rule 7) |
+| Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 | The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/phrasebook.tsv \| sort -u` |
 
 Fetch actual rows only when the planner wants to **see** cards — then keep
 `paging.count` small and name the ones you show.
+
+**"Open" is a state; "opened" is a date.** Two different questions, one letter
+apart:
+
+- *"open job cards"* — lifecycle, resolved through `state` / `closed` (rule 7).
+  No date involved.
+- *"cards opened in July"* — when the card was **created**: `CreateDateTime`.
+  Every card carries one.
+- *"opened in July and still open"* — both, and it is the common ask. Send the
+  state filter and the `CreateDateTime` window together.
+
+`CreateDateTime` is the only field that means "opened". The near misses:
+
+| Field | What it actually is |
+| --- | --- |
+| `CreateDateTime` | when the card was opened — **this is the one a period means** |
+| `ClosedDateTime` | when it was closed; the field for *"closed in July"* |
+| `EntryDate` | a date-only business field, on a minority of cards — not the creation stamp |
+| `UpdateDateTime` | last touched, and it keeps moving; never a period boundary |
+| `DueDate` | the promise, not the opening |
+
+Reaching for `UpdateDateTime` or `EntryDate` on "opened in July" returns a
+real-looking number for a question nobody asked. Where the planner's wording
+could mean the state or the date, answer one and say which you took it as.
 
 **Dates are compared in UTC; this tenant's records are stamped `+03:00`.** Convert
 the local month boundary yourself or you clip the first three hours of the month
@@ -234,14 +285,60 @@ print(f"wrote {out}")
 Give the page a `<title>` — it becomes the browser tab name when the planner
 opens the chart full size.
 
-Then name the file in your reply and stop. **Do not read the chart back.**
-Reading it returns the whole file into the conversation — tens of thousands of
-tokens to tell you what you just plotted.
+**The filename is business-facing: the planner sees it as the caption above the
+chart.** Name it in their words (`open-spare-parts-by-branch.html`), never with a
+code, an id or an internal field name.
+
+Then say in ONE line what the chart shows — "open spare-parts cards by branch,
+July" — and stop. Not the filename, not the directory, not that a file was
+written at all: the chart is already on their screen.
+
+**Do not read the chart back.** Reading it returns the whole file into the
+conversation — tens of thousands of tokens to tell you what you just plotted.
 
 ## Presenting the answer
 
-Translate back through the phrasebook: show `name`, never `code`, `id`, or an
-internal field name. Where the user supplied their own wording (an alias, or a
-term whose `name` is a local placeholder like `Distinct_name`), echo **their**
-wording — it is what they will recognise. Chart axis labels and legends follow
-the same rule.
+The planner runs a dealership, not this pipeline. Everything in this file — the
+phrasebook, the lookups, the filters, the tool calls — is HOW you got the answer,
+and none of it belongs in the reply. Give the business answer: the figure, what
+it covers, and anything that changes how they read it.
+
+**Everything you type is the reply.** There is no working-notes channel: the
+planner reads every line, including the ones between tool calls. So work in
+silence and answer ONCE, at the end. Nothing like:
+
+- *"Let me check the timeframe first"* / *"Now I'll get the per-status split"* —
+  announcing a step you are about to take, or narrating the one you just took.
+- *"28 cards — small"* / *"all 16 buckets sum to 28, so the split is clean"* — a
+  running total, or a cross-check that came out fine. If a check FAILS that is
+  worth a sentence; a check that passed is not news.
+- *"The chart above shows the breakdown"* — never point at your own output; they
+  can see it.
+- The buckets that came back empty, unless they asked for them.
+
+Say:
+
+- **The figure in one line, in their words**, with what it covers: "184
+  spare-parts cards are Open, Haifa branch, July." Say the status you counted —
+  *"are Open"*, not *"still open"*, which the planner reads as the wider
+  not-closed span (rule 7). Live numbers get a short
+  "from the live system" — the planner cannot tell that from the number.
+- **`name`, never `code`, `id`, or an internal field name.** Where the user
+  supplied their own wording (an alias, or a term whose `name` is a local
+  placeholder like `Distinct_name`), echo **their** wording — it is what they
+  will recognise. Chart axis labels and legends follow the same rule.
+- **Anything that changes the reading**: which term you took their word to mean,
+  a bucket that is an unknown status, a count that came back empty, the one
+  question you would need answered to go further.
+
+Never say: phrasebook, taxonomy, index, normalize, grep, awk, `get_job_cards` or
+any other tool name, filter, paging, `totalCount`, record, row, field, code,
+ObjectId, UTC, sandbox, token — and no file path, no filename, and nothing about
+what you saved where or which data operations you ran. "I built the phrasebook,
+resolved חלפים to code 4 and read totalCount off a filtered call" is the same
+answer as "184 spare-parts cards" with the kitchen on show.
+
+The narration is not a courtesy: it is what the planner has to read past to reach
+their number, and it invites them to audit plumbing they cannot change. If a step
+went wrong, that is worth a sentence — in business terms ("the live system
+returned nothing for July"), never as a tool transcript.

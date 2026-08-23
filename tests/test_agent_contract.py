@@ -424,6 +424,43 @@ def test_prompt_forbids_answering_an_unresolved_term():
     assert "NEVER answer with a term you could not resolve" in setup_agent.SYSTEM_PROMPT
 
 
+def test_reporting_reply_keeps_the_procedure_out_of_it():
+    """The planner is a dealership scheduler: the reply is the figure and what it
+    covers, not a work log. Observed before this rule: answers that opened with
+    the phrasebook build, the resolved code and the filtered call, and closed with
+    the path a chart was written to — none of which the planner can act on."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "none of it belongs in the reply" in skill
+    for internal in ("phrasebook", "totalCount", "no file path, no filename"):
+        assert internal in skill.split("## Presenting the answer")[1]
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "no file paths, no filenames" in prompt
+    assert "not a work log" in prompt
+
+
+def test_between_tool_calls_the_agent_says_nothing():
+    """Observed 2026-08-23: the reply was clean, but the turn still shipped
+    "Let me check the timeframe first", "28 Service cards — small", and "all 16
+    buckets sum to 28 — the split is clean". Every line between tool calls reaches
+    the planner, so the rule has to cover the whole turn, not just the answer."""
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Everything you type is the reply." in skill
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "there is no working-notes channel" in prompt
+    for banned in ("running totals", "point at your own output"):
+        assert banned in prompt
+
+
+def test_agent_does_not_report_where_the_chart_was_written():
+    """The browser renders the chart with its filename as a caption, so naming the
+    file (or its directory) in the reply is plumbing the planner already sees."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "say the filename in your reply" not in prompt
+    assert "Not the filename, not the directory" in prompt
+    skill = (setup_agent.QA_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Not the filename, not the directory" in skill
+
+
 def test_phrasebook_reads_the_taxonomy_beside_itself():
     import importlib.util
 

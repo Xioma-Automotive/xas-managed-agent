@@ -1,6 +1,6 @@
 # Taxonomy — xioma/DMSDEV2023 (6530d4f8d5c9e5001d6e319e)
 
-8 entities, 51 classifications, 109 statuses. Generated from `mcp_servers/xioma_read_mcp/mock_data/xioma-DMSDEV2023.json` by `python -m mcp_servers.xioma_read_mcp.dump_taxonomy`.
+8 entities, 51 classifications, 109 statuses, 7 branches. Generated from `mcp_servers/xioma_read_mcp/mock_data/xioma-DMSDEV2023.json` by `python -m mcp_servers.xioma_read_mcp.dump_taxonomy`.
 
 Active only: 7 inactive classifications are omitted, along with 2 entities left with none. Everything listed here is live in the app; nothing needs an
 active check. Note `index_lookup` on the MCP server does NOT filter this way — it can still
@@ -10,6 +10,7 @@ How to read a line:
   ENTITY          — one per system entity; businessType is the plain business term.
   CLASSIFICATION  entity=<owning entity> code=<system value to query> name=<what users call it> aliases=<other names users say>
   STATUS          entity=<owning entity> classification=<owning classification code> id=<JobStatus ObjectId> code=<system/human term> state=<lifecycle bucket> closed=<close flag>
+  BRANCH          id=<ObjectId, the only value that NAMES a branch — see the -2 note below> name=<what users call it> cards=<job cards there, counted live>
 
 A classification belongs to exactly one entity — always read `entity=` with the code,
 because codes are unique per entity, not globally: code "Model" exists under both the
@@ -19,6 +20,42 @@ Filtering: a classification `code` is the system value; a JobCard status is filt
 `JobStatus.ID` using the status `id`. A classification's code and name can diverge (code
 "Transfer" is used as "Vehicle Transfer"). `unresolved=true` = status referenced by a
 record but missing from the status dictionary.
+
+Branches are tenant-wide — they hang off the company, not off an entity, which is why the
+lines below carry no `entity=`. **A branch is filtered by its `id`, never by its name**:
+`{"Branch": ["69f07fdaf930e4ee6d524dc1"]}` returns Main's cards, while
+`{"Branch": ["Main"]}` returns 0 with no error — the same silent-empty failure as filtering
+a status on its label. `{"Branch": true}` means "the branch of whoever is logged in", which
+on the dev login is Main; a question about a *named* branch must send that branch's id
+rather than rely on it. There is no `code=` on these lines because the branch dictionary's
+own short code (`dictionarybranches.DMSCode`) is not exposed by any read tool the agent
+holds — job cards carry `Branch` as a bare ObjectId, `get_job_card` does not populate it,
+and neither does anything else. The `id` IS the queryable value here; if DMSCode is ever
+added, it is a display string and still not a filter value.
+
+The filter is not restricted to ids, though. The app's own job-card URL sends
+`{"Branch": ["-2"]}`, and **what that selects has not been established** — "all branches",
+"unassigned", and a legacy default are all consistent with what we have seen. Suggestive but
+unconfirmed: `-2` is also one of the three junk values sitting in the vehicles' own `Branch`
+field (below), so it may be a tenant-wide sentinel rather than anything job-card specific.
+Until someone checks, only ids from the lines below may be sent.
+
+Branch belongs to job cards only. Vehicles have a `Branch` field, but on 1327 live vehicles
+5 carry anything at all and those hold `-2`, `3` and `""` — not branch ids. "Which branch
+is this car at" cannot be answered from the vehicle records; do not try.
+
+The counts below were taken live on 2026-08-23 over all 7734 job cards, every classification.
+They are a sense of scale for choosing buckets, **not** an answer to report — re-count with a
+filtered call. Note they sum to 7124: **610 job cards carry no branch at all**, so a
+per-branch breakdown does not add up to the total, and the gap has to be said out loud
+rather than folded into Main.
+
+`Potain` is both a branch name and the display name of the `Warranty` classification, so a
+lookup on that word returns two rows of different kinds. Read `kind` before using either.
+
+`dump_taxonomy` does not emit BRANCH lines — the upstream snapshot keeps branches in
+`meta.branches`, which the dumper skips — so a regeneration drops this block and it has to
+be re-applied, like the Vehicle status block below.
 
 `classification="*"` on a STATUS means the status belongs to the ENTITY, not to one
 classification — every classification of that entity uses it. Vehicle is the only entity
@@ -55,6 +92,14 @@ exists as a classification value alongside `Truck` (264), so a filter on `Truck`
 misses them; `Bus`, `Test`, `V` and `ServiceCall` appear the same way.
 
 ```
+BRANCH          id="69f07fdaf930e4ee6d524dc1"  name="Main"  cards=6592
+BRANCH          id="69f209400e50752cea08ce26"  name="Service Branch"  cards=252
+BRANCH          id="69f07fdaf930e47496560961"  name="Sales Main"  cards=168
+BRANCH          id="69f07fdaf930e474935edfd1"  name="Potain"  cards=71
+BRANCH          id="69f07fdaf930e474921bc021"  name="Workshop"  cards=40
+BRANCH          id="69f2fbbc0e50752cea0d512e"  name="Test123"  cards=1
+BRANCH          id="69f07fdaf930e4748722ced1"  name="TestBranch"  cards=0
+
 ENTITY          entity="Account"  businessType="accounts"  classifications=3  statuses=0
 CLASSIFICATION  entity="Account"  code="supplier"  name="Accounts- Suppliers"  fields=29  statuses=0  aliases=""
 CLASSIFICATION  entity="Account"  code="ExternalRepairShops"  name="Account - Leads"  fields=12  statuses=0  aliases=""

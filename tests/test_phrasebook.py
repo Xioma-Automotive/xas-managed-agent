@@ -101,6 +101,27 @@ def test_status_rows_carry_the_id_filtering_needs(rows):
     assert closed[0]["state"] == "Closed"
 
 
+def test_branch_resolves_to_the_id_a_filter_takes(rows):
+    """A branch has no code: `{"Branch": ["Main"]}` returns 0 with no error, so
+    the ObjectId in `id` is the only thing a Branch filter can be built from."""
+    main = [_cols(r) for r in rows if _cols(r)["kind"] == "branch" and r[0] == "main"]
+    assert main and main[0]["id"] == "69f07fdaf930e4ee6d524dc1"
+    assert main[0]["code"] == ""
+
+
+def test_every_branch_is_one_row(rows):
+    branches = {_cols(r)["name"]: _cols(r)["id"] for r in rows if _cols(r)["kind"] == "branch"}
+    assert len(branches) == 7
+    assert branches["Service Branch"] == "69f209400e50752cea08ce26"
+
+
+def test_a_branch_name_can_collide_with_a_classification(rows):
+    """ "Potain" is a branch AND the display name of the Warranty classification.
+    Both rows must come back so the agent reads `kind` instead of taking the first."""
+    kinds = sorted(_cols(r)["kind"] for r in rows if r[0] == "potain")
+    assert kinds == ["branch", "classification"]
+
+
 def test_build_is_deterministic():
     assert phrasebook.build(INDEX) == phrasebook.build(INDEX)
 
