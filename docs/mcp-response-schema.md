@@ -5,46 +5,68 @@ Two calls. Read by `datasource.AppMcpSource` → `map_response` → `xas_allocat
 
 ## Call 1 — NEW tool? — jobitems
 
-One job card per row, its car lines nested. `totalCount` counts cards, not lines.
+A **list of job cards**, each carrying its own **list of jobitems**.
+`totalCount` counts cards, not jobitems.
 
 ```jsonc
 {
   "totalCount": 25,
-  "JobEntryNum":  502381,
-  "JobKey":       "VSO-16",
-  "DueDateTime":  "2026-08-30T06:10:00Z",   // the promise
-  "EntryDateTime":"2026-07-20T06:40:00Z",   // order age
-  "JobStatus":    { "Code": "23", "Label": "Order" },
-  "JobPriority":  { "Code": null },          // the objective weight; null on all 25
-  "isCanceled":   false,
-  "Branch":       "69f07fdaf930e4ee6d524dc1",
-  "Accounts": { "Owner": {
-    "AccountName":    "customer 08052026",
-    "AccountUUID":    "69fde79b100a501b50da0b77",
-    "AccountDMSCode": "10776"  
-          }
+  "list": [
+    {                                             // ── one job card (one VSO) ──
+      "JobEntryNum":  502381,
+      "JobKey":       "VSO-16",
+      "DueDateTime":  "2026-08-30T06:10:00Z",     // the promise
+      "EntryDateTime":"2026-07-20T06:40:00Z",     // order age
+      "JobStatus":    { "Code": "23", "Label": "Order" },
+      "JobPriority":  { "Code": null },           // the objective weight; null on all 25
+      "isCanceled":   false,
+      "Branch":       "69f07fdaf930e4ee6d524dc1",
+      "Accounts": { "Owner": {
+        "AccountName":    "customer 08052026",
+        "AccountUUID":    "69fde79b100a501b50da0b77",
+        "AccountDMSCode": "10776"
+      }},
+      "jobitems": [                               // ── its lines ──
+        {
+          "LineNum":      2,                      // order key is {JobKey}-{LineNum}
+          "JobItemCode":  "T5040UECLMQ0009",      // eligibility key == vehicle.SalesModel
+          "SalesModelCode": "T5040UECLMQ0009",    // same value on ModelItem lines
+          "JobItemType":  "ModelItem",            // "ModelItem" = a car. THE discriminator
+          "JobItemStatus": "Open",                // per-line status
+          "Label": "JAECOO7 4WD Exclusive - 4WD Carbon crystal green2025",
+          "Quantity":     3,                      // n cars of demand on this line
+          "AllocType":    "Soft",                 // the incumbent: pulls from a VPO
+          "AllocQty":     3,
+          "AllocSourceJobNum":  "105992",         // the VPO it pulls from
+          "AllocSourceLineNum": 5,
+          "InventoryStatus": "Ordered",
+          "DeliveryDate": null                    // per-line date exists, unpopulated in dev
+        },
+        {
+          "LineNum":      3,                      // a second car on the same card
+          "JobItemCode":  "SM1111251137",
+          "JobItemType":  "ModelItem",
+          "Quantity":     4
+          // …same fields as above
+        },
+        {
+          "LineNum":      1,                      // not a car — filtered out
+          "JobItemCode":  "CCO",
+          "JobItemType":  "Configuration"
+        }
+      ]
     },
-"jobitems": [
-    {
-      "LineNum":      2,                        // order key is {JobKey}-{LineNum}
-      "JobItemCode":  "T5040UECLMQ0009",        // eligibility key == vehicle.SalesModel
-      "SalesModelCode": "T5040UECLMQ0009",      // same value on ModelItem lines
-      "JobItemType":  "ModelItem",              // "ModelItem" = a car. THE discriminator
-      "JobItemStatus": "Open",                  // per-line status
-      "Label": "JAECOO7 4WD Exclusive - 4WD Carbon crystal green2025",
-      "Quantity":     3,                        // n cars of demand on this line
-      "AllocType":    "Soft",                   // the incumbent: pulls from a VPO
-      "AllocQty":     3,
-      "AllocSourceJobNum":  "105992",           // the VPO it pulls from
-      "AllocSourceLineNum": 5,
-      "InventoryStatus": "Ordered",
-      "DeliveryDate": null                      // per-line date exists, unpopulated in dev
-   },
-    ...
+    {                                             // ── the next job card ──
+      "JobEntryNum":  502382,
+      "jobitems": [ /* … */ ]
+    }
   ]
 }
 ```
 
+One card is one customer's sales order; one `ModelItem` jobitem is one wanted
+car, and `Quantity` says how many. So 25 cards can carry far more than 25 orders,
+and the solver's order key spans both levels: `{JobKey}-{LineNum}`.
 
 ## Call 2 — `get_vehicles` — supply
 
