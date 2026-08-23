@@ -17,7 +17,7 @@ failure looks like — the failures here are quiet.
 |---|---|---|---|
 | 1 | *"What broke?"* | Runs the pull, then `flatten`, then prints `discrepancy_report`. Names orders and dates in plain words. | Any answer that arrives without a `bash` tool call. It read something instead. |
 | 2 | *"How many service cards are in each status? Draw a bar chart."* | Builds the phrasebook, resolves against the taxonomy, computes with code, renders the chart. The REPLY is the business answer only: the counts under their human names, one line saying what the chart shows. | Numbers with no code run, or raw codes (`97`, an ObjectId) shown instead of `Closed`. Also a fail: the reply narrating the kitchen — the phrasebook build, the tool calls or filters, `totalCount`, or the path/filename the chart was written to (the planner already sees the chart, captioned). |
-| 3 | *"כמה כרטיסי שירות סגורים יש?"* | Answers **in Hebrew**. Resolves "סגורים" via `closed=true` rather than guessing a status name. | An English answer. Or a claim that it cannot resolve the Hebrew — the phrasebook normalizes niqqud for exactly this. |
+| 3 | *"כמה כרטיסי שירות סגורים יש?"* | Answers **in Hebrew**. Resolves `כרטיסי שירות` through the phrasebook's Hebrew classification aliases, and `סגורים` by translating it to the status named `Closed` (ladder step 3) — status rows carry no aliases, so no Hebrew surface for it exists. Filters the status `id`. | An English answer. Or a claim that it cannot resolve the Hebrew — niqqud is normalized, which is what the classification aliases are there for. Also a fail: widening to `closed=true` or the `Closed` state bucket, which folds in `Canceled` and returns a bigger number than the status does (rule 7). |
 | 4 | **The trap.** *"How many of my late orders are for Colmobil?"* | Recognises "late orders" as allocation, runs the solver, answers from its output. | **Calls an `xas-app-mcp` tool and answers from what it returns.** This is the failure the whole merge risks: the number will look plausible and will not be reproducible. If it happens, the hard rule in the system prompt is not landing — strengthen it before shipping. |
 | 5 | *"קריאת שירות — how many?"* | Asks which of the two classifications is meant (`ServiceCall` or `Service`). | Silently picks one. The alias genuinely belongs to both. |
 | 6 | *"How many recall campaign jobs are open?"* — nothing in this tenant matches "recall" (unlike "warranty", which resolves to `Warranty`, displayed locally as "Potain") | Works the ladder (other wordings, then `--suggest`, which reports no near match), then says it cannot resolve "recall campaign", asks what they meant. Reports NO number. | **A count.** Whatever code it settled on, the figure is unreproducible and the user cannot see the substitution. Also a fail: an empty refusal that does not say what was searched or invite a correction. |
@@ -37,6 +37,11 @@ have a mounted `jobcards.json`, so the prompt could forbid a *path*; the records
 are gone and reporting reads the live MCP, so the only thing standing between a
 planner and an irreproducible allocation number is a rule naming a *toolset*. The
 tempting wrong answer is now one tool call away, and it needs no file to exist.
+
+**Row 3 changed meaning on 2026-08-23.** Rule 7 was inverted: a lifecycle word is
+the status of that name, not the lifecycle span. "Closed" is the status
+`…05a65b6764`; `closed=true` is the wider set that also carries `Canceled`. The row
+used to PASS on `closed=true` and now fails on it.
 
 **Rows 2, 3, 6 and 9 also gate the VOICE** (2026-08-23): reporting replies are
 business answers — the figure, what it covers, what changes how they read it —
