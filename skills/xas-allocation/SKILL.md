@@ -1,19 +1,14 @@
 ---
 name: xas-allocation
 description: >-
-  Repair a vehicle-to-order allocation after a disruption (delayed shipment,
-  changed inbound, manual steering), and say where the vehicle sales orders and
-  their cars stand. Use whenever someone asks about deliveries or arrivals
-  ("check the deliveries", "are the cars coming on time", "what is late"), about
-  a VSO / vehicle sales order / sales order / customer order, about a delay in
-  supply or in a VPO / vehicle purchase order ("the factory slipped", "check for
-  delays in supply"), which car an order gets, or asks to re-allocate,
-  defer/pin/boost orders, or explain an allocation change. Translate the
-  situation + planner instructions into inputs for a deterministic min-cost-flow
-  solver, run the sweep, self-check hard constraints, and emit a reason-coded
-  change list. Does NOT allocate by reasoning — it drives the reference solver.
-  Do NOT use for general reporting over job-card records (counts, breakdowns,
-  charts) — that is xas-reporting.
+  Repair a vehicle-to-order allocation after a disruption, and say where the
+  vehicle sales orders and their cars stand. Use for deliveries and arrivals
+  ("check the deliveries", "are the cars coming on time", "what is late"), a VSO /
+  vehicle sales order / sales order / customer order, a delay in supply or in a
+  VPO / vehicle purchase order ("the factory slipped"), which car an order gets,
+  and any ask to re-allocate, defer, pin or boost orders or explain a change.
+  Drives a deterministic min-cost-flow solver, never allocating by reasoning.
+  Do NOT use for general reporting over job-card records (counts, breakdowns, charts) — that is xas-reporting.
 ---
 
 # Allocation repair

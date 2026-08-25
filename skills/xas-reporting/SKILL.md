@@ -3,13 +3,12 @@ name: xas-reporting
 description: >-
   Answer REPORTING questions over the dealership's job-card records — counts,
   breakdowns, filters, charts — resolving the business vocabulary a user types
-  (any language) to this tenant's system codes via this skill's taxonomy and its
-  normalized phrasebook. Use for questions ABOUT the data: how many, which
-  branch, what status, draw a chart. Do NOT use for allocation repair — which
-  order is late, which vehicle an order gets, bumping or pinning belong to
-  xas-allocation, which answers those from the solver. Nor for deliveries,
-  arrivals, VSOs / sales orders, or delays in supply or in a VPO: those are
-  allocation, even when phrased as a count.
+  (any language) to this tenant's system codes via this skill's taxonomy and
+  phrasebook. Use for questions ABOUT the data: how many, which branch, what
+  status, draw a chart. Do NOT use for allocation repair — which order is late,
+  which vehicle an order gets, bumping, pinning, deliveries, arrivals, VSOs /
+  sales orders, or delays in supply or in a VPO belong to xas-allocation, which
+  answers them from the solver; that holds even when phrased as a count.
 ---
 
 # XAS terminology resolution
