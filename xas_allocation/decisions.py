@@ -1,13 +1,21 @@
 """Central registry of every `<<DECIDE>>` from the build spec.
 
-The spec is emphatic: do NOT guess the open decisions. Each one below is
-stubbed with a clearly-labelled DEFAULT and a one-line rationale, and every
-default is surfaced at runtime via ``format_decisions()`` (printed at the top of
-a ``session.py`` run) so a human reviewer sees exactly what was assumed and can
-flip it before this prototype touches real dealer data.
+Each one carries a DEFAULT, a rationale, and a STATUS, and all three are
+surfaced at runtime via ``format_decisions()`` (printed at the top of a
+``session.py`` run) so nothing is silently assumed.
 
-Nothing here is a settled answer. These are load-bearing stubs, kept in ONE
-place so the decisions are auditable rather than scattered through the solver.
+Reviewed 2026-08-25. The statuses are not decoration — read them:
+
+* ``SETTLED`` — decided. The mechanism is the answer, not a placeholder.
+* ``SETTLED (mechanism) — VALUE tuned but unvalidated`` — the shape is decided,
+  the NUMBER is not. No planner has ever seen these five values (DECIDE-1, -2,
+  -3, -11, -15); they are tuned against the fabricated dataset alone and are
+  reviewed at first real dealer data.
+* ``DEFERRED`` — recorded, deliberately not built.
+* ``OPEN`` — still needs human sign-off. One left: DECIDE-5.
+
+Keeping them in ONE place is what makes them auditable rather than scattered
+through the solver.
 """
 
 from __future__ import annotations
@@ -27,6 +35,9 @@ class Decision:
 DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-1",
+        status=(
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (ALPHA=0.5, BETA=0.1)"
+        ),
         title="Aging term: additive vs multiplicative on the effective weight W(o)",
         default="additive",
         rationale=(
@@ -38,6 +49,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-2",
+        status=(
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (FROZEN_MAX_DAYS=14, SLUSHY_MAX_DAYS=42)"
+        ),
         title="Time-fence boundaries (days from the pull date)",
         default="frozen <= 14d, slushy 15-42d, liquid > 42d",
         rationale=(
@@ -48,6 +62,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-3",
+        status=(
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (BREAK_COST['hard']=200.0 — the 'days-late worth one hard break' ratio is the number a planner must own)"
+        ),
         title="Break cost: soft vs hard allocation (real vs future vehicle)",
         default="hard (binding 'Vehicle') = expensive-but-movable; soft ('Future') = free; BREAK_COST",
         rationale=(
@@ -72,6 +89,7 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-4",
+        status=("SETTLED 2026-08-25"),
         title="Pin mechanism: pre-commit-arc vs infinite-cost",
         default="inf_cost (finite large penalty) for instruction pins; pre-commit (exclude) for data pins",
         rationale=(
@@ -83,6 +101,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-5",
+        status=(
+            "OPEN — reaffirmed open 2026-08-25. The override still lives only in the conversation; a host-side store in web.py remains the candidate fix, undecided. Verify the Managed Agents persistence + mid-session-steering surface against current docs before wiring anything."
+        ),
         title="Managed Agents session-persistence + mid-session-steering API",
         default=(
             "steering is a single combined OVERRIDE object the agent carries forward and "
@@ -102,12 +123,18 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-6",
+        status=(
+            "SETTLED 2026-08-25 — NOT APPLICABLE, no liveness check. The allocation pull happens host-side before the session exists, so a session-start call from the agent proves nothing about it; a fetch failure surfaces at mount time instead. The reporting lane's MCP liveness shows up as a failed tool call. The no-op step is removed from the skill."
+        ),
         title="xas-code MCP liveness-check pattern",
         default="single directory_tree call at session start (prototype: skipped, synthetic data)",
         rationale="Match Olga's standing xas-code liveness pattern once MCP is wired.",
     ),
     Decision(
         key="DECIDE-7",
+        status=(
+            "SETTLED 2026-08-25 (contract) — BLOCKED on the app MCP's projection: it returns no `jobitems`, and asks for `DueDate` where XAS stores `DueDateTime`. docs/mcp-field-spec.md is the change request. The mapping contract itself needs no further decision."
+        ),
         title="XAS API data contract (fields + endpoints)",
         default=(
             "SETTLED for dev: AppMcpSource reads VSOs + vehicles through the app MCP's own "
@@ -117,22 +144,26 @@ DECISIONS: list[Decision] = [
         rationale=(
             "One data seam for both lanes: the reporting lane already answers over these "
             "tools. The MCP PROJECTS, though, and does not return everything the solver needs "
-            "yet — SalesModel, VehicleDMSCode, EtaDealer, AvailableBy are off the allowlist, "
+            "yet — jobitems (the grain itself), SalesModel, VehicleDMSCode, EtaDealer and "
+            "AvailableBy are off the allowlist, "
             "and it asks for DueDate where XAS stores DueDateTime, so no VSO returns a "
             "promised date. docs/mcp-field-spec.md is the change request; missing_projection() "
             "names any gap so it cannot be mistaken for empty data. Key facts the mapping "
-            "encodes: the order grain is the VSO HEADER (job items are parts); the "
+            "encodes: the order grain is the CAR — one `ModelItem` job item wants Quantity of "
+            "them, and each wanted car is one order keyed {JobKey}-{LineNum}-{n}; the "
             "eligibility key is vehicle SalesModel, not ModelId.Code; future-vs-real comes from "
             "Status NAME, never code (02 is both 'On The Way' and 'Available For Sale'); the "
             "disruption is DERIVED (XAS records no delay manifest); a vehicle claimed by two "
             "orders yields no incumbent for either. What remains open is the DATA, not the "
-            "contract — 1 of 25 dev VSOs carries both a model and a promised date. "
+            "contract — the list projection returns no jobitems, so all 25 dev VSOs currently "
+            "drop for no_car_line and the live allocation pull is EMPTY. "
             "`python -m datasource --census` prints the funnel. Still host-side, still mounted "
             "as a file: the agent never calls XAS and never holds a credential."
         ),
     ),
     Decision(
         key="DECIDE-8",
+        status=("SETTLED 2026-08-25"),
         title="Infeasibility strategy",
         default="high-cost soft pins (option 1)",
         rationale=(
@@ -145,6 +176,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-9",
+        status=(
+            "SETTLED 2026-08-25 — stays in-repo under xas_allocation/, shipped in the skill bundle. Extraction to a version-pinned repo is triggered by the FIRST NON-DEV TENANT, not by a date; SOLVER_VERSION is the pin point."
+        ),
         title="Solver repo location + versioning",
         default="reference solver lives in-repo under xas_allocation/; skill pins SOLVER_VERSION",
         rationale=(
@@ -155,18 +189,26 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-10",
+        status=(
+            "DEFERRED 2026-08-25 — record corrected, nothing built. Earmarked supply (a Reserved-for-X car eligible only for X) stays out of the minimal build."
+        ),
         title="reserved_for_customer eligibility",
-        default="ignored (a reserved vehicle is eligible for anyone) — DEFERRED, not in the minimal build",
+        default="a reserved vehicle is out of the pool entirely — eligible for NO ONE",
         rationale=(
-            "XAS carries a reserved-for-customer notion (`docs/real-source-investigation.md` "
-            "§2: a `Reserved-*` status, NOT the `IsReserved` flag): a "
-            "vehicle earmarked for a dealer should be eligible only for that dealer's orders. "
-            "Not modelled in the minimal 30-customer build; when added, it becomes an extra "
-            "term in the sparse-arc eligibility rule."
+            "Corrected 2026-08-25: this used to read 'ignored — eligible for anyone', which "
+            "described behaviour the mapper does not have. `Reserved-*` is one of the statuses "
+            "datasource.py drops as out_of_scope_status (DECIDE-3), so an earmarked car is not "
+            "supply for anybody, including the dealer it is earmarked for. XAS carries the "
+            "reserved-for-customer notion as that status, NOT the `IsReserved` flag "
+            "(`docs/real-source-investigation.md` §2). Modelling it as EARMARKED SUPPLY — a "
+            "Reserved-for-X vehicle eligible only for X's orders — is the deferred upgrade: it "
+            "widens supply and needs the reserved-to-account link to resolve, and it becomes an "
+            "extra term in the sparse-arc eligibility rule."
         ),
     ),
     Decision(
         key="DECIDE-13",
+        status=("SETTLED 2026-08-25"),
         title="Bumping an untouched order requires explicit planner authorization",
         default="never bump an untouched row unless the planner names who may be bumped (override 'bump')",
         rationale=(
@@ -179,6 +221,7 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-12",
+        status=("SETTLED 2026-08-25"),
         title="Future vehicle = soft supply",
         default="a Future vehicle (VehicleClassification 'Future') is SOFT, free to re-allocate",
         rationale=(
@@ -192,6 +235,7 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-14",
+        status=("SETTLED 2026-08-25"),
         title="Time-scale granularity: the resolution the solver reasons at",
         default="planner knob time_scale (days|weeks|months); round day-deltas UP; default days",
         rationale=(
@@ -207,6 +251,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-15",
+        status=(
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (EARLY_WEIGHT=0.15)"
+        ),
         title="Earliness penalty: how hard to discourage arriving too early",
         default="EARLY_WEIGHT = 0.15, linear; extreme earliness may lose to slight lateness (uncapped)",
         rationale=(
@@ -220,6 +267,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-11",
+        status=(
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (GAMMA=0.75)"
+        ),
         title="Reschedule fairness: how hard to protect an already-bumped order",
         default="GAMMA = 0.75 escalation on W(o) per times_rescheduled",
         rationale=(
@@ -233,6 +283,9 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-16",
+        status=(
+            "SETTLED 2026-08-25 — bundled. A SECOND TENANT is the trigger that flips it back to a host-side mount."
+        ),
         title="Where the tenant taxonomy comes from: bundled in the skill vs mounted per session",
         default="bundled — index.md ships inside the xas-reporting skill",
         rationale=(
@@ -304,11 +357,22 @@ LAMBDA_SWEEP = (0, 5, 10, 25, 50, 100)
 
 
 def format_decisions() -> str:
-    """Human-readable dump of every open decision + its stubbed default.
+    """Human-readable dump of every decision, its default and its status.
 
-    Printed at the top of a session run so no assumption is silent.
+    Printed at the top of a session run so no assumption is silent. OPEN and
+    value-unvalidated entries are counted in the header — a reader who stops at
+    the first line still learns how much is genuinely decided.
     """
-    lines = ["OPEN DECISIONS (stubbed defaults — NOT settled answers):"]
+    open_keys = [d.key for d in DECISIONS if d.status.startswith("OPEN")]
+    unvalidated = [d.key for d in DECISIONS if "VALUE tuned but unvalidated" in d.status]
+    lines = [
+        (
+            f"DECISION REGISTER ({len(DECISIONS)} entries): "
+            f"{len(open_keys)} OPEN ({', '.join(open_keys) or 'none'}); "
+            f"{len(unvalidated)} settled in shape but carrying an UNVALIDATED VALUE "
+            f"({', '.join(unvalidated) or 'none'})."
+        )
+    ]
     for d in DECISIONS:
         lines.append(f"  [{d.key}] {d.title}")
         lines.append(f"      default : {d.default}")

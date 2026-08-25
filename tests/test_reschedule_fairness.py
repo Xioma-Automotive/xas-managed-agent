@@ -18,10 +18,12 @@ LATE = date(2026, 10, 14)
 
 
 def _order(oid: str, times_rescheduled: int) -> Order:
-    so_id, line = oid.rsplit("-", 1)
+    # `oid` is the full order key: VSO + car line + the car within that line.
+    so_id, line, qty_index = oid.rsplit("-", 2)
     return Order(
         so_id=so_id,
         line=int(line),
+        qty_index=int(qty_index),
         customer="Dealer",
         customer_id="CUST-001",
         sales_model="SM1",
@@ -44,14 +46,14 @@ def _unit(vid: str, planned: date) -> Unit:
 
 
 def test_weight_escalates_with_reschedules():
-    base = _order("SO-A-1", 0)
-    bumped = _order("SO-B-1", 2)
+    base = _order("SO-A-1-1", 0)
+    bumped = _order("SO-B-1-1", 2)
     assert effective_weight(bumped, {}) > effective_weight(base, {})
 
 
 def test_already_bumped_order_wins_the_on_time_vehicle():
-    a = _order("SO-A-1", 2)  # already rescheduled twice — protect it
-    b = _order("SO-B-1", 0)  # never rescheduled
+    a = _order("SO-A-1-1", 2)  # already rescheduled twice — protect it
+    b = _order("SO-B-1-1", 0)  # never rescheduled
     units = [
         _unit("VEH-GOOD", ON_TIME),  # the single on-time vehicle (scarce)
         _unit("VEH-LATE-A", LATE),
@@ -60,12 +62,12 @@ def test_already_bumped_order_wins_the_on_time_vehicle():
     snap = Snapshot(
         orders=[a, b],
         units=units,
-        incumbent={"SO-A-1": "VEH-LATE-A", "SO-B-1": "VEH-LATE-B"},
-        disruption={"disrupted_orders": ["SO-A-1", "SO-B-1"]},
+        incumbent={"SO-A-1-1": "VEH-LATE-A", "SO-B-1-1": "VEH-LATE-B"},
+        disruption={"disrupted_orders": ["SO-A-1-1", "SO-B-1-1"]},
         now=NOW,
     )
     result = solve(snap, {}, lam=0)
     by_id = snap.unit_by_id()
-    assert result.plan["SO-A-1"] == "VEH-GOOD", "the already-bumped order should be protected"
-    assert tardiness(a, by_id[result.plan["SO-A-1"]]) == 0
-    assert tardiness(b, by_id[result.plan["SO-B-1"]]) > 0
+    assert result.plan["SO-A-1-1"] == "VEH-GOOD", "the already-bumped order should be protected"
+    assert tardiness(a, by_id[result.plan["SO-A-1-1"]]) == 0
+    assert tardiness(b, by_id[result.plan["SO-B-1-1"]]) > 0

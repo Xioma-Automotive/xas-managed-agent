@@ -1,7 +1,8 @@
 """The pull comes from a callable source, host-side (DECIDE-7).
 
 Guards the seam:
-  1. the scenario-engine fake returns the rich contract and it flattens;
+  1. the scenario-engine fake fabricates the app MCP's own response shapes and
+     maps them with the SAME `map_response` the live pull uses;
   2. the source is selected by env, defaulting to the offline fake;
   3. the real source refuses to construct without the app-MCP config;
   4. `map_response` — the filter+translate half of the real source — is PURE and
@@ -12,6 +13,16 @@ Guards the seam:
 MCP asks for `DueDate` where XAS stores `DueDateTime` and silently returns no
 dates at all on all 25 VSOs — a fixture is what stops us shipping the same class
 of bug.
+
+**The grain is the line, and the capture predates it.** One `ModelItem` jobitem
+is one order, keyed `{JobKey}-{LineNum}` — but the MCP's list projection returns
+no `jobitems` at all, so not one captured card can carry a car line
+(`test_the_projection_returns_no_car_lines_at_all` pins exactly that, and it is a
+finding, not a fixture problem: the live allocation pull is EMPTY until the MCP is
+widened — see `docs/mcp-field-spec.md`). So the card side of the mapping tests is
+hand-built while the VEHICLE side stays the capture, which is where the join-key
+risk actually lives. Re-capturing against a jobitems-bearing tool is the fix, and
+it needs that tool to exist first.
 """
 
 import json
@@ -28,14 +39,45 @@ CONTRACT_KEYS = {"meta", "vsos", "vehicles", "disruption"}
 FIXTURE = Path(__file__).parent / "fixtures" / "xas_sample.json"
 NOW = date(2026, 8, 20)  # the day the fixture was captured
 
+# A SalesModel that really is on the captured vehicle rows (10 In Stock, 6 On The
+# Way), so a hand-built card can join against real records rather than mock ones.
+CAPTURED_MODEL = "T5040UECLMQ0009"
+LATER = "2026-12-01T00:00:00Z"
+
 
 def _sample() -> tuple[list[dict], list[dict]]:
     raw = json.loads(FIXTURE.read_text())
     return raw["vsos"]["list"], raw["vehicles"]["records"]
 
 
+def _car(line: int, code: str, **extra) -> dict:
+    """One `ModelItem` jobitem — the allocatable grain."""
+    return {
+        "LineNum": line,
+        "JobItemCode": code,
+        "JobItemType": "ModelItem",
+        "JobItemStatus": "Open",
+        "Quantity": 1,
+        **extra,
+    }
+
+
+def _config(line: int) -> dict:
+    """A non-car line. Every real card carries one; the type filter drops it."""
+    return {"LineNum": line, "JobItemCode": "CCO", "JobItemType": "Configuration"}
+
+
+def _card(key: str, lines: list[dict], due: str = LATER, **extra) -> dict:
+    return {"JobEntryNum": key, "DueDateTime": due, "jobitems": lines, **extra}
+
+
 def _mapped() -> dict:
-    orders, vehicles = _sample()
+    """The captured vehicles under hand-built cards that want CAPTURED_MODEL."""
+    _, vehicles = _sample()
+    orders = [
+        _card("100", [_car(1, CAPTURED_MODEL), _config(2)]),
+        _card("101", [_car(1, CAPTURED_MODEL), _car(2, CAPTURED_MODEL)]),
+    ]
     return datasource.map_response(orders, vehicles, NOW)
 
 
@@ -48,8 +90,9 @@ def test_scenario_source_returns_the_rich_contract():
 
 
 def test_scenario_source_matches_committed_dataset():
-    """The default fake reads the committed dataset — stable and offline, so the
-    determinism suite and this source agree byte-for-byte."""
+    """The default fake reads the committed MCP payloads and maps them; the
+    committed `pull.json` is that same mapping's output, so the two agree
+    byte-for-byte. `pull.json` is DERIVED, not authored."""
     rich = datasource.ScenarioEngineSource().pull()
     committed = json.loads(datasource.DATASET_PATH.read_text())
     assert rich == committed
@@ -58,6 +101,15 @@ def test_scenario_source_matches_committed_dataset():
 def test_scenario_source_can_regenerate():
     rich = datasource.ScenarioEngineSource(regenerate=True, seed=20).pull()
     assert CONTRACT_KEYS <= set(rich)
+
+
+def test_the_fake_and_the_committed_payloads_are_the_same_world():
+    """Regenerating in memory and reading the committed files must agree — the
+    files are the fake's only durable form, and a drift between them would show
+    up as a plan that changes when nobody changed anything."""
+    live = datasource.ScenarioEngineSource(regenerate=True, seed=20).pull()
+    on_disk = datasource.ScenarioEngineSource().pull()
+    assert json.dumps(live, sort_keys=True) == json.dumps(on_disk, sort_keys=True)
 
 
 def test_get_source_defaults_to_scenario(monkeypatch):
@@ -97,7 +149,41 @@ def test_a_field_the_mcp_never_returns_is_named_not_guessed_at():
     assert datasource.missing_projection([], ("SalesModelCode",)) == []
 
 
-# --- map_response: filter + translate, against a captured real response -------
+# --- what the captured response actually proves --------------------------------
+
+
+def test_the_projection_returns_no_car_lines_at_all():
+    """THE finding, not a fixture defect: the list projection carries no
+    `jobitems`, so every captured card drops for having no car line and the live
+    allocation pull is empty. A projection gap, absent from every row — the
+    opposite fix from a tenant that has not filled a field in."""
+    orders, vehicles = _sample()
+    assert orders, "fixture must contain cards"
+    assert not any(datasource.card_lines(card) for card in orders)
+    # named as a gap by the real constant, not just by an ad-hoc tuple
+    assert "jobitems" in datasource.missing_projection(orders, datasource.REQUIRED_CARD_FIELDS)
+
+    rich = datasource.map_response(orders, vehicles, NOW)
+    excluded = rich["meta"]["excluded"]
+    assert rich["vsos"] == []
+    assert excluded["orders_seen"] == len(orders)
+    assert excluded["orders_kept"] == 0
+    assert excluded["order_drops"]["no_car_line"] > 0
+    # the funnel still accounts for every row it was handed
+    assert (
+        excluded["orders_kept"] + sum(excluded["order_drops"].values()) == excluded["orders_seen"]
+    )
+
+
+def test_the_promise_comes_from_DueDateTime():
+    """The field the app MCP gets wrong. `DueDate` does not exist on a VSO."""
+    orders, _ = _sample()
+    dated = [o for o in orders if o.get("DueDateTime")]
+    assert dated, "fixture must contain at least one dated VSO"
+    assert not any(o.get("DueDate") for o in orders), "XAS stores DueDateTime, not DueDate"
+    rich = _mapped()
+    assert rich["vsos"], "the hand-built cards should survive"
+    assert all(len(v["DeliveryDate"]) == 10 for v in rich["vsos"])
 
 
 def test_mapped_pull_satisfies_the_rich_contract_and_flattens():
@@ -110,43 +196,20 @@ def test_mapped_pull_satisfies_the_rich_contract_and_flattens():
     assert all(u.sales_model and u.eta_dealer for u in snap.units)
 
 
-def test_an_order_without_a_model_is_dropped_with_a_reason():
-    """A VSO with no SalesModelCode has nothing to match a car on — the whole
-    point of the filter. It must be counted, not silently missing."""
-    orders, vehicles = _sample()
-    rich = datasource.map_response(orders, vehicles, NOW)
-    excluded = rich["meta"]["excluded"]
-    assert excluded["orders_seen"] == len(orders)
-    assert excluded["orders_kept"] == len(rich["vsos"])
-    assert excluded["order_drops"]["no_model_on_the_order"] > 0
-    assert (
-        excluded["orders_kept"] + sum(excluded["order_drops"].values()) == excluded["orders_seen"]
-    )
-
-
-def test_the_promise_comes_from_DueDateTime():
-    """The field the app MCP gets wrong. `DueDate` does not exist on a VSO."""
-    orders, vehicles = _sample()
-    dated = [o for o in orders if o.get("DueDateTime")]
-    assert dated, "fixture must contain at least one dated VSO"
-    assert not any(o.get("DueDate") for o in orders), "XAS stores DueDateTime, not DueDate"
-    rich = datasource.map_response(orders, vehicles, NOW)
-    assert all(len(v["DeliveryDate"]) == 10 for v in rich["vsos"])
-
-
 def test_the_join_key_is_SalesModel_not_ModelId():
     """An order names a trim/colour code; ModelId.Code is the model above it and
     matches nothing. Getting this backwards backorders every order."""
-    orders, vehicles = _sample()
-    rich = datasource.map_response(orders, vehicles, NOW)
-    wanted = {v["SalesModelCode"] for v in rich["vsos"]}
-    assert wanted, "fixture must contain a model-bearing VSO"
+    _, vehicles = _sample()
+    rich = _mapped()
+    wanted = {item["SalesModelCode"] for v in rich["vsos"] for item in v["JobItems"]}
+    assert wanted, "the hand-built cards must name a model"
     # the pull keeps only cars some order wants, so every unit matches by key
     assert {u["SalesModel"] for u in rich["vehicles"]} <= wanted
-    # and at least one of those matched on SalesModel, not on the fallback
-    assert any(datasource._text(v.get("SalesModel")) in wanted for v in vehicles), (
-        "the sample should join on SalesModel"
-    )
+    # and those matched on SalesModel, not on the ModelId fallback
+    assert any(datasource._text(v.get("SalesModel")) in wanted for v in vehicles)
+    assert not any(
+        datasource._text((v.get("ModelId") or {}).get("Code")) in wanted for v in vehicles
+    ), "the captured ModelId.Code must not be what matched"
 
 
 def test_status_splits_future_from_real_by_name_not_code():
@@ -171,41 +234,136 @@ def test_a_real_car_is_available_now_and_a_future_one_needs_a_date():
     assert datasource.unit_eta({}, NOW, "future") == ""
 
 
+# --- the grain: one ModelItem line is one order -------------------------------
+
+
+def test_one_car_line_is_one_order():
+    """A card with two car lines is two orders, keyed {JobKey}-{LineNum}, and its
+    Configuration line is dropped by TYPE — the only thing separating them."""
+    orders = [_card("7", [_car(1, "SM"), _car(2, "SM"), _config(3)])]
+    vehicles = [{"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
+    rich = datasource.map_response(orders, vehicles, NOW)
+    assert [item["LineNum"] for item in rich["vsos"][0]["JobItems"]] == [1, 2]
+    excluded = rich["meta"]["excluded"]
+    assert excluded["lines_kept"] == 2
+    assert excluded["line_drops"] == {"not_a_car_line": 1}
+    snap = flatten(rich)
+    assert sorted(o.key for o in snap.orders) == ["7-1-1", "7-2-1"]
+
+
+def test_a_card_with_no_car_line_is_dropped_with_a_reason():
+    orders = [_card("7", [_config(1)])]
+    rich = datasource.map_response(orders, [], NOW)
+    assert rich["vsos"] == []
+    assert rich["meta"]["excluded"]["order_drops"]["no_car_line"] == 1
+    assert rich["meta"]["excluded"]["line_drops"]["not_a_car_line"] == 1
+
+
+def test_a_line_without_a_model_is_dropped_with_a_reason():
+    """A car line with no model code has nothing to match a car on — the whole
+    point of the filter. It must be counted, not silently missing."""
+    orders = [_card("7", [_car(1, "SM"), {"LineNum": 2, "JobItemType": "ModelItem"}])]
+    vehicles = [{"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
+    rich = datasource.map_response(orders, vehicles, NOW)
+    assert rich["meta"]["excluded"]["line_drops"]["no_model_on_the_line"] == 1
+    assert rich["meta"]["excluded"]["lines_kept"] == 1
+
+
+def test_a_dead_line_is_not_live_demand():
+    orders = [
+        _card(
+            "7",
+            [
+                _car(1, "SM"),
+                _car(2, "SM", JobItemStatus="Closed"),
+                _car(3, "SM", IsDeleted=True),
+            ],
+        )
+    ]
+    vehicles = [{"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
+    rich = datasource.map_response(orders, vehicles, NOW)
+    assert rich["meta"]["excluded"]["line_drops"] == {"closed_line": 1, "deleted_line": 1}
+    assert rich["meta"]["excluded"]["lines_kept"] == 1
+
+
+def test_the_header_model_code_is_never_read():
+    """The card's own `SalesModelCode` disagrees with the line on real data, and
+    the detail shape does not carry it at all. The LINE is the eligibility key."""
+    orders = [_card("7", [_car(1, "LINE")], SalesModelCode="HEADER", ModelCode="HEADER")]
+    vehicles = [
+        {"VehicleCode": "V1", "SalesModel": "LINE", "Status": {"Name": "In Stock"}},
+        {"VehicleCode": "V2", "SalesModel": "HEADER", "Status": {"Name": "In Stock"}},
+    ]
+    rich = datasource.map_response(orders, vehicles, NOW)
+    assert rich["meta"]["sales_models"] == ["LINE"]
+    assert [u["VehicleCode"] for u in rich["vehicles"]] == ["V1"]
+
+
+def test_a_cancelled_card_is_dropped():
+    orders = [_card("7", [_car(1, "SM")], isCanceled=True)]
+    rich = datasource.map_response(orders, [], NOW)
+    assert rich["vsos"] == []
+    assert rich["meta"]["excluded"]["order_drops"]["cancelled"] == 1
+
+
+# --- the incumbent ------------------------------------------------------------
+
+
 def test_a_double_booked_vehicle_yields_no_incumbent_for_anyone():
     """Vehicle 10831 is claimed by three VSOs in dev. An incumbent that
-    double-books is not a valid matching; the solver would trip on its input."""
+    double-books is not a valid matching; the solver would trip on its input.
+
+    The claim arrives the only way the live MCP offers one — the CARD's
+    `VehicleDMSCode` — which applies just to a single-car card. The
+    Configuration line must not count toward that "single", or the conflict scan
+    and the translate step disagree and the double-booking goes unrecorded.
+    """
     orders = [
-        {
-            "JobEntryNum": "1",
-            "SalesModelCode": "SM",
-            "DueDateTime": "2026-12-01T00:00:00Z",
-            "VehicleDMSCode": "10831",
-        },
-        {
-            "JobEntryNum": "2",
-            "SalesModelCode": "SM",
-            "DueDateTime": "2026-12-01T00:00:00Z",
-            "VehicleDMSCode": "10831",
-        },
+        _card("1", [_car(1, "SM"), _config(2)], VehicleDMSCode="10831"),
+        _card("2", [_car(1, "SM"), _config(2)], VehicleDMSCode="10831"),
     ]
     vehicles = [{"VehicleCode": "10831", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
     rich = datasource.map_response(orders, vehicles, NOW)
-    assert rich["meta"]["conflicts"] == [{"vehicle": "10831", "orders": ["1", "2"]}]
+    assert rich["meta"]["conflicts"] == [{"vehicle": "10831", "orders": ["1-1", "2-1"]}]
     assert flatten(rich).incumbent == {}
     assert rich["meta"]["excluded"]["link_drops"]["double_booked_vehicle"] == 2
+
+
+def test_the_card_fallback_needs_a_single_car_line():
+    """One header field cannot say WHICH of two car lines owns the car, and
+    guessing would invent an allocation."""
+    two = [_card("1", [_car(1, "SM"), _car(2, "SM")], VehicleDMSCode="V1")]
+    one = [_card("1", [_car(1, "SM"), _config(9)], VehicleDMSCode="V1")]
+    vehicles = [{"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
+    assert flatten(datasource.map_response(two, vehicles, NOW)).incumbent == {}
+    assert flatten(datasource.map_response(one, vehicles, NOW)).incumbent == {"1-1-1": "V1"}
+
+
+def test_the_line_link_beats_the_card_fallback():
+    orders = [
+        _card(
+            "1",
+            [_car(1, "SM", VehicleId={"Code": "V1"}), _car(2, "SM", AllocatedVehicleCode="V2")],
+            VehicleDMSCode="V9",
+        )
+    ]
+    vehicles = [
+        {"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}},
+        {
+            "VehicleCode": "V2",
+            "SalesModel": "SM",
+            "Status": {"Name": "Ordered"},
+            "EtaDealer": "2026-11-01T00:00:00Z",
+        },
+    ]
+    rich = datasource.map_response(orders, vehicles, NOW)
+    assert flatten(rich).incumbent == {"1-1-1": "V1", "1-2-1": "V2"}
 
 
 def test_the_disruption_is_derived_not_declared():
     """XAS records no delay manifest, but solver.partition builds the free set
     from disrupted_orders — so a car landing past its promise must show up."""
-    orders = [
-        {
-            "JobEntryNum": "9",
-            "SalesModelCode": "SM",
-            "DueDateTime": "2026-09-01T00:00:00Z",
-            "VehicleDMSCode": "V1",
-        },
-    ]
+    orders = [_card("9", [_car(1, "SM")], due="2026-09-01T00:00:00Z", VehicleDMSCode="V1")]
     vehicles = [
         {
             "VehicleCode": "V1",
@@ -215,13 +373,29 @@ def test_the_disruption_is_derived_not_declared():
         },
     ]
     rich = datasource.map_response(orders, vehicles, NOW)
-    assert rich["disruption"]["disrupted_orders"] == ["9-1"]
+    # Per CAR — the vehicle is what slipped, and it carries exactly one car.
+    assert rich["disruption"]["disrupted_orders"] == ["9-1-1"]
+
+
+def test_an_on_time_car_is_not_disrupted():
+    orders = [_card("9", [_car(1, "SM")], due="2026-11-01T00:00:00Z", VehicleDMSCode="V1")]
+    vehicles = [
+        {
+            "VehicleCode": "V1",
+            "SalesModel": "SM",
+            "Status": {"Name": "Ordered"},
+            "EtaDealer": "2026-10-15T00:00:00Z",
+        },
+    ]
+    rich = datasource.map_response(orders, vehicles, NOW)
+    assert rich["disruption"]["disrupted_orders"] == []
+
+
+# --- pruning and unfilled demand ---------------------------------------------
 
 
 def test_a_car_no_order_wants_is_pruned():
-    orders = [
-        {"JobEntryNum": "9", "SalesModelCode": "WANTED", "DueDateTime": "2026-12-01T00:00:00Z"},
-    ]
+    orders = [_card("9", [_car(1, "WANTED")])]
     vehicles = [
         {"VehicleCode": "A", "SalesModel": "WANTED", "Status": {"Name": "In Stock"}},
         {"VehicleCode": "B", "SalesModel": "OTHER", "Status": {"Name": "In Stock"}},
@@ -233,13 +407,7 @@ def test_a_car_no_order_wants_is_pruned():
 
 def test_an_order_with_no_matching_car_is_kept_and_named():
     """Unfilled demand is a real answer ('no compatible car free'), not a drop."""
-    orders = [
-        {
-            "JobEntryNum": "9",
-            "SalesModelCode": "NOBODY_HAS_IT",
-            "DueDateTime": "2026-12-01T00:00:00Z",
-        },
-    ]
+    orders = [_card("9", [_car(1, "NOBODY_HAS_IT")])]
     rich = datasource.map_response(orders, [], NOW)
     assert len(rich["vsos"]) == 1
     assert rich["meta"]["excluded"]["orders_with_no_eligible_car"] == ["9-1"]

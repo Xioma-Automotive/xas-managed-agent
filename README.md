@@ -15,7 +15,8 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-opus-4-8` (Opu
 | `web.py` + `static/index.html` | run | The only process. Session control, transcript, and the one custom tool the sandbox cannot answer for itself. |
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
-| `skills/xas-allocation/SKILL.md` | — | The skill: cost model, procedure, steering contract. |
+| `skills/xas-allocation/SKILL.md` | — | The allocation skill: data model, cost model, procedure, steering contract, planner-report contract. |
+| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md`, the tenant taxonomy `index.md`, and `phrasebook.py` that flattens it. |
 | `COMMANDS.md` | — | Every runnable command with its parameters — data generation knobs, the test gate, deploy, the typical loops. |
 
 The split is **control** (create the agent and environment once — persistent,
@@ -44,12 +45,15 @@ the agent carries forward — no ledger, no replay. `tests/test_invariant.py`
 proves it holds even after the sandbox is discarded: re-pull, re-apply the same
 override, get the same plan.
 
-This build is a **runnable prototype against fabricated data** shaped like XAS
-(`PO → PDN → Vehicle`, `Customer → SO` with vehicle order **rows**, supply =
-vehicles ∪ PO-line slots, real dates). The pull comes
+This build is a **runnable prototype**. Its data is shaped like real XAS: a
+**VSO** (vehicle sales order) is a job card carrying the promise and a list of
+car lines, and **the grain is the CAR** — one line wants `Quantity` of them, so a
+line wanting 3 cars is 3 orders, each keyed `{VSO}-{line}-{n}`. Supply is ONE
+flat pool of vehicles, real and future together; there is no PO/PDN/slot layer,
+and a vehicle is always exactly one car. Dates are real dates. The pull comes
 from a callable data source (`datasource.py`) — a standalone `scenario_engine/`
-fabricates the world by default, the real XAS endpoint by config; the agent can
-work the whole book or a
+fabricates the world by default, the live system through the app MCP by config;
+the agent can work the whole book or a
 **scope** (a customer/month/PO slice — a localized fix that leaves the rest
 pinned). Every unresolved choice from the spec is a marked `DECIDE-n` — stubbed
 with a labelled default (see below).
@@ -99,15 +103,15 @@ before real dealer data (DECIDE-9).
 
 | Module | Deliverable | Role |
 | ------ | ----------- | ---- |
-| `decisions.py`   | —      | Every `DECIDE-1..16` stub + its labelled default, surfaced at runtime. |
+| `decisions.py`   | —      | Every `DECIDE-1..16` — default, rationale and STATUS — surfaced at runtime. One is still OPEN. |
 | `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/units/incumbent`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure rich-pull → snapshot mapping (the "flatten + freeze" hop). Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, data/instruction pins (§5), the **λ sweep**, deterministic read-back. Also `repairability()` — is a broken order even re-slottable, or locked in? |
 | `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map (fixable vs locked-in), data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
-| `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the rich PO→PDN→Vehicle / SO-with-rows dataset (good → disrupted). |
-| `../datasource.py`      | —     | **Host-side pull interface** (DECIDE-7): `ScenarioEngineSource` (the fake, default) / `XASApiSource` (real, stubbed), selected by `XAS_DATA_SOURCE`. `web.py` calls it and mounts the result into the sandbox. |
-| `../tests/`      | §11.7  | 50 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, reschedule fairness, scope, time-scale, report, datasource). |
+| `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the app MCP's two response payloads (good → disrupted), then derives `data/pull.json` from them through the shared mapping. |
+| `../datasource.py`      | —     | **Host-side pull interface** (DECIDE-7): `ScenarioEngineSource` (the fake, default) / `AppMcpSource` (LIVE, reads the dev system through the app MCP's own tools), selected by `XAS_DATA_SOURCE`. Both run through the SAME `map_response`. `web.py` calls it and mounts the result into the sandbox. |
+| `../tests/`      | §11.7  | 183 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, reschedule fairness, scope, time-scale, report, datasource). |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
 contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
@@ -116,10 +120,10 @@ contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
 
 ```bash
 uv sync
-uv run python -m scenario_engine.generate        # (re)fabricate data/pull.json + baseline
+uv run python -m scenario_engine.generate        # (re)fabricate the MCP payloads + derive pull/baseline
 uv run python -m xas_allocation.session          # full §8 loop over the repo dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
-uv run pytest                                    # the gate — 50 tests, no network, no key
+uv run pytest                                    # the gate — 183 tests, no network, no key
 PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4), standalone
 ```
 
@@ -185,10 +189,18 @@ fetched and out of the transcript when read. The scenario engine's *code* (and a
 XAS credential) stays out of the sandbox; only the fetched *output* travels in.
 
 `datasource.py` is the pull interface. `XAS_DATA_SOURCE=scenario` (default) uses
-the fabricated dataset — offline, no credentials; `XAS_DATA_SOURCE=xas` uses the
-real endpoint (DECIDE-7, stubbed until it exists). Either way the `flatten`
-contract is unchanged; only the source of the rows differs. Because the endpoint
-is called host-side, the sandbox's zero-egress policy is untouched.
+the fabricated dataset — offline, no credentials; `XAS_DATA_SOURCE=xas` reads the
+LIVE dev system through the app MCP's own tools (DECIDE-7), which needs the same
+six host-side credentials the reporting lane uses. Either way the rows go through
+the same mapping and the `flatten` contract is unchanged; only the source
+differs. Because the call is made host-side, the sandbox's zero-egress policy is
+untouched.
+
+**Live currently returns an EMPTY allocation pull**, and that is a data problem,
+not a code one: the MCP's list projection returns no `jobitems`, one car line IS
+one order, so all 25 dev VSOs drop for `no_car_line`. `docs/mcp-field-spec.md` is
+the change request. `uv run python -m datasource --census` prints the funnel for
+whichever source is configured.
 
 ### One session at a time
 
@@ -210,27 +222,31 @@ your network.
 
 The agent never writes back to XAS — the plan is a proposal the planner approves.
 
-## Open decisions (`DECIDE-n` — stubbed defaults, NOT settled answers)
+## Decisions (`DECIDE-n`) — reviewed 2026-08-25, no longer all stubs
 
-Run `uv run python -m xas_allocation.decisions` for the live list. Summary:
+Run `uv run python -m xas_allocation.decisions` for the live register; its header
+line counts what is genuinely undecided. **One is OPEN (5).** Five are settled in
+shape but carry a value no planner has validated (1, 2, 3, 11, 15). One is
+DEFERRED (10). Summary:
 
-| # | Decision | Prototype default |
-|---|----------|-------------------|
-| 1 | Aging term: additive vs multiplicative | additive into W(o) |
-| 2 | Time-fence boundaries | frozen ≤14d, slushy 15–42d, liquid >42d |
-| 3 | Committed `location_state` | `{bonded, pdi}` |
-| 4 | Pin mechanism | inf-cost (soft) for instruction pins; pre-commit for data pins |
-| 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred |
-| 6 | xas-code MCP liveness pattern | single `directory_tree` at start (skipped in prototype) |
-| 7 | XAS API data contract | callable `datasource.py` (host-side): `scenario_engine/` fake by default, real XAS by config (see `docs/mcp-response-schema.md`) |
-| 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) |
-| 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION` |
-| 10 | `reserved_for_customer` eligibility | ignored (deferred; not in the minimal build) |
-| 11 | Reschedule fairness (`times_rescheduled`) | `γ=0.75` escalation on W(o) — protect an already-bumped order from being delayed again |
-| 12 | PO-line slot committed-ness | a slot is `location_state='future'` → never committed until it explodes into vehicles |
-| 13 | Bumping an untouched order | never without explicit planner authorization (the `bump` override); the agent asks who may be bumped |
-| 14 | Time-scale granularity | planner knob `time_scale` (days/weeks/months); day-gaps rounded **up** to whole units; fence stays in days; default days |
-| 15 | Earliness penalty | `EARLY_WEIGHT=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only |
+| # | Decision | Default | Status |
+|---|----------|---------|--------|
+| 1 | Aging term: additive vs multiplicative | additive into W(o) (`ALPHA=0.5`, `BETA=0.1`) | value unvalidated |
+| 2 | Time-fence boundaries | frozen ≤14d, slushy 15–42d, liquid >42d | value unvalidated |
+| 3 | Break cost: hard vs soft binding | real vehicle = expensive-but-movable (`BREAK_COST['hard']=200`), Future = free. No location gradient — supersedes the retired committed-`location_state` wall | value unvalidated |
+| 4 | Pin mechanism | inf-cost (soft) for instruction pins; pre-commit for data pins | settled |
+| 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred | **OPEN** |
+| 6 | xas-code MCP liveness pattern | none, and there will not be one — the pull happens host-side before the session exists | settled (not applicable) |
+| 7 | XAS API data contract | `datasource.AppMcpSource` reads VSOs + vehicles through the app MCP host-side; `scenario_engine/` fake stays the offline default | settled as a contract, **blocked** on the MCP projection (`docs/mcp-field-spec.md`) |
+| 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) | settled |
+| 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION`. Extraction is triggered by the first NON-DEV tenant | settled |
+| 10 | `reserved_for_customer` eligibility | a `Reserved-*` car is out of the pool entirely — supply for NO ONE. Modelling it as earmarked supply is the upgrade | DEFERRED |
+| 11 | Reschedule fairness (`times_rescheduled`) | `GAMMA=0.75` escalation on W(o) — protect an already-bumped order from being delayed again | value unvalidated |
+| 12 | Future vehicle = soft supply | one pool of real ∪ future; the classification is the whole distinction — no slot step and no committed flag | settled |
+| 13 | Bumping an untouched order | never without explicit planner authorization (the `bump` override); the agent asks who may be bumped | settled |
+| 14 | Time-scale granularity | planner knob `time_scale` (days/weeks/months); day-gaps rounded **up** to whole units; fence stays in days; default days | settled |
+| 15 | Earliness penalty | `EARLY_WEIGHT=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only | value unvalidated |
+| 16 | Where the tenant taxonomy comes from | bundled — `index.md` ships inside the `xas-reporting` skill; a SECOND TENANT flips it back to a host-side mount | settled |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import datasource
 from scenario_engine.generate import generate
 from xas_allocation.flatten import flatten
 from xas_allocation.session import run_cycle
@@ -49,7 +50,8 @@ STEER = {
 
 def _pull_from_disk(path: Path) -> dict:
     """Fabricate the dataset to disk, then read it back — the pull the agent sees."""
-    path.write_text(json.dumps(generate(seed=SEED)["pull"], sort_keys=True))
+    rich = datasource.map_world(generate(seed=SEED)["pull"])
+    path.write_text(json.dumps(rich, sort_keys=True))
     return json.loads(path.read_text())
 
 
@@ -59,13 +61,13 @@ def _plan_json(plan: dict[str, str]) -> str:
 
 
 def test_snapshot_reproducible() -> None:
-    a = flatten(generate(seed=SEED)["pull"]).as_dict()
-    b = flatten(generate(seed=SEED)["pull"]).as_dict()
+    a = flatten(datasource.map_world(generate(seed=SEED)["pull"])).as_dict()
+    b = flatten(datasource.map_world(generate(seed=SEED)["pull"])).as_dict()
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def test_solve_deterministic() -> None:
-    snap = flatten(generate(seed=SEED)["pull"])
+    snap = flatten(datasource.map_world(generate(seed=SEED)["pull"]))
     r1 = solve(snap, STEER, lam=25)
     r2 = solve(snap, STEER, lam=25)
     assert _plan_json(r1.plan) == _plan_json(r2.plan)
@@ -103,7 +105,7 @@ def test_override_is_order_independent() -> None:
     same instructions in a different arrangement produce the same plan. (What the
     ledger's replay order used to guarantee, now trivially true — there is no
     order to get wrong.)"""
-    snap = flatten(generate(seed=SEED)["pull"])
+    snap = flatten(datasource.map_world(generate(seed=SEED)["pull"]))
     a = {
         "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
         "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],

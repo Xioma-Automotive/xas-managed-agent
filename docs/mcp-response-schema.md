@@ -68,6 +68,18 @@ One card is one customer's sales order; one `ModelItem` jobitem is one wanted
 car, and `Quantity` says how many. So 25 cards can carry far more than 25 orders,
 and the solver's order key spans both levels: `{JobKey}-{LineNum}`.
 
+**Qty is expanded** (2026-08-24): `flatten` emits one order per CAR, so the order
+key gained a third level, `{JobKey}-{LineNum}-{n}`. Pins, forbid and scope match
+at any level (car / line / VSO), and the planner report speaks lines.
+
+What is still open is the COVERAGE. `AllocQty` says how many of a line's cars are
+committed, but a line resolves to at most one vehicle and one car cannot satisfy
+two orders — so the pull can identify exactly one incumbent per line however high
+`AllocQty` goes. The rest are counted as
+`allocation_qty_not_resolvable_to_cars` and treated as unfilled demand. Closing
+that is the same VPO hop as Q1 below: without it a fleet line reads as almost
+entirely unallocated, and a repair looks bigger than it is.
+
 ## Call 2 — `get_vehicles` — supply
 
 ```jsonc

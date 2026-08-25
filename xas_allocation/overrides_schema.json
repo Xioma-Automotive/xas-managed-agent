@@ -13,7 +13,7 @@
         "additionalProperties": false,
         "required": ["order", "action"],
         "properties": {
-          "order": { "type": "string", "description": "Real order key '{so_id}-{line}' or a bare VSO id (resolved from NL by the agent), e.g. 'VSO-4000-1' or 'VSO-4000'." },
+          "order": { "type": "string", "description": "An order key at any of its three levels (resolved from NL by the agent): one car '{so_id}-{line}-{n}' e.g. 'VSO-4000-1-1', a whole car line '{so_id}-{line}' e.g. 'VSO-4000-1' (every car its Quantity asks for), or a whole VSO '{so_id}' e.g. 'VSO-4000'. Prefer the LINE level: going in, a line's cars are interchangeable (same model, promise and customer), so steering one usually means steering all. Name a single car only to carve one out." },
           "action": { "type": "string", "enum": ["defer"] },
           "not_before": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest allowed delivery date, e.g. 2026-09-14." }
         }
@@ -66,7 +66,7 @@
           "items": { "type": "string" }
         },
         "orders": {
-          "description": "explicit order keys or VSO ids to include, e.g. ['VSO-4000-1'] or ['VSO-4000'].",
+          "description": "explicit keys to include, at any of the three levels: one car ['VSO-4000-1-1'], a whole car line ['VSO-4000-1'], or a whole VSO ['VSO-4000'].",
           "type": "array",
           "items": { "type": "string" }
         },

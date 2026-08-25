@@ -12,7 +12,10 @@ Output: an ``xas_allocation.snapshot.Snapshot`` — the ``orders[] / units[] /
 incumbent[]`` arrays the solver reads, in one shared vocabulary with the API.
 
 Field mapping (real XAS → solver):
-  * order = one VSO **jobitem** (car line); key = ``{JobKey}-{LineNum}``.
+  * order = one wanted **car**; key = ``{JobKey}-{LineNum}-{n}``. A jobitem's
+    ``Quantity`` is EXPANDED here: a line wanting 3 cars becomes 3 orders, each a
+    capacity-1 demand node. ``AllocQty`` says how many of them the line's existing
+    allocation already covers; the rest are unallocated demand.
   * ``DeliveryDate`` (VSO header) → ``Order.delivery_date`` (the promise).
   * ``EtaDealer`` (vehicle) → ``Unit.eta_dealer`` (the mutable delivery date).
   * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Unit.vehicle_classification``.
@@ -22,7 +25,10 @@ Field mapping (real XAS → solver):
     fallback for a vehicle that has no ``SalesModel``.
   * incumbent (current allocation): HARD via jobitem ``VehicleId.Code`` ↔
     ``VehicleCode``; SOFT via the jobitem's Alloc link to a Future vehicle (in the
-    mock, resolved straight to that vehicle's code — see ``_incumbent_of``).
+    mock, resolved straight to that vehicle's code — see ``_incumbent_of``). It
+    covers ONE car of the line: a line resolves to a single vehicle code, and one
+    car cannot serve two orders. A line claiming ``AllocQty > 1`` therefore has
+    committed cars this pull cannot identify — counted, never invented.
 
 Eligibility arcs are NOT built here — the solver computes them at solve time
 (the sparse-arc rule), never stored.
@@ -31,6 +37,7 @@ Eligibility arcs are NOT built here — the solver computes them at solve time
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 from .snapshot import Order, Snapshot, Unit, parse_date
@@ -81,10 +88,13 @@ def flatten(rich: dict) -> Snapshot:
     the counts here are a backstop, and they land in ``snapshot.meta`` beside the
     source's own so the reply can account for every row.
     """
-    skips: dict[str, int] = {}
+    skips: Counter[str] = Counter()
 
-    def skip(reason: str) -> None:
-        skips[reason] = skips.get(reason, 0) + 1
+    def skip(reason: str, n: int = 1) -> None:
+        """Tally n dropped rows against a reason. n=0 is a no-op, so a caller
+        computing a count inline needs no guard around it."""
+        if n:
+            skips[reason] += n
 
     orders: list[Order] = []
     incumbent: dict[str, str] = {}
@@ -103,26 +113,49 @@ def flatten(rich: dict) -> Snapshot:
                 skip("order_line_without_a_model")
                 continue
             line = int(item["LineNum"])
-            price = sum(float(p.get("GrossTotal", 0.0)) for p in item.get("Prices", []))
-            order = Order(
-                so_id=so_id,
-                line=line,
-                customer=customer,
-                customer_id=customer_id,
-                sales_model=item["SalesModelCode"],
-                priority=priority,
-                delivery_date=delivery_date,
-                price=price,
-                # Solver escalation fields; the real-data derivation is a TODO
-                # (see scenario_engine). Absent => 0.
-                n_prior_delays=int(item.get("n_prior_delays", 0)),
-                days_backordered=int(item.get("days_backordered", 0)),
-                times_rescheduled=int(item.get("times_rescheduled", 0)),
-            )
-            orders.append(order)
+            # QTY EXPANSION: a line wanting 3 cars is 3 orders. The solver models
+            # one order as one capacity-1 demand node, so this is the only place
+            # quantity has to be understood — but it MUST be, or two of those
+            # three cars silently vanish from the plan.
+            quantity = max(1, int(item.get("Quantity") or 1))
+            # Line total / qty. Display-only either way (never a cost-model
+            # input), but a per-car row showing the whole line's value would read
+            # as three times the money.
+            price = sum(float(p.get("GrossTotal", 0.0)) for p in item.get("Prices", [])) / quantity
+            # How many of this line's cars already have a car. `AllocQty` SAYS how
+            # many are committed — but a line resolves to at most ONE vehicle
+            # code, and one car cannot satisfy two orders: handing it to k of them
+            # would double-book it and trip the solver's self-check on its own
+            # input. So coverage is 1, and any claim above that is recorded rather
+            # than guessed at (`allocation_qty_not_resolvable_to_cars`) — it is the
+            # same projection gap as the rest of Q1 in the schema doc, since the
+            # remaining committed cars live on a VPO the pull never hops to. The
+            # uncovered cars arrive unallocated, which `solver.partition` already
+            # frees as demand needing a car.
             inc = _incumbent_of(item)
-            if inc:
-                incumbent[order.key] = inc
+            claimed = max(0, int(item.get("AllocQty") or 1)) if inc else 0
+            covered = min(1, claimed, quantity)
+            skip("allocation_qty_not_resolvable_to_cars", min(claimed, quantity) - covered)
+            for n in range(1, quantity + 1):
+                order = Order(
+                    so_id=so_id,
+                    line=line,
+                    qty_index=n,
+                    customer=customer,
+                    customer_id=customer_id,
+                    sales_model=item["SalesModelCode"],
+                    priority=priority,
+                    delivery_date=delivery_date,
+                    price=price,
+                    # Solver escalation fields; the real-data derivation is a TODO
+                    # (see scenario_engine). Absent => 0.
+                    n_prior_delays=int(item.get("n_prior_delays", 0)),
+                    days_backordered=int(item.get("days_backordered", 0)),
+                    times_rescheduled=int(item.get("times_rescheduled", 0)),
+                )
+                orders.append(order)
+                if inc and n <= covered:
+                    incumbent[order.key] = inc
 
     units: list[Unit] = []
     for v in rich["vehicles"]:
@@ -148,6 +181,24 @@ def flatten(rich: dict) -> Snapshot:
         del incumbent[key]
         skip("allocation_to_a_dropped_vehicle")
 
+    # --- the disruption is derived PER CAR, and it has to be ------------------
+    # What actually slips is a VEHICLE: a shipment (VPO/VGR) runs late, so its
+    # cars arrive late. A VSO line is only affected THROUGH the vehicle allocated
+    # to it — and the cars of one line can be satisfied from different shipments,
+    # so one of them slipping says nothing about the others. Deriving this at line
+    # grain would free every car of the line whenever any one of its vehicles
+    # slipped, handing the solver work it was never asked to do.
+    #
+    # The rich pull carries a line-grained preview of the same thing (it has not
+    # expanded `Quantity` yet); this is the authoritative version and it replaces
+    # it, so the solver's free set is exactly the cars whose own vehicle is late.
+    eta_of = {u.vehicle_id: u.eta_dealer for u in units}
+    promise_of = {o.key: o.delivery_date for o in orders}
+    disruption = dict(rich.get("disruption") or {})
+    disruption["disrupted_orders"] = sorted(
+        key for key, uid in incumbent.items() if eta_of[uid] > promise_of[key]
+    )
+
     meta = dict(rich.get("meta") or {})
     if skips:
         excluded = dict(meta.get("excluded") or {})
@@ -158,34 +209,22 @@ def flatten(rich: dict) -> Snapshot:
         orders=orders,
         units=units,
         incumbent=incumbent,
-        disruption=rich.get("disruption", {}),
+        disruption=disruption,
         now=parse_date(rich["meta"]["now"]),
         meta=meta,
     )
 
 
-def load_rich(path: str | Path = DATA_PATH) -> dict:
-    return json.loads(Path(path).read_text())
-
-
-def flatten_default() -> Snapshot:
-    """Flatten the repo dataset — host-side dev/tests. The bundled data path is
-    kept for offline use; the live pull is read via ``flatten_path`` instead."""
-    return flatten(load_rich())
-
-
 def flatten_path(src: str | Path) -> Snapshot:
     """Flatten the rich pull at ``src`` — the path the host mounts the live pull
     into the sandbox at (see ``alloc_tools.flatten_command`` / ``MOUNT_PATH``)."""
-    return flatten(load_rich(src))
+    return flatten(json.loads(Path(src).read_text()))
 
 
-def flatten_file(out: str | Path, src: str | Path = DATA_PATH) -> Path:
-    """Flatten ``src`` and write the snapshot to ``out`` (for inspection)."""
-    out = Path(out)
-    snap = flatten(load_rich(src))
-    out.write_text(json.dumps(snap.as_dict(), indent=2, sort_keys=True))
-    return out
+def flatten_default() -> Snapshot:
+    """Flatten the repo dataset — host-side dev/tests only. The live pull comes
+    through ``flatten_path`` instead."""
+    return flatten_path(DATA_PATH)
 
 
 if __name__ == "__main__":

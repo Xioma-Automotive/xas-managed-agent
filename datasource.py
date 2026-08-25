@@ -62,7 +62,11 @@ import appmcp_auth
 
 REPO_ROOT = Path(__file__).resolve().parent
 DATA_DIR = REPO_ROOT / "data"
-DATASET_PATH = DATA_DIR / "pull.json"
+DATASET_PATH = DATA_DIR / "pull.json"  # the derived rich pull: flatten's offline default
+# What the fake fabricates: the app MCP's two response shapes, mapped by the same
+# `map_response` the live pull uses. See docs/mcp-response-schema.md.
+MCP_JOBCARDS_PATH = DATA_DIR / "mcp-jobcards.json"
+MCP_VEHICLES_PATH = DATA_DIR / "mcp-vehicles.json"
 
 
 @runtime_checkable
@@ -76,11 +80,19 @@ class DataSource(Protocol):
 
 @dataclass
 class ScenarioEngineSource:
-    """The fake: the fabricated dataset. Reads the committed ``data/pull.json`` by
-    default (stable + offline), or regenerates it from the scenario engine when
-    ``regenerate`` is set (varies the starting conditions)."""
+    """The fake: the fabricated dataset, in the app MCP's own response shapes.
 
-    dataset_path: Path = DATASET_PATH
+    ``scenario_engine`` writes ``data/mcp-jobcards.json`` and
+    ``data/mcp-vehicles.json`` — the two payloads of
+    `docs/mcp-response-schema.md` — and this source maps them with the SAME
+    ``map_response`` the live pull uses. That is the point: the fake is
+    substitutable for the MCP because it goes through one mapping, not a second
+    one maintained alongside it (which is what `tests/test_invariant.py` rests
+    on). ``regenerate`` re-fabricates in memory instead of reading the committed
+    files."""
+
+    jobcards_path: Path = MCP_JOBCARDS_PATH
+    vehicles_path: Path = MCP_VEHICLES_PATH
     regenerate: bool = False
     seed: int = 20
 
@@ -88,8 +100,13 @@ class ScenarioEngineSource:
         if self.regenerate:
             from scenario_engine.generate import generate
 
-            return generate(seed=self.seed)["pull"]
-        return json.loads(self.dataset_path.read_text())
+            world = generate(seed=self.seed)["pull"]
+        else:
+            world = {
+                "jobcards": json.loads(self.jobcards_path.read_text()),
+                "vehicles": json.loads(self.vehicles_path.read_text()),
+            }
+        return map_world(world)
 
 
 # --- the real source: collect (via the app MCP) -> filter -> translate --------
@@ -108,8 +125,32 @@ ORDER_CLASSIFICATION = "VSO"
 # Fields the pull cannot do without, per side. Checked against what actually came
 # back: a name absent from EVERY row means the MCP is not returning it, which is a
 # different problem from a tenant that has not filled it in.
-REQUIRED_ORDER_FIELDS = ("SalesModelCode", "DueDateTime", "VehicleDMSCode")
+# `jobitems` is in here on purpose. Its absence is the one gap the LINE-level
+# check below cannot see: `missing_projection` reads nothing out of an empty list,
+# so a projection that returns no jobitems at all reports no line gap while every
+# card drops for `no_car_line` — "0 usable orders" with no reason attached, the
+# exact confusion this function exists to prevent.
+REQUIRED_CARD_FIELDS = ("DueDateTime", "EntryDateTime", "JobPriority", "jobitems")
+REQUIRED_LINE_FIELDS = ("JobItemCode", "JobItemType", "LineNum", "Quantity")
 REQUIRED_UNIT_FIELDS = ("SalesModel", "EtaDealer")
+
+# The jobitem type that is a CAR. A VSO's lines also carry configuration and
+# parts rows, and the line's own type is the only thing that separates them —
+# `Prices[].JobItemType` reads "SpareParts" on every row, cars included.
+CAR_ITEM_TYPE = "ModelItem"
+
+# How many of a line's cars its allocation can actually be resolved to. A line
+# carries ONE vehicle code and one car cannot serve two orders, so this is 1
+# however high `AllocQty` claims — the remaining committed cars sit on a VPO this
+# pull never hops to (`docs/mcp-response-schema.md` Q1).
+# `xas_allocation.flatten` applies the same cap when it builds the incumbent, and
+# `tests/test_tool_contract.py::test_flatten_command_reproduces_the_snapshot` is
+# what catches the two drifting apart.
+RESOLVABLE_CARS_PER_LINE = 1
+
+# Line statuses that are still live demand. "not closed" is the tool's own
+# server-side filter; this is the backstop for a row it let through.
+DEAD_LINE_STATUSES = frozenset({"Closed", "Cancelled", "Canceled"})
 
 # The pull date is the DEALERSHIP's date, not UTC. `meta.now` drives the time
 # fence, which is measured in whole days — so a UTC date rolling over three hours
@@ -177,8 +218,106 @@ def unit_eta(vehicle: dict, now: date, bucket: str) -> str:
     return _date_part(vehicle.get("EtaDealer")) or _date_part(vehicle.get("AvailableBy"))
 
 
-def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
+def card_lines(card: dict) -> list[dict]:
+    """A card's jobitems, whatever the shape called them."""
+    return list(card.get("jobitems") or card.get("JobItems") or [])
+
+
+def _card_key(card: dict) -> str:
+    """The order id. `JobKey` ("VSO-16") is what `flatten` keys on; the numeric
+    ids are fallbacks, and `JobEntryNum` is an int on the wire."""
+    return (
+        _text(card.get("JobKey"))
+        or _text(card.get("DMSJCNum"))
+        or _text(card.get("JobEntryNum"))
+        or _text(card.get("DMSJCEntry"))
+    )
+
+
+def _line_vehicle(card: dict, line: dict, n_lines: int) -> str | None:
+    """The vehicle this line is currently allocated to, or None.
+
+    Three places it can come from, most specific first:
+
+    * the LINE's own ``VehicleId.Code`` — a hard binding to a real car;
+    * the line's ``AllocatedVehicleCode`` — the fake's direct link to the future
+      car its soft Alloc block stands for;
+    * the CARD's ``VehicleDMSCode`` — the only candidate the live MCP offers,
+      and it is one field for the whole card. Applied ONLY when the card has a
+      single car line: with two, one header field cannot say which line it
+      belongs to, and guessing would invent an allocation. That is the open
+      question in `docs/mcp-response-schema.md` — resolving a line's allocation
+      to a vehicle needs the VPO hop the pull does not make.
+    """
+    code = _text((line.get("VehicleId") or {}).get("Code"))
+    if code:
+        return code
+    code = _text(line.get("AllocatedVehicleCode"))
+    if code:
+        return code
+    if n_lines == 1:
+        return _text(card.get("VehicleDMSCode")) or None
+    return None
+
+
+def car_lines_kept(card: dict) -> tuple[list[tuple[int, str, dict]], list[str]]:
+    """A card's live CAR lines as ``(LineNum, model_code, line)``, plus one drop
+    reason per rejected line.
+
+    The single definition of "this line holds a car", because two places need it
+    and a disagreement between them is silent: the conflict scan below and the
+    translate step in ``map_response``. They must agree, and they must agree on
+    the COUNT too — ``_line_vehicle`` falls back to the card's one
+    ``VehicleDMSCode`` only for a single-car card, so counting a Configuration
+    row as a car line would suppress that fallback in one place and not the
+    other. The result: a double-booked vehicle invisible to ``meta.conflicts``
+    but still linked as an incumbent, which trips the solver's self-check on its
+    own input.
+    """
+    kept: list[tuple[int, str, dict]] = []
+    drops: list[str] = []
+    for line in card_lines(card):
+        if _text(line.get("JobItemType")) != CAR_ITEM_TYPE:
+            drops.append("not_a_car_line")
+            continue
+        if line.get("IsDeleted"):
+            drops.append("deleted_line")
+            continue
+        if _text(line.get("JobItemStatus")) in DEAD_LINE_STATUSES:
+            drops.append("closed_line")
+            continue
+        # The LINE's model code. The card's own `SalesModelCode` is deliberately
+        # not consulted: it disagrees with the line on real data, and the detail
+        # shape does not carry it at all.
+        code = _text(line.get("JobItemCode")) or _text(line.get("SalesModelCode"))
+        if not code:
+            drops.append("no_model_on_the_line")
+            continue
+        kept.append((int(line.get("LineNum") or 0), code, line))
+    return kept, drops
+
+
+def _claimed_vehicles(card: dict) -> list[tuple[int, str]]:
+    """(LineNum, VehicleCode) for every allocation this card asserts — used to
+    find a car two orders both claim, which is not a valid incumbent."""
+    lines, _ = car_lines_kept(card)
+    out: list[tuple[int, str]] = []
+    for num, _code, line in lines:
+        code = _line_vehicle(card, line, len(lines))
+        if code:
+            out.append((num, code))
+    return out
+
+
+def map_response(
+    orders: list[dict], vehicles: list[dict], now: date, disruption: dict | None = None
+) -> dict:
     """Raw XAS rows -> the rich pull contract. PURE: no network, no clock.
+
+    ``orders`` is a list of VSO **job cards**, each carrying its own list of
+    ``jobitems``; ``vehicles`` is the flat supply pool. Both shapes are the app
+    MCP's, and the fake fabricates the same shapes, so this is the ONE mapping
+    both sources run through (`docs/mcp-response-schema.md`).
 
     Filter and translate in one pass, because the filter's *reasons* are part of
     the output: a plan over 1 of 25 sales orders that does not say so reads as
@@ -186,16 +325,18 @@ def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
     ``meta.excluded``, and ``alloc_tools.summarize`` carries that into the
     agent's context.
 
-    Grain: one VSO header is one order. The wanted model lives on the header
-    (``SalesModelCode``), and a VSO's job items are parts — a helmet and labour
-    in AW carry the same ``JobItemType`` as a car, and the one that looks like a
-    car names a different model than the header. So we emit a single JobItems
-    entry per VSO with ``LineNum: 1``, which keeps the ``{so_id}-{line}`` order
-    key intact. The day a VSO carries real car lines, this function emits several
-    and nothing downstream changes — the grain is a mapping decision, not a
-    solver one.
+    Grain: **one jobitem is one order**, keyed ``{JobKey}-{LineNum}``. The card
+    supplies the promise, the customer and the priority; the LINE supplies the
+    eligibility key (``JobItemCode``). The header's own ``SalesModelCode`` is not
+    read — it disagrees with the line on real data, and the detail shape does not
+    carry it at all.
+
+    ``disruption`` is the fake's manifest of what it slipped. XAS records no such
+    thing, so the real path passes nothing and only ``disrupted_orders`` — which
+    IS derivable — comes back populated.
     """
     order_drops: collections.Counter = collections.Counter()
+    line_drops: collections.Counter = collections.Counter()
     unit_drops: collections.Counter = collections.Counter()
     link_drops: collections.Counter = collections.Counter()
 
@@ -226,48 +367,60 @@ def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
                 "EtaDealer": eta,
                 "Status": dict(vehicle.get("Status") or {}),
                 "Vin": _text(vehicle.get("Vin")),
-                "Make": (vehicle.get("Make") or {}).get("Name", ""),
+                "Description": _text(vehicle.get("Description")),
+                "Make": (vehicle.get("Make") or {}).get("Name", "")
+                if isinstance(vehicle.get("Make"), dict)
+                else _text(vehicle.get("Make")),
                 # Kept for provenance: which XAS pool the car came out of.
                 "XasVehicleClassification": _text(vehicle.get("VehicleClassification")),
             }
         )
 
-    # --- orders: a wanted model, and a promise to be late against --------------
-    kept: list[tuple[dict, str, str]] = []
-    for order in orders:
-        model = _text(order.get("SalesModelCode"))
-        if not model:
-            order_drops["no_model_on_the_order"] += 1
+    # --- cards: a promise to be late against, and at least one live car line ---
+    # (card, promise, [(line_num, code, line), ...])
+    kept: list[tuple[dict, str, list[tuple[int, str, dict]]]] = []
+    for card in orders:
+        if card.get("isCanceled"):
+            order_drops["cancelled"] += 1
             continue
-        promise = _date_part(order.get("DueDateTime"))
+        promise = _date_part(card.get("DueDateTime"))
         if not promise:
             order_drops["no_promised_date"] += 1
             continue
-        kept.append((order, model, promise))
+        lines, dropped = car_lines_kept(card)
+        line_drops.update(dropped)
+        if not lines:
+            order_drops["no_car_line"] += 1
+            continue
+        kept.append((card, promise, lines))
 
     # --- prune to the reachable sub-problem ----------------------------------
     # A car no surviving order wants can never be allocated (eligibility is hard
     # equality), so dropping it is lossless and keeps the mounted file small.
     # If eligibility ever stops being equality, this pruning has to go.
-    wanted = {model for _, model, _ in kept}
+    wanted = {code for _, _, lines in kept for _, code, _ in lines}
     reachable = [u for u in units if u["SalesModel"] in wanted]
     unit_drops["no_order_wants_this_model"] = len(units) - len(reachable)
     have = {u["SalesModel"] for u in reachable}
     # NOT a drop: an order with no matching car is real unfilled demand, and the
     # solver surfaces it as a backorder. Named so the agent can say which.
-    unmatched = sorted(f"{_text(o.get('JobEntryNum'))}-1" for o, m, _ in kept if m not in have)
+    unmatched = sorted(
+        f"{_card_key(card)}-{num}"
+        for card, _, lines in kept
+        for num, code, _ in lines
+        if code not in have
+    )
 
-    # --- incumbent conflicts, over EVERY order, not just the kept ones --------
-    # Vehicle 10831 is claimed by three VSOs. An incumbent that double-books is
-    # not a valid matching and would trip the solver's self-check on its INPUT,
-    # so a contested vehicle yields no incumbent for anyone; those orders become
-    # unallocated demand, which is what they effectively are. The conflict is a
-    # finding a planner wants, so it rides in meta rather than being swallowed.
+    # --- incumbent conflicts, over EVERY card, not just the kept ones ---------
+    # A vehicle claimed by two orders is not a valid matching and would trip the
+    # solver's self-check on its INPUT, so a contested vehicle yields no
+    # incumbent for anyone; those orders become unallocated demand, which is what
+    # they effectively are. The conflict is a finding a planner wants, so it
+    # rides in meta rather than being swallowed.
     claims: dict[str, list[str]] = collections.defaultdict(list)
-    for order in orders:
-        code = _text(order.get("VehicleDMSCode"))
-        if code:
-            claims[code].append(_text(order.get("JobEntryNum")))
+    for card in orders:
+        for num, code in _claimed_vehicles(card):
+            claims[code].append(f"{_card_key(card)}-{num}")
     conflicts = [
         {"vehicle": code, "orders": sorted(ids)}
         for code, ids in sorted(claims.items())
@@ -275,31 +428,53 @@ def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
     ]
     contested = {c["vehicle"] for c in conflicts}
     unit_ids = {u["VehicleCode"] for u in reachable}
+    real_ids = {u["VehicleCode"] for u in reachable if u["VehicleClassification"] == "Vehicle"}
 
     # --- translate ------------------------------------------------------------
-    real_ids = {u["VehicleCode"] for u in reachable if u["VehicleClassification"] == "Vehicle"}
     vsos: list[dict] = []
-    for order, model, promise in kept:
-        so_id = _text(order.get("JobEntryNum"))
-        code = _text(order.get("VehicleDMSCode"))
-        link = code or None
-        if code and code in contested:
-            link = None
-            link_drops["double_booked_vehicle"] += 1
-        elif code and code not in unit_ids:
-            link = None
-            link_drops["vehicle_out_of_scope"] += 1
-        # A received car is a hard binding (VGR); one still on order is soft (VPO).
-        alloc_source = ("VGR" if link in real_ids else "VPO") if link else ""
-        owner = (order.get("Accounts") or {}).get("Owner") or {}
+    for card, promise, lines in kept:
+        owner = (card.get("Accounts") or {}).get("Owner") or {}
+        items: list[dict] = []
+        for num, code, line in lines:
+            link = _line_vehicle(card, line, len(lines))
+            if link and link in contested:
+                link = None
+                link_drops["double_booked_vehicle"] += 1
+            elif link and link not in unit_ids:
+                link = None
+                link_drops["vehicle_out_of_scope"] += 1
+            # A received car is a hard binding (VGR); one still on order is soft (VPO).
+            alloc_source = ("VGR" if link in real_ids else "VPO") if link else ""
+            item = {
+                "LineNum": num,
+                "SalesModelCode": code,
+                "Label": _text(line.get("Label")) or code,
+                "JobItemType": CAR_ITEM_TYPE,
+                "Quantity": int(line.get("Quantity") or 1),
+                "Prices": list(line.get("Prices") or []),
+            }
+            # Escalation inputs have no XAS source yet (open question in
+            # docs/mcp-response-schema.md); the fake carries them, the real
+            # source does not, and flatten defaults an absent one to 0.
+            for extra in ("n_prior_delays", "days_backordered", "times_rescheduled"):
+                if extra in line:
+                    item[extra] = int(line[extra])
+            if link:
+                item["VehicleId"] = {"Code": link}
+                item["AllocSourceClassification"] = alloc_source
+                # How many of this line's cars the allocation already covers.
+                # `flatten` expands Quantity into one order per car and hands the
+                # incumbent to the first `AllocQty` of them; absent, it covers one.
+                item["AllocQty"] = min(item["Quantity"], max(0, int(line.get("AllocQty") or 1)))
+            items.append(item)
         vsos.append(
             {
-                "JobKey": so_id,
-                "DMSJCEntry": _text(order.get("DMSJCEntry")),
+                "JobKey": _card_key(card),
+                "DMSJCEntry": _text(card.get("DMSJCEntry")),
                 "DeliveryDate": promise,
-                "JobPriority": {"Code": _text((order.get("JobPriority") or {}).get("Code")) or "C"},
-                "JobStatus": _text((order.get("JobStatus") or {}).get("Label")),
-                "SalesModelCode": model,
+                "EntryDate": _date_part(card.get("EntryDateTime")),
+                "JobPriority": {"Code": _text((card.get("JobPriority") or {}).get("Code")) or "C"},
+                "JobStatus": _text((card.get("JobStatus") or {}).get("Label")),
                 "Accounts": {
                     "Owner": {
                         "AccountName": _text(owner.get("AccountName")),
@@ -307,38 +482,33 @@ def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
                         "AccountDMSCode": _text(owner.get("AccountDMSCode")),
                     }
                 },
-                "JobItems": [
-                    {
-                        "LineNum": 1,
-                        "SalesModelCode": model,
-                        "Label": _text(order.get("SalesModelTrim")) or model,
-                        "JobItemType": "ModelItem",
-                        "Quantity": 1,
-                        "Prices": [],
-                        **(
-                            {"VehicleId": {"Code": link}, "AllocSourceClassification": alloc_source}
-                            if link
-                            else {}
-                        ),
-                    }
-                ],
+                "JobItems": items,
             }
         )
 
     # --- the disruption is DERIVED, not declared ------------------------------
-    # XAS records no "this shipment slipped 21 days" manifest, but the solver's
-    # free set comes from `disruption.disrupted_orders` (solver.partition), so we
-    # derive it: an allocated order whose car now lands past its promise. An
-    # order with no car needs no help — partition already frees anything the
-    # incumbent left unassigned.
+    # What slips is a VEHICLE — a VPO/VGR shipment runs late, so its cars do. XAS
+    # records no "shipment slipped 21 days" manifest, so the affected DEMAND is
+    # derived: an allocated line whose car now lands past its promise. An order
+    # with no car needs no help — partition already frees anything unassigned.
+    #
+    # Named per CAR, the grain the solver works in and the grain the affected
+    # thing actually has: a line's cars can be satisfied from different shipments,
+    # so one vehicle slipping implicates only the car riding it. The allocation
+    # resolves to `RESOLVABLE_CARS_PER_LINE` of them, so those are the cars named.
+    # `flatten` re-derives this authoritatively once `Quantity` is expanded; the
+    # two must agree, and this copy is what `alloc_tools.summarize` shows the
+    # agent at pull time.
     eta_by_id = {u["VehicleCode"]: u["EtaDealer"] for u in reachable}
     disrupted = sorted(
-        f"{v['JobKey']}-1"
+        f"{v['JobKey']}-{item['LineNum']}-{n}"
         for v in vsos
         for item in v["JobItems"]
         if (item.get("VehicleId") or {}).get("Code")
         and eta_by_id.get(item["VehicleId"]["Code"], "") > v["DeliveryDate"]
+        for n in range(1, min(item["Quantity"], RESOLVABLE_CARS_PER_LINE) + 1)
     )
+    manifest = dict(disruption or {})
 
     return {
         "meta": {
@@ -348,7 +518,13 @@ def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
             "excluded": {
                 "orders_seen": len(orders),
                 "orders_kept": len(vsos),
+                "lines_kept": sum(len(v["JobItems"]) for v in vsos),
+                # The real demand: a line wanting 3 cars is 3 orders once
+                # `flatten` expands it. Counting lines here and cars there is how
+                # a qty-heavy book silently under-reports what it owes.
+                "cars_wanted": sum(item["Quantity"] for v in vsos for item in v["JobItems"]),
                 "order_drops": dict(sorted(order_drops.items())),
+                "line_drops": dict(sorted(line_drops.items())),
                 "units_seen": len(vehicles),
                 "units_kept": len(reachable),
                 "unit_drops": {k: v for k, v in sorted(unit_drops.items()) if v},
@@ -360,12 +536,34 @@ def map_response(orders: list[dict], vehicles: list[dict], now: date) -> dict:
         "vsos": vsos,
         "vehicles": reachable,
         "disruption": {
-            "delayed_model": None,
-            "delay_days": 0,
-            "delayed_vehicles": [],
+            "delayed_model": manifest.get("delayed_model"),
+            "delay_days": manifest.get("delay_days", 0),
+            "delayed_vehicles": manifest.get("delayed_vehicles", []),
             "disrupted_orders": disrupted,
         },
     }
+
+
+def map_world(world: dict) -> dict:
+    """The FAKE's two payloads -> the rich pull. The one reader of ``_scenario``.
+
+    ``world`` is ``{"jobcards": {...}, "vehicles": {...}}`` — the two response
+    shapes `scenario_engine` fabricates, read either off the committed files or
+    straight out of the generator. Everything real goes through ``map_response``
+    unchanged; the only fake-specific part is the ``_scenario`` sidecar, which
+    carries the two things an MCP response cannot: the frozen pull date (the fake
+    is deterministic, so it can never be ``today()``) and the manifest of what
+    the scenario slipped. Keeping that key here means the payloads themselves
+    stay honest to `docs/mcp-response-schema.md`.
+    """
+    cards = world["jobcards"]
+    scenario = cards.get("_scenario") or {}
+    return map_response(
+        cards["list"],
+        world["vehicles"]["records"],
+        date.fromisoformat(scenario["now"]),
+        disruption=scenario.get("disruption"),
+    )
 
 
 def missing_projection(rows: list[dict], required: tuple[str, ...]) -> list[str]:
@@ -425,8 +623,10 @@ class AppMcpSource:
                 {"status.code": {"$in": list(IN_SCOPE_STATUS_CODES)}},
             )
 
+        lines = [line for card in orders for line in card_lines(card)]
         gaps = {
-            APPMCP_TOOL_ORDERS: missing_projection(orders, REQUIRED_ORDER_FIELDS),
+            APPMCP_TOOL_ORDERS: missing_projection(orders, REQUIRED_CARD_FIELDS),
+            f"{APPMCP_TOOL_ORDERS}.jobitems": missing_projection(lines, REQUIRED_LINE_FIELDS),
             APPMCP_TOOL_VEHICLES: missing_projection(vehicles, REQUIRED_UNIT_FIELDS),
         }
         rich = map_response(orders, vehicles, datetime.now(tz=TENANT_TZ).date())

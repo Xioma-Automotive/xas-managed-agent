@@ -221,7 +221,13 @@ belongs in the snapshot's provenance, not in our code.
 ## 7. Decisions this investigation forced, and how they resolved
 
 1. **Pull from the API, not the MCP** — the MCP cannot express the snapshot.
-   ✅ `datasource.XASApiSource`.
+   ⚠️ **REVERSED 2026-08-24.** The pull reads the app MCP after all
+   (`datasource.AppMcpSource`, DECIDE-7): one data seam serves both lanes, and
+   the reporting lane already answered over those tools. What the investigation
+   got right is that the MCP does not return everything the solver needs — that
+   is now a projection gap with a change request behind it
+   (`docs/mcp-field-spec.md`), not a reason for a second source. `XASApiSource`
+   never shipped.
 2. **Eligibility grain** — ✅ trim (`SalesModel`). Not a choice: model grain
    joins nothing (§3).
 3. **Future/real rule** — ✅ `Status.Name` (stripped) in {Ordered, On The Way}

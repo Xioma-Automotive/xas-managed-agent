@@ -1,0 +1,1114 @@
+{
+  "_scenario": {
+    "disruption": {
+      "delay_days": 21,
+      "delayed_model": "SM1",
+      "delayed_vehicles": [
+        "VEH-9002",
+        "VEH-9008",
+        "VEH-9016",
+        "VEH-9019"
+      ]
+    },
+    "now": "2026-08-03"
+  },
+  "list": [
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D029",
+          "AccountName": "Dealer 29",
+          "AccountUUID": "CUST-029"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502381",
+      "DMSJCNum": "502381",
+      "DueDateTime": "2026-10-12T06:00:00Z",
+      "EntryDateTime": "2026-06-09T06:00:00Z",
+      "JobEntryNum": 502381,
+      "JobKey": "VSO-4000",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9001",
+          "JobItemCode": "SM2",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 45000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM2",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9002",
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM1",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 3,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D022",
+          "AccountName": "Dealer 22",
+          "AccountUUID": "CUST-022"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502382",
+      "DMSJCNum": "502382",
+      "DueDateTime": "2026-09-07T06:00:00Z",
+      "EntryDateTime": "2026-07-08T06:00:00Z",
+      "JobEntryNum": 502382,
+      "JobKey": "VSO-4001",
+      "JobPriority": {
+        "Code": "B"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9003"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D007",
+          "AccountName": "Dealer 07",
+          "AccountUUID": "CUST-007"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502383",
+      "DMSJCNum": "502383",
+      "DueDateTime": "2026-08-31T06:00:00Z",
+      "EntryDateTime": "2026-06-15T06:00:00Z",
+      "JobEntryNum": 502383,
+      "JobKey": "VSO-4002",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9004",
+          "JobItemCode": "SM3",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM3",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 1
+        },
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9005",
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 61000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM5",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 3,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D020",
+          "AccountName": "Dealer 20",
+          "AccountUUID": "CUST-020"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502384",
+      "DMSJCNum": "502384",
+      "DueDateTime": "2026-09-21T06:00:00Z",
+      "EntryDateTime": "2026-07-20T06:00:00Z",
+      "JobEntryNum": 502384,
+      "JobKey": "VSO-4003",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9006",
+          "JobItemCode": "SM3",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM3",
+          "days_backordered": 7,
+          "n_prior_delays": 2,
+          "times_rescheduled": 0
+        },
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9007",
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM5",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 2
+        },
+        {
+          "AllocQty": 3,
+          "AllocatedVehicleCode": "VEH-9008",
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 3,
+          "Prices": [
+            {
+              "GrossTotal": 135000
+            }
+          ],
+          "Quantity": 3,
+          "SalesModelCode": "SM1",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 4,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D025",
+          "AccountName": "Dealer 25",
+          "AccountUUID": "CUST-025"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502385",
+      "DMSJCNum": "502385",
+      "DueDateTime": "2026-08-03T06:00:00Z",
+      "EntryDateTime": "2026-06-06T06:00:00Z",
+      "JobEntryNum": 502385,
+      "JobKey": "VSO-4004",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9009"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "AllocQty": 2,
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 64000
+            }
+          ],
+          "Quantity": 2,
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9010"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 1,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 3,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D023",
+          "AccountName": "Dealer 23",
+          "AccountUUID": "CUST-023"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502386",
+      "DMSJCNum": "502386",
+      "DueDateTime": "2026-08-03T06:00:00Z",
+      "EntryDateTime": "2026-07-19T06:00:00Z",
+      "JobEntryNum": 502386,
+      "JobKey": "VSO-4005",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 3,
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 156000
+            }
+          ],
+          "Quantity": 3,
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9011"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D007",
+          "AccountName": "Dealer 07",
+          "AccountUUID": "CUST-007"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502387",
+      "DMSJCNum": "502387",
+      "DueDateTime": "2026-08-24T06:00:00Z",
+      "EntryDateTime": "2026-07-23T06:00:00Z",
+      "JobEntryNum": 502387,
+      "JobKey": "VSO-4006",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9012",
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM5",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 1
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D010",
+          "AccountName": "Dealer 10",
+          "AccountUUID": "CUST-010"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502388",
+      "DMSJCNum": "502388",
+      "DueDateTime": "2026-09-14T06:00:00Z",
+      "EntryDateTime": "2026-06-05T06:00:00Z",
+      "JobEntryNum": 502388,
+      "JobKey": "VSO-4007",
+      "JobPriority": {
+        "Code": "B"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9013",
+          "JobItemCode": "SM3",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM3",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D024",
+          "AccountName": "Dealer 24",
+          "AccountUUID": "CUST-024"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502389",
+      "DMSJCNum": "502389",
+      "DueDateTime": "2026-08-31T06:00:00Z",
+      "EntryDateTime": "2026-07-04T06:00:00Z",
+      "JobEntryNum": 502389,
+      "JobKey": "VSO-4008",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM4",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "BYD Atto 3",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM4",
+          "VehicleId": {
+            "Code": "VEH-9014"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 3,
+          "times_rescheduled": 0
+        },
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9015"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 1
+        },
+        {
+          "AllocQty": 5,
+          "AllocatedVehicleCode": "VEH-9016",
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 3,
+          "Prices": [
+            {
+              "GrossTotal": 190000
+            }
+          ],
+          "Quantity": 5,
+          "SalesModelCode": "SM1",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 4,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D019",
+          "AccountName": "Dealer 19",
+          "AccountUUID": "CUST-019"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502390",
+      "DMSJCNum": "502390",
+      "DueDateTime": "2026-09-07T06:00:00Z",
+      "EntryDateTime": "2026-06-09T06:00:00Z",
+      "JobEntryNum": 502390,
+      "JobKey": "VSO-4009",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9017"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 2,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D001",
+          "AccountName": "Colmobil",
+          "AccountUUID": "CUST-001"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502391",
+      "DMSJCNum": "502391",
+      "DueDateTime": "2026-09-21T06:00:00Z",
+      "EntryDateTime": "2026-07-24T06:00:00Z",
+      "JobEntryNum": 502391,
+      "JobKey": "VSO-4010",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 2,
+          "AllocatedVehicleCode": "VEH-9018",
+          "JobItemCode": "SM4",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "BYD Atto 3",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 104000
+            }
+          ],
+          "Quantity": 2,
+          "SalesModelCode": "SM4",
+          "days_backordered": 0,
+          "n_prior_delays": 3,
+          "times_rescheduled": 0
+        },
+        {
+          "AllocQty": 5,
+          "AllocatedVehicleCode": "VEH-9019",
+          "JobItemCode": "SM1",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 225000
+            }
+          ],
+          "Quantity": 5,
+          "SalesModelCode": "SM1",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 3,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D005",
+          "AccountName": "Carasso",
+          "AccountUUID": "CUST-005"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502392",
+      "DMSJCNum": "502392",
+      "DueDateTime": "2026-08-31T06:00:00Z",
+      "EntryDateTime": "2026-06-10T06:00:00Z",
+      "JobEntryNum": 502392,
+      "JobKey": "VSO-4011",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9020",
+          "JobItemCode": "SM2",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM2",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM4",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "BYD Atto 3",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 45000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM4",
+          "VehicleId": {
+            "Code": "VEH-9021"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 2
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 3,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D020",
+          "AccountName": "Dealer 20",
+          "AccountUUID": "CUST-020"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502393",
+      "DMSJCNum": "502393",
+      "DueDateTime": "2026-08-10T06:00:00Z",
+      "EntryDateTime": "2026-06-18T06:00:00Z",
+      "JobEntryNum": 502393,
+      "JobKey": "VSO-4012",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM3",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM3",
+          "VehicleId": {
+            "Code": "VEH-9022"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 1
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D029",
+          "AccountName": "Dealer 29",
+          "AccountUUID": "CUST-029"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502394",
+      "DMSJCNum": "502394",
+      "DueDateTime": "2026-10-12T06:00:00Z",
+      "EntryDateTime": "2026-06-24T06:00:00Z",
+      "JobEntryNum": 502394,
+      "JobKey": "VSO-4013",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9023"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D017",
+          "AccountName": "Dealer 17",
+          "AccountUUID": "CUST-017"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502395",
+      "DMSJCNum": "502395",
+      "DueDateTime": "2026-08-31T06:00:00Z",
+      "EntryDateTime": "2026-06-07T06:00:00Z",
+      "JobEntryNum": 502395,
+      "JobKey": "VSO-4014",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM2",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9024"
+          },
+          "days_backordered": 14,
+          "n_prior_delays": 0,
+          "times_rescheduled": 1
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D006",
+          "AccountName": "Lubinski",
+          "AccountUUID": "CUST-006"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502396",
+      "DMSJCNum": "502396",
+      "DueDateTime": "2026-09-07T06:00:00Z",
+      "EntryDateTime": "2026-07-12T06:00:00Z",
+      "JobEntryNum": 502396,
+      "JobKey": "VSO-4015",
+      "JobPriority": {
+        "Code": "C"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "AllocatedVehicleCode": "VEH-9025",
+          "JobItemCode": "SM3",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM3",
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 0
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D002",
+          "AccountName": "Delek Motors",
+          "AccountUUID": "CUST-002"
+        }
+      },
+      "Branch": "69f07fdaf930e4ee6d524dc1",
+      "DMSJCEntry": "502397",
+      "DMSJCNum": "502397",
+      "DueDateTime": "2026-09-21T06:00:00Z",
+      "EntryDateTime": "2026-06-29T06:00:00Z",
+      "JobEntryNum": 502397,
+      "JobKey": "VSO-4016",
+      "JobPriority": {
+        "Code": "A"
+      },
+      "JobStatus": {
+        "Code": "23",
+        "Label": "Order"
+      },
+      "isCanceled": false,
+      "jobitems": [
+        {
+          "AllocQty": 1,
+          "JobItemCode": "SM5",
+          "JobItemStatus": "Open",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 45000
+            }
+          ],
+          "Quantity": 1,
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9026"
+          },
+          "days_backordered": 0,
+          "n_prior_delays": 0,
+          "times_rescheduled": 2
+        },
+        {
+          "JobItemCode": "CCO",
+          "JobItemStatus": "Open",
+          "JobItemType": "Configuration",
+          "Label": "Customer configuration",
+          "LineNum": 2,
+          "Quantity": 1
+        }
+      ]
+    }
+  ],
+  "totalCount": 17
+}

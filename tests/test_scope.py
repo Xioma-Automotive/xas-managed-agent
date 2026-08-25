@@ -16,10 +16,12 @@ ON_TIME = date(2026, 9, 14)
 
 
 def _order(oid: str, customer_id: str) -> Order:
-    so_id, line = oid.rsplit("-", 1)
+    # `oid` is the full order key: VSO + car line + the car within that line.
+    so_id, line, qty_index = oid.rsplit("-", 2)
     return Order(
         so_id=so_id,
         line=int(line),
+        qty_index=int(qty_index),
         customer="Dealer",
         customer_id=customer_id,
         sales_model="SM1",
@@ -43,14 +45,14 @@ def _unit(vid: str, planned: date) -> Unit:
 def _snapshot() -> Snapshot:
     # Two customers, each on a late incumbent vehicle; two on-time spares exist.
     return Snapshot(
-        orders=[_order("SO-A-1", "CUST-001"), _order("SO-B-1", "CUST-002")],
+        orders=[_order("SO-A-1-1", "CUST-001"), _order("SO-B-1-1", "CUST-002")],
         units=[
             _unit("VEH-LATE-A", LATE),
             _unit("VEH-LATE-B", LATE),
             _unit("VEH-GOOD-1", ON_TIME),
             _unit("VEH-GOOD-2", ON_TIME),
         ],
-        incumbent={"SO-A-1": "VEH-LATE-A", "SO-B-1": "VEH-LATE-B"},
+        incumbent={"SO-A-1-1": "VEH-LATE-A", "SO-B-1-1": "VEH-LATE-B"},
         disruption={"disrupted_orders": []},  # nothing disrupted — only scope frees rows
         now=NOW,
     )
@@ -66,8 +68,8 @@ def test_scope_frees_only_matching_rows():
     snap = _snapshot()
     result = solve(snap, {"scope": {"customers": ["CUST-001"]}}, lam=0)
     # CUST-001's row was free -> moved to an on-time spare; CUST-002 stayed pinned.
-    assert result.plan["SO-A-1"] != "VEH-LATE-A"
-    assert result.plan["SO-B-1"] == "VEH-LATE-B", "out-of-scope row must not move"
+    assert result.plan["SO-A-1-1"] != "VEH-LATE-A"
+    assert result.plan["SO-B-1-1"] == "VEH-LATE-B", "out-of-scope row must not move"
 
 
 def test_scope_by_date_window():
@@ -77,5 +79,5 @@ def test_scope_by_date_window():
     assert empty.n_changes == 0
     # A window that includes it frees both rows.
     both = solve(snap, {"scope": {"from_date": "2026-09-01", "to_date": "2026-09-30"}}, lam=0)
-    assert both.plan["SO-A-1"] != "VEH-LATE-A"
-    assert both.plan["SO-B-1"] != "VEH-LATE-B"
+    assert both.plan["SO-A-1-1"] != "VEH-LATE-A"
+    assert both.plan["SO-B-1-1"] != "VEH-LATE-B"

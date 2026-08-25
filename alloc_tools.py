@@ -128,9 +128,15 @@ def flatten_command(pull_path: str = MOUNT_PATH) -> str:
     )
 
 
-def _incumbent_count(item: dict) -> bool:
-    """Whether a VSO jobitem is currently allocated (hard VehicleId or soft Alloc)."""
-    return bool((item.get("VehicleId") or {}).get("Code") or item.get("AllocatedVehicleCode"))
+def _incumbent_count(item: dict) -> int:
+    """How many of a jobitem's cars have a vehicle: 1 if it is allocated, else 0.
+
+    In CARS, to match what `flatten` builds. A line resolves to one vehicle code
+    and one car cannot serve two orders, so an `AllocQty` above 1 does not add
+    incumbents here — those committed cars are unidentifiable from this pull, and
+    `flatten` counts them rather than inventing them."""
+    linked = (item.get("VehicleId") or {}).get("Code") or item.get("AllocatedVehicleCode")
+    return 1 if linked else 0
 
 
 def summarize(rich: dict) -> dict[str, Any]:
@@ -141,6 +147,10 @@ def summarize(rich: dict) -> dict[str, Any]:
     disruption = rich.get("disruption", {}) or {}
 
     rows = [item for vso in vsos for item in vso.get("JobItems", [])]
+    # One CAR is one order. A line's `Quantity` is expanded by `flatten`, so
+    # counting rows here would tell the agent it has fewer orders than the
+    # snapshot it is about to solve — and the two numbers are compared.
+    cars = sum(int(item.get("Quantity") or 1) for item in rows)
     by_class: dict[str, int] = {}
     for v in vehicles:
         c = v.get("VehicleClassification", "Vehicle")
@@ -169,10 +179,11 @@ def summarize(rich: dict) -> dict[str, Any]:
         "excluded": meta.get("excluded", {}),
         "conflicts": meta.get("conflicts", []),
         "sales_orders": len(vsos),
-        "orders": len(rows),  # VSO car lines — the allocatable grain
+        "car_lines": len(rows),  # VSO jobitems that are cars
+        "orders": cars,  # one wanted CAR — the allocatable grain (Σ Quantity)
         "supply": len(vehicles),  # the vehicle pool: real ∪ future
         "supply_by_classification": dict(sorted(by_class.items())),
-        "incumbent_assignments": sum(1 for r in rows if _incumbent_count(r)),
+        "incumbent_assignments": sum(_incumbent_count(r) for r in rows),
         "sales_models": meta.get("sales_models", []),
         "disruption": {
             "delayed_model": disruption.get("delayed_model"),

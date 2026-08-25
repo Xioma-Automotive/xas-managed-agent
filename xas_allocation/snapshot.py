@@ -10,9 +10,20 @@ and future vehicles, allocation links) is fabricated by the standalone
 module owns only the flattened shape the solver consumes and its JSON
 (de)serialization.
 
-Grain: the allocatable **order** is one **VSO jobitem** — one wanted car. A VSO
-(one customer's sales order) groups several car lines; the order key is
-``{so_id}-{line}`` (VSO ``JobKey`` + jobitem ``LineNum``, e.g. ``VSO-4000-2``).
+Grain: the allocatable **order** is one **wanted car**. A VSO (one customer's
+sales order) groups several car lines, and a line's ``Quantity`` says how many
+cars IT wants — so the key has three levels, ``{so_id}-{line}-{n}`` (VSO
+``JobKey`` + jobitem ``LineNum`` + a 1-based index within the line, e.g.
+``VSO-4000-2-3``). Every key carries all three, including a qty-1 line: one shape
+means a pin can never be ambiguous about which level it names.
+
+The cars of one line are interchangeable when CHOOSING a vehicle — same model,
+same promise, same customer — which is why the solver may hand any eligible
+vehicle to any of them. They stop being interchangeable once it has: each car
+then has its own vehicle, from its own shipment, with its own arrival date. So
+``n`` is arbitrary going in and meaningful coming out, and the report names it
+("cars 1-3 by the 21st, car 4 by the 30th"). `Order.line_key` is the level a
+planner usually steers at; the car is the level a result is reported at.
 Supply is ONE ``vehicles`` list; each vehicle is capacity-1 with a
 ``sales_model`` and an ``eta_dealer`` date, and a ``vehicle_classification`` of
 ``"Vehicle"`` (a real car, a hard binding) or ``"Future"`` (a not-yet-built car,
@@ -25,10 +36,9 @@ Everything is keyed on **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, timedelta
-
-DATE_FMT = "%Y-%m-%d"
+from datetime import date
 
 # The two supply flavors, from a vehicle's ``VehicleClassification`` (DECIDE-3).
 HARD_CLASSIFICATION = "Vehicle"  # a real car (VIN) — a HARD binding
@@ -47,21 +57,12 @@ def date_label(d: date) -> str:
     return d.isoformat()
 
 
-def days_late(eta: date, delivery_date: date) -> int:
-    """Tardiness in whole days, floored at 0 (early is not negative-late)."""
-    return max(0, (eta - delivery_date).days)
-
-
-def add_days(d: date, n: int) -> date:
-    return d + timedelta(days=n)
-
-
 @dataclass(frozen=True)
 class Order:
     """One VSO jobitem — one wanted car, the demand side of the match."""
 
     so_id: str  # VSO JobKey / DMSJCEntry, e.g. "VSO-4000"
-    line: int  # jobitem LineNum; (so_id, line) is the unique car line
+    line: int  # jobitem LineNum; (so_id, line) is the car line
     customer: str  # dealer display name (Accounts.Owner.AccountName)
     customer_id: str  # stable id the override object carries (Accounts.Owner.AccountUUID)
     sales_model: str  # the hard eligibility key (jobitem SalesModelCode, model-level)
@@ -71,16 +72,30 @@ class Order:
     n_prior_delays: int  # supply-chain delays before us (escalates weight, §2)
     days_backordered: int
     times_rescheduled: int = 0  # reschedules OUR repair loop caused — fairness (DECIDE-11)
+    # 1-based car within its line; (so_id, line, qty_index) is the unique order.
+    # Defaults to the lone car of a qty-1 line, which is what every caller outside
+    # `flatten`'s expansion loop means.
+    qty_index: int = 1
 
     @property
     def key(self) -> str:
-        """The unique order key: VSO JobKey + jobitem LineNum, e.g. 'VSO-4000-2'."""
+        """The unique order key: one CAR. e.g. 'VSO-4000-2-3'."""
+        return f"{self.so_id}-{self.line}-{self.qty_index}"
+
+    @property
+    def line_key(self) -> str:
+        """The car LINE this order is one car of, e.g. 'VSO-4000-2'.
+
+        The steerable and reportable level: a planner defers "line 2 of VSO-4000",
+        never its third car. `solver._matches` accepts this, and the report groups
+        on it."""
         return f"{self.so_id}-{self.line}"
 
     def to_dict(self) -> dict:
         return {
             "so_id": self.so_id,
             "line": self.line,
+            "qty_index": self.qty_index,
             "customer": self.customer,
             "customer_id": self.customer_id,
             "sales_model": self.sales_model,
@@ -97,6 +112,8 @@ class Order:
         return cls(
             so_id=str(d["so_id"]),
             line=int(d["line"]),
+            # Absent on a snapshot written before qty expansion: a lone car.
+            qty_index=int(d.get("qty_index", 1)),
             customer=d["customer"],
             customer_id=d["customer_id"],
             sales_model=d["sales_model"],
@@ -154,7 +171,7 @@ class Unit:
 class Snapshot:
     """Everything one solve consumes — the flattened, frozen pull."""
 
-    orders: list[Order]  # VSO car lines
+    orders: list[Order]  # one per wanted CAR (a qty-3 line contributes 3)
     units: list[Unit]  # the vehicle pool: real ∪ future
     incumbent: dict[str, str]  # order_key -> vehicle_id (current allocation)
     disruption: dict  # the delayed vehicles + who they touched
@@ -166,7 +183,19 @@ class Snapshot:
     meta: dict = field(default_factory=dict)
 
     def order_by_key(self) -> dict[str, Order]:
-        return {o.key: o for o in self.orders}
+        """Orders by key — and the guard that a key really is unique.
+
+        The whole solver reads demand through this dict, so a duplicated key does
+        not raise: it silently collapses two cars into one, and `orders` and this
+        mapping then disagree about how much demand exists. That is exactly the
+        failure a botched qty expansion produces, and it would show up only as a
+        plan that quietly under-serves a customer."""
+        by_key = {o.key: o for o in self.orders}
+        if len(by_key) != len(self.orders):
+            counts = Counter(o.key for o in self.orders)
+            dupes = sorted(k for k, n in counts.items() if n > 1)
+            raise ValueError(f"duplicate order keys — demand would be lost: {dupes}")
+        return by_key
 
     def unit_by_id(self) -> dict[str, Unit]:
         return {u.vehicle_id: u for u in self.units}

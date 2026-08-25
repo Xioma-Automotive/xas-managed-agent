@@ -11,13 +11,16 @@ field mapping directly.
 
 import json
 
+import datasource
 from scenario_engine.generate import generate
 from xas_allocation.flatten import flatten, flatten_default
 from xas_allocation.solver import tardiness
 
 
 def _rich():
-    return generate(seed=20)["pull"]
+    """The rich pull, via the SAME mapping the live source runs through: the
+    engine fabricates the MCP's response shapes now, not the pull contract."""
+    return datasource.map_world(generate(seed=20)["pull"])
 
 
 def test_engine_is_deterministic():
@@ -33,12 +36,61 @@ def test_flatten_is_deterministic():
     assert a == b
 
 
-def test_vsos_explode_into_car_lines():
+def test_vsos_explode_into_cars_not_lines():
+    """One wanted CAR is one order: a line's `Quantity` is expanded, so the count
+    is Σ Quantity and never the number of lines."""
     rich = _rich()
     snap = flatten(rich)
-    expected_rows = sum(len(vso["JobItems"]) for vso in rich["vsos"])
-    assert len(snap.orders) == expected_rows
-    assert all(o.so_id and o.key == f"{o.so_id}-{o.line}" for o in snap.orders)
+    lines = [item for vso in rich["vsos"] for item in vso["JobItems"]]
+    expected_cars = sum(int(item.get("Quantity") or 1) for item in lines)
+    assert len(snap.orders) == expected_cars
+    assert expected_cars > len(lines), "the fake must exercise Quantity > 1"
+    assert all(o.so_id and o.key == f"{o.so_id}-{o.line}-{o.qty_index}" for o in snap.orders)
+    # and every key is distinct — a collapse here silently loses demand
+    assert len({o.key for o in snap.orders}) == len(snap.orders)
+
+
+def test_a_multi_car_line_becomes_one_order_per_car():
+    rich = {
+        "meta": {"now": "2026-08-03"},
+        "vsos": [
+            {
+                "JobKey": "VSO-9",
+                "DeliveryDate": "2026-11-02",
+                "JobPriority": {"Code": "B"},
+                "Accounts": {"Owner": {"AccountName": "D", "AccountUUID": "C1"}},
+                "JobItems": [
+                    {
+                        "JobItemType": "ModelItem",
+                        "LineNum": 4,
+                        "SalesModelCode": "SM1",
+                        "Quantity": 3,
+                        "Prices": [{"GrossTotal": 90000}],
+                        "VehicleId": {"Code": "V1"},
+                        "AllocQty": 3,
+                    }
+                ],
+            }
+        ],
+        "vehicles": [
+            {
+                "VehicleCode": "V1",
+                "SalesModel": "SM1",
+                "VehicleClassification": "Vehicle",
+                "EtaDealer": "2026-10-01",
+            }
+        ],
+        "disruption": {},
+    }
+    snap = flatten(rich)
+    assert [o.key for o in snap.orders] == ["VSO-9-4-1", "VSO-9-4-2", "VSO-9-4-3"]
+    assert all(o.line_key == "VSO-9-4" for o in snap.orders)
+    # One vehicle covers ONE car, whatever AllocQty claims — handing it to three
+    # would double-book it and trip the solver's self-check on its own input.
+    assert snap.incumbent == {"VSO-9-4-1": "V1"}
+    assert snap.meta["excluded"]["flatten_skips"]["allocation_qty_not_resolvable_to_cars"] == 2
+    # the line total is split across its cars, not repeated on each
+    assert [o.price for o in snap.orders] == [30000.0, 30000.0, 30000.0]
 
 
 def test_supply_is_one_pool_of_both_classifications():
@@ -57,7 +109,8 @@ def test_incumbent_comes_from_allocation_links():
     for vso in rich["vsos"]:
         so_id = vso["JobKey"]
         for item in vso["JobItems"]:
-            key = f"{so_id}-{item['LineNum']}"
+            # The allocation covers the line's FIRST car; the rest are unfilled.
+            key = f"{so_id}-{item['LineNum']}-1"
             hard = (item.get("VehicleId") or {}).get("Code")
             soft = item.get("AllocatedVehicleCode")
             if hard:
@@ -75,8 +128,12 @@ def test_disrupted_orders_are_actually_late():
     units = snap.unit_by_id()
     disrupted = snap.disruption["disrupted_orders"]
     assert disrupted, "the scenario should break at least one order"
+    # Named per CAR: what slips is a vehicle, and only the car riding it is late.
     for key in disrupted:
         assert tardiness(orders[key], units[snap.incumbent[key]]) > 0, key
+    # and every car whose own vehicle is late is named — no silent omissions
+    late = {k for k, uid in snap.incumbent.items() if tardiness(orders[k], units[uid]) > 0}
+    assert set(disrupted) == late
 
 
 def test_flatten_default_reads_the_bundled_dataset():
@@ -165,7 +222,7 @@ def test_flatten_maps_real_xas_shaped_records():
     orders = snap.order_by_key()
     units = snap.unit_by_id()
 
-    o1 = orders["VSO-77-1"]
+    o1 = orders["VSO-77-1-1"]
     assert (o1.so_id, o1.line) == ("VSO-77", 1)
     assert o1.customer == "Colmobil" and o1.customer_id == "CUST-001"
     assert o1.priority == "A"
@@ -174,8 +231,8 @@ def test_flatten_maps_real_xas_shaped_records():
     assert o1.price == 45000.0  # Σ Prices[].GrossTotal
 
     # Hard incumbent via VehicleId.Code ↔ VehicleCode; soft via Alloc link.
-    assert snap.incumbent["VSO-77-1"] == "11317"
-    assert snap.incumbent["VSO-77-2"] == "FUT-9"
+    assert snap.incumbent["VSO-77-1-1"] == "11317"
+    assert snap.incumbent["VSO-77-2-1"] == "FUT-9"
 
     real = units["11317"]
     assert real.vehicle_classification == "Vehicle" and real.is_hard

@@ -31,13 +31,15 @@ If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is gone. Concretely:
 
 - **The pull is the data snapshot.** It comes from a callable source
-  (`datasource.py`, host-side): the `scenario_engine/` fake fabricates
-  `data/pull.json` (PO→PDN→Vehicle, Customer→SO with vehicle order rows) by
-  default, or the real XAS endpoint by config (DECIDE-7). `web.py` fetches it and
-  mounts it into the sandbox as a file; `flatten` explodes SOs into rows + unions
-  the supply (vehicles ∪ PO-line slots) into the `orders/units/incumbent` snapshot.
-  The *same* pull backs every turn of a repair cycle — re-applying the same
-  override against a different pull is not the same turn.
+  (`datasource.py`, host-side): the `scenario_engine/` fake fabricates the app
+  MCP's own two response payloads by default, or the live MCP answers them for
+  real by config (DECIDE-7). Either way `map_response` maps them to the rich pull
+  — ONE mapping, both sources. `web.py` fetches it and mounts it into the sandbox
+  as a file; `flatten` explodes each card into its `ModelItem` car lines and reads
+  the vehicle pool into the `orders/units/incumbent` snapshot, expanding each
+  line's `Quantity` into one order per car. The *same* pull
+  backs every turn of a repair cycle — re-applying the same override against a
+  different pull is not the same turn.
 - **The override is the session.** Steering is one combined override object
   (weights / pins / forbid / lambda / scope / bump) the agent edits in place and
   carries forward — no ledger, no replay. Same snapshot + same override →
@@ -181,6 +183,63 @@ XAS endpoint and its credential never touch the sandbox.
   at once, so a contested vehicle yields **no** incumbent for anyone and the
   conflict rides in `meta.conflicts` — otherwise the solver's own self-check
   fires on its input.
+- **`Quantity` is expanded, so the order key has THREE levels.** One wanted CAR
+  is one order, keyed `{so_id}-{line}-{n}` — a qty-3 line is 3 capacity-1 demand
+  nodes, which is what the solver already models. Nothing parses a key, so the
+  shape change was cheap; what is not cheap is that an order is also NAMED by
+  string in four places (pins, forbid, scope/bump, and the disruption manifest).
+  All of them go through `solver.names_order` / `not_before_for` /
+  `disrupted_order_keys`, which match at any level. Skip that and the failure is
+  silent: `map_response` derives `disrupted_orders` at LINE grain, so comparing it
+  raw against car keys frees nothing and the report reads "0 of 0 delayed orders"
+  over a broken book. `Snapshot.order_by_key` now RAISES on a duplicate key —
+  it used to collapse two cars into one and lose paid-for demand with no error.
+  Coverage is the open half (tracked in `docs/mcp-response-schema.md`, same VPO
+  hop as its Q1):
+  a line resolves to at most ONE vehicle and one car cannot serve two orders, so
+  however high `AllocQty` claims, exactly one incumbent is identifiable and the
+  rest are counted `allocation_qty_not_resolvable_to_cars` and treated as unfilled.
+- **The frozen fence protects an allocation, not empty demand.** `partition` skips
+  the fence for an order with no incumbent: the fence is about churning a
+  commitment near delivery, and an order with no car has none — freezing it makes
+  it a permanent backorder. It also used to land in neither `plan` nor `unfilled`,
+  so `_self_check` returned not-ok with an EMPTY violation list, which reads like a
+  solver bug rather than a partition one. Qty expansion made this routine, since
+  the cars beyond a line's one vehicle all arrive unallocated. `repairability`
+  agrees — no incumbent means "movable", never "locked in".
+- **The report speaks lines; the solver speaks cars.** `session.line_label` /
+  `group_by_line` collapse a line's cars into one row, and grouping is allowed
+  only when every displayed column agrees, so cars treated differently keep their
+  own rows, NAMED (`session.car_range`: "cars 1-3 of 5", "car 4 of 5"). The
+  naming is the point, not a nicety: a line's cars can be satisfied from different
+  shipments and so land on different dates, and a bare count cannot tell two rows
+  of one line apart. A one-car line prints as `VSO-4000-1`, never
+  `VSO-4000-1-1`. `_caveat` and the discrepancy tables follow the same rule, and
+  since 2026-08-25 nothing breaks it: `build_change_list` (the per-car change log
+  nothing ever consumed) is gone, so `planner_report` is the only renderer and the
+  line-vs-car rule has one place to hold.
+- **The fake speaks the MCP's shapes, and `pull.json` is DERIVED.**
+  `scenario_engine` authors `data/mcp-jobcards.json` + `data/mcp-vehicles.json`
+  — the two payloads of `docs/mcp-response-schema.md` — and both sources then run
+  through the SAME `map_response`, the fake via `datasource.map_world`. That is
+  what makes the fake substitutable for the MCP and `tests/test_invariant.py`
+  worth anything; a second mapping kept in step by hand would not. So editing
+  `data/pull.json` or `data/baseline.json` is editing build output: the next
+  `scenario_engine.generate` overwrites them, and the default source never reads
+  them (`flatten`'s offline default and `web.py`'s mount do). Change the scenario
+  in the two `mcp-*.json` payloads, or in the generator.
+  The one wrinkle: `now` and the delay manifest have no place in an MCP response
+  — XAS records neither — so they ride on the jobcards payload under a
+  fake-only `_scenario` key that `map_world` is the sole reader of.
+- **One definition of "this line holds a car".** `datasource.car_lines_kept` is
+  it, and both the conflict scan and the translate step call it — because
+  `_line_vehicle` falls back to the card's single `VehicleDMSCode` only for a
+  ONE-car card, so counting a `Configuration` row as a car line suppresses that
+  fallback in one place and not the other. The result was a double-booked vehicle
+  invisible to `meta.conflicts` yet still linked as an incumbent, which trips the
+  solver's self-check on its own input. Fixed 2026-08-24; pinned by
+  `test_a_double_booked_vehicle_yields_no_incumbent_for_anyone` and
+  `test_the_card_fallback_needs_a_single_car_line`.
 - **The two views are not one world.** `pull.json` holds VSOs fabricated by
   `scenario_engine`; the MCP serves whatever the dev DMS holds right now, Service
   job cards included. They describe overlapping business objects with no
@@ -190,15 +249,24 @@ XAS endpoint and its credential never touch the sandbox.
   snapshot.** `datasource.AppMcpSource` calls the MCP's own `get_job_cards` +
   `get_vehicles` — one data seam for both lanes — and `map_response` filters and
   maps the rows, pure and tested against a captured response
-  (`tests/fixtures/xas_sample.json`). The AGENT still does not make these calls:
+  (`tests/fixtures/xas_sample.json`). **That capture predates the line grain and
+  carries no `jobitems` at all**, so it can only prove the vehicle side and the
+  projection gap itself; the card side of those tests is hand-built until a
+  jobitems-bearing tool exists to re-capture from. The AGENT still does not make
+  these calls:
   `web.py` fetches before the session exists and mounts the result as a file,
   because a live mid-turn read makes the same override meet different rows on
   turn 3 than on turn 1. The MCP tools the agent holds stay the reporting lane's.
 - **The MCP projects, so a missing field has two very different causes.** Its
   tools return an allowlisted subset of each record, and the fields the solver
-  needs are not all on it yet — `docs/mcp-field-spec.md` is the list, and the
-  worst of them is a NAME BUG: it asks for `DueDate` where XAS stores
-  `DueDateTime`, so 0 of 25 VSOs return a promised date while 13 have one.
+  needs are not all on it yet — `docs/mcp-field-spec.md` is the list. The worst
+  of them is now the grain itself: the list projection returns **no `jobitems`**,
+  and one `ModelItem` line IS one order, so every one of the 25 cards drops for
+  `no_car_line` and the live allocation pull is EMPTY. `jobitems` is therefore in
+  `REQUIRED_CARD_FIELDS` — without it the line-level check reads nothing out of an
+  empty list and reports no gap at all. Next worst is a NAME BUG: it asks for
+  `DueDate` where XAS stores `DueDateTime`, so 0 of 25 VSOs return a promised date
+  while 13 have one.
   `missing_projection()` tells the two cases apart: a field absent from EVERY row
   is the allowlist omitting it (widen the MCP), a field absent from SOME rows is
   the tenant not having filled it in (data entry). Both produce an identical
@@ -213,10 +281,13 @@ XAS endpoint and its credential never touch the sandbox.
   order.
 - **Everything the filter drops is counted, and the count must be reported.**
   `meta.excluded` carries the funnel by reason and `session.exclusion_note` turns
-  it into the first thing the planner reads: on dev data 24 of 25 sales orders
-  have no model or no promised date, and a plan over the 25th presented as the
-  whole book is the worst thing this pipeline can do. The fabricated source
-  filters nothing, so the note is empty there.
+  it into the first thing the planner reads: on dev data ALL 25 sales orders drop
+  (`no_car_line` — the projection returns no jobitems), and before the grain
+  changed it was 24 of 25 for want of a model or a promised date. A plan over a
+  survivor presented as the whole book is the worst thing this pipeline can do.
+  The counts run at both levels now — `order_drops` and `line_drops`, with
+  `lines_kept` beside `orders_kept`. The fabricated source drops only its
+  `Configuration` lines, which is exactly what proves the type filter runs.
 - **The pull mounts a file, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
   context. So the tool returns only a summary + a `flatten` command; the rows
@@ -252,23 +323,37 @@ XAS endpoint and its credential never touch the sandbox.
 
 ## Open decisions
 
-`DECIDE-1..16` are stubbed defaults, not settled answers. Run
-`uv run python -m xas_allocation.decisions` for the live list. The big ones for
-anyone touching this: DECIDE-14 (`time_scale` knob — the solver reasons at
-days/weeks/months, rounding gaps UP; changes the plan, fence stays in days),
-DECIDE-15 (earliness is priced — linear + small so lateness dominates; a car
-months-early is not a win), DECIDE-7 (the real pull reads the live system through
-the app MCP — `datasource.AppMcpSource`, `XAS_DATA_SOURCE=xas`; the
-`scenario_engine/` fake stays the offline default. What is still open is the
-DATA: 1 of 25 dev VSOs carries both a model and a promised date, and `EtaDealer`
-is set on 3 vehicles fleet-wide), DECIDE-3 (which
-`location_state` counts as committed), DECIDE-9 (the solver lives in-repo; it
-moves to a version-pinned repo before real dealer data), DECIDE-5 (no durable
-session persistence assumed — steering is one combined override carried in the
-conversation; a host-side store is the deferred real fix), DECIDE-10
-(reserved_for_customer eligibility, deferred), DECIDE-16 (the taxonomy ships in
-the `xas-reporting` skill instead of being mounted — one tenant only; a second one moves
-it back to a host-side mount).
+Reviewed 2026-08-25 — they are no longer all stubs. Run
+`uv run python -m xas_allocation.decisions` for the live register; its header
+line counts what is genuinely undecided. The shape of it:
+
+- **One is OPEN.** DECIDE-5 — durable steering persistence. The override still
+  lives only in the conversation; a host-side store in `web.py` (keyed by session
+  id, mounted like the pull) is the candidate fix, not a decision. Check the
+  Managed Agents persistence surface against current docs before wiring it.
+- **Five are settled in SHAPE but carry a number nobody has validated** —
+  DECIDE-1 (`ALPHA`/`BETA`), DECIDE-2 (fence 14/42), DECIDE-3
+  (`BREAK_COST["hard"]=200`), DECIDE-11 (`GAMMA=0.75`), DECIDE-15
+  (`EARLY_WEIGHT=0.15`). Every one is tuned against the fabricated dataset alone.
+  The mechanism is not up for debate; the value is, and it is reviewed at first
+  real dealer data.
+- **Two are recorded but deliberately not built.** DECIDE-10 — a `Reserved-*`
+  vehicle is out of the pool entirely, so an earmarked car is supply for NO ONE,
+  not "eligible for anyone" as the register used to claim; modelling it as
+  earmarked supply is the deferred upgrade. DECIDE-6 — there is no liveness
+  check and will not be one: the pull happens host-side before the session
+  exists, so a session-start call from the agent proves nothing about it.
+- **DECIDE-7 is settled as a contract and BLOCKED on someone else.** The mapping
+  needs no further decision; the app MCP's projection does — no `jobitems` (so
+  all 25 dev VSOs drop for `no_car_line` and the live allocation pull is EMPTY)
+  and `DueDate` where XAS stores `DueDateTime`. `docs/mcp-field-spec.md` is the
+  change request.
+- **The rest are decided**, with their trigger named where they have one:
+  DECIDE-9 (solver stays in-repo; extraction is triggered by the first NON-DEV
+  tenant, not a date) and DECIDE-16 (taxonomy ships in the `xas-reporting`
+  skill; a SECOND TENANT flips it back to a host-side mount). DECIDE-14
+  (`time_scale` days/weeks/months, rounding gaps UP, fence stays in days) and
+  DECIDE-13 (no uninvited bumps) are the two that most change what a turn does.
 
 Not in the prototype, per spec: the CP-SAT + LNS escape hatch for *coupled*
 orders, and any new hard constraint. **The prompt moves weights and pins; a human
@@ -278,7 +363,7 @@ live-session mutation.
 ## Verifying a change
 
 ```bash
-uv run python -m scenario_engine.generate           # (re)fabricate data/pull.json
+uv run python -m scenario_engine.generate           # author the MCP payloads, derive pull/baseline
 uv run python -m datasource --census                # what the configured source kept vs dropped
 uv run pytest                                       # engine, flatten, contracts, phrasebook, determinism
 PYTHONPATH=. uv run python tests/test_invariant.py  # the invariant, standalone (4/4)
@@ -286,8 +371,8 @@ uv run ruff format . && uv run ruff check .
 ```
 
 Tests need no credentials and no network — the tool and flatten are exercised
-in-process, and `data/pull.json` is committed so the suite runs without the
-engine. Regenerating the dataset means re-running `setup_agent.py`.
+in-process, and `data/mcp-*.json` + the derived `data/pull.json` are committed so
+the suite runs without the engine. Regenerating the dataset means re-running `setup_agent.py`.
 
 The sandbox being Anthropic's is worth confirming once by hand: ask the agent to
 run `whoami; ls ~; cat /proc/1/environ | tr "\0" "\n"` and check that what comes
