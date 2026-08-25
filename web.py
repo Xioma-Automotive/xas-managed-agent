@@ -68,7 +68,7 @@ DEFAULT_MODEL = "opus48"
 
 # Hard ceiling on one session's spend, priced at Anthropic's LIST rates (model
 # tokens + web search + $0.08/hour of session runtime), in cents as an integer
-# string. $5 sits well above a full repair cycle — the heaviest single turn
+# string. $4 sits well above a full repair cycle — the heaviest single turn
 # observed was 87c — so it is a runaway backstop, not a working limit.
 #
 # CREATE-ONLY, and that is the whole reason it is here: a session started
@@ -76,7 +76,7 @@ DEFAULT_MODEL = "opus48"
 # `stop_reason: budget_reached` (the SSE relay already forwards that) and keeps
 # its container and history; only raising or removing the budget resumes it, and
 # removal is one-way.
-SESSION_BUDGET = {"type": "limit", "max_list_cost": {"amount": "500", "currency": "USD"}}
+SESSION_BUDGET = {"type": "limit", "max_list_cost": {"amount": "400", "currency": "USD"}}
 
 app = FastAPI(title="XAS Allocation Agent")
 client = AsyncAnthropic()

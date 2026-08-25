@@ -139,7 +139,7 @@ XAS endpoint and its credential never touch the sandbox.
   Effort drives how many tool calls a turn spends, so this is a cost knob as much
   as a quality one, and no test covers what changing it does to a turn.
 - **The session budget is create-only, so it is set on every create or not at
-  all.** `web.py`'s `SESSION_BUDGET` caps ONE session's list-priced spend at $5
+  all.** `web.py`'s `SESSION_BUDGET` caps ONE session's list-priced spend at $4
   (model tokens + web search + $0.08/hour of runtime). At the cap the session goes
   `idle` with `stop_reason: budget_reached`, keeps its container and history, and
   accepts only settle events — a new `user.message` is a 400, which `/message`
