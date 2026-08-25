@@ -57,8 +57,8 @@ Allowlist: `src/mcp/tools/vehicles.helpers.ts → VEHICLE_FIELDS`.
 | XAS field | Action | Feeds | Populated | Without it |
 | --- | --- | --- | --- | --- |
 | `SalesModel` | **add** | the eligibility key, the car's side of the match | ~40% | no car is eligible for anything. `ModelId.Code` is already returned and is **not** a substitute: it holds `T5040` where the order asks for `T5040UECLMQ0009` |
-| `EtaDealer` | **add** | when a car still coming lands — the one field a delay moves | 3/1326 | a future car cannot be scheduled; only cars on the lot can be allocated |
-| `AvailableBy` | **add** | the same arrival date, and the one actually filled today | 19/1326 | the fallback when `EtaDealer` is blank, which it nearly always is |
+| `AvailableBy` | **add** | the arrival date the pull READS FIRST — the one actually filled today | 19/1326 | a future car cannot be scheduled; only cars on the lot can be allocated |
+| `EtaDealer` | **add** | the same arrival date, nominally the field a delay moves | 3/1326 | the fallback when `AvailableBy` is blank |
 | `ExpectedCustomerDeliveryDate` | nice | a second arrival signal | 0/1326 | nothing today |
 | `PortLocation`, `TrimLevel` | nice | import stage and trim, for explaining a delay | sparse | nothing today |
 | `Status` | present | future vs on-the-lot — see below | 718/1326 | — |

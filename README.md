@@ -47,8 +47,10 @@ override, get the same plan.
 
 This build is a **runnable prototype**. Its data is shaped like real XAS: a
 **VSO** (vehicle sales order) is a job card carrying the promise and a list of
-car lines, and **the grain is the CAR** — one line wants `Quantity` of them, so a
-line wanting 3 cars is 3 orders, each keyed `{VSO}-{line}-{n}`. Supply is ONE
+car lines, and **one car line is one order for one car**, keyed `{VSO}-{line}`.
+(`Quantity` on a line can read 3; the pull reads it as 1 — one car per line is an
+assumption pending a response-shape decision, see `docs/mcp-response-schema.md`.)
+Supply is ONE
 flat pool of vehicles, real and future together; there is no PO/PDN/slot layer,
 and a vehicle is always exactly one car. Dates are real dates. The pull comes
 from a callable data source (`datasource.py`) — a standalone `scenario_engine/`

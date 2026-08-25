@@ -131,22 +131,15 @@ ORDER_CLASSIFICATION = "VSO"
 # card drops for `no_car_line` — "0 usable orders" with no reason attached, the
 # exact confusion this function exists to prevent.
 REQUIRED_CARD_FIELDS = ("DueDateTime", "EntryDateTime", "JobPriority", "jobitems")
-REQUIRED_LINE_FIELDS = ("JobItemCode", "JobItemType", "LineNum", "Quantity")
-REQUIRED_UNIT_FIELDS = ("SalesModel", "EtaDealer")
+REQUIRED_LINE_FIELDS = ("JobItemCode", "JobItemType", "LineNum")
+# `AvailableBy`, not `EtaDealer`: it is the arrival date `unit_eta` reads first,
+# so it is the one whose absence empties the vehicle pool.
+REQUIRED_UNIT_FIELDS = ("SalesModel", "AvailableBy")
 
 # The jobitem type that is a CAR. A VSO's lines also carry configuration and
 # parts rows, and the line's own type is the only thing that separates them —
 # `Prices[].JobItemType` reads "SpareParts" on every row, cars included.
 CAR_ITEM_TYPE = "ModelItem"
-
-# How many of a line's cars its allocation can actually be resolved to. A line
-# carries ONE vehicle code and one car cannot serve two orders, so this is 1
-# however high `AllocQty` claims — the remaining committed cars sit on a VPO this
-# pull never hops to (`docs/mcp-response-schema.md` Q1).
-# `xas_allocation.flatten` applies the same cap when it builds the incumbent, and
-# `tests/test_tool_contract.py::test_flatten_command_reproduces_the_snapshot` is
-# what catches the two drifting apart.
-RESOLVABLE_CARS_PER_LINE = 1
 
 # Line statuses that are still live demand. "not closed" is the tool's own
 # server-side filter; this is the backstop for a row it let through.
@@ -208,14 +201,18 @@ def unit_eta(vehicle: dict, now: date, bucket: str) -> str:
     """When this car is available to hand over.
 
     A real car is on the lot, so its eta is ``now``. A future car needs a real
-    arrival date: ``EtaDealer`` is the schema's field for it and what the skill
-    documents; ``AvailableBy`` is the one the tenant actually fills today. No
-    date means the car cannot be scheduled, so the unit is dropped rather than
-    guessed at — a fabricated eta would move the plan.
+    arrival date, and ``AvailableBy`` is the PRIMARY source: it is the field the
+    tenant actually fills (19 vehicles fleet-wide vs 3 for ``EtaDealer``), so
+    reading the schema's nominal field first left almost every future car
+    undateable and therefore dropped. ``EtaDealer`` stays as the fallback — it
+    is the field a delay is expected to move, so a car that carries it is read
+    from it when ``AvailableBy`` is blank. No date at all means the car cannot be
+    scheduled, so the unit is dropped rather than guessed at — a fabricated eta
+    would move the plan.
     """
     if bucket == "real":
         return now.isoformat()
-    return _date_part(vehicle.get("EtaDealer")) or _date_part(vehicle.get("AvailableBy"))
+    return _date_part(vehicle.get("AvailableBy")) or _date_part(vehicle.get("EtaDealer"))
 
 
 def card_lines(card: dict) -> list[dict]:
@@ -450,7 +447,6 @@ def map_response(
                 "SalesModelCode": code,
                 "Label": _text(line.get("Label")) or code,
                 "JobItemType": CAR_ITEM_TYPE,
-                "Quantity": int(line.get("Quantity") or 1),
                 "Prices": list(line.get("Prices") or []),
             }
             # Escalation inputs have no XAS source yet (open question in
@@ -462,10 +458,6 @@ def map_response(
             if link:
                 item["VehicleId"] = {"Code": link}
                 item["AllocSourceClassification"] = alloc_source
-                # How many of this line's cars the allocation already covers.
-                # `flatten` expands Quantity into one order per car and hands the
-                # incumbent to the first `AllocQty` of them; absent, it covers one.
-                item["AllocQty"] = min(item["Quantity"], max(0, int(line.get("AllocQty") or 1)))
             items.append(item)
         vsos.append(
             {
@@ -492,21 +484,16 @@ def map_response(
     # derived: an allocated line whose car now lands past its promise. An order
     # with no car needs no help — partition already frees anything unassigned.
     #
-    # Named per CAR, the grain the solver works in and the grain the affected
-    # thing actually has: a line's cars can be satisfied from different shipments,
-    # so one vehicle slipping implicates only the car riding it. The allocation
-    # resolves to `RESOLVABLE_CARS_PER_LINE` of them, so those are the cars named.
-    # `flatten` re-derives this authoritatively once `Quantity` is expanded; the
-    # two must agree, and this copy is what `alloc_tools.summarize` shows the
-    # agent at pull time.
+    # Named at ORDER grain — one car line, one car. `flatten` re-derives this
+    # authoritatively; the two must agree, and this copy is what
+    # `alloc_tools.summarize` shows the agent at pull time.
     eta_by_id = {u["VehicleCode"]: u["EtaDealer"] for u in reachable}
     disrupted = sorted(
-        f"{v['JobKey']}-{item['LineNum']}-{n}"
+        f"{v['JobKey']}-{item['LineNum']}"
         for v in vsos
         for item in v["JobItems"]
         if (item.get("VehicleId") or {}).get("Code")
         and eta_by_id.get(item["VehicleId"]["Code"], "") > v["DeliveryDate"]
-        for n in range(1, min(item["Quantity"], RESOLVABLE_CARS_PER_LINE) + 1)
     )
     manifest = dict(disruption or {})
 
@@ -522,7 +509,6 @@ def map_response(
                 # The real demand: a line wanting 3 cars is 3 orders once
                 # `flatten` expands it. Counting lines here and cars there is how
                 # a qty-heavy book silently under-reports what it owes.
-                "cars_wanted": sum(item["Quantity"] for v in vsos for item in v["JobItems"]),
                 "order_drops": dict(sorted(order_drops.items())),
                 "line_drops": dict(sorted(line_drops.items())),
                 "units_seen": len(vehicles),

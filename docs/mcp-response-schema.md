@@ -65,20 +65,30 @@ A **list of job cards**, each carrying its own **list of jobitems**.
 ```
 
 One card is one customer's sales order; one `ModelItem` jobitem is one wanted
-car, and `Quantity` says how many. So 25 cards can carry far more than 25 orders,
-and the solver's order key spans both levels: `{JobKey}-{LineNum}`.
+car. The solver's order key spans both levels: `{JobKey}-{LineNum}`.
 
-**Qty is expanded** (2026-08-24): `flatten` emits one order per CAR, so the order
-key gained a third level, `{JobKey}-{LineNum}-{n}`. Pins, forbid and scope match
-at any level (car / line / VSO), and the planner report speaks lines.
+**One car per line — `Quantity` is NOT read** (2026-08-25). Qty expansion existed
+for a day (2026-08-24, one order per car, a third key level `{JobKey}-{LineNum}-{n}`)
+and was removed: a line resolves to at most ONE vehicle code, so the cars beyond
+the first could never be linked to anything, and every mechanism built to cope
+with them — the expansion, the per-car report naming, the
+`allocation_qty_not_resolvable_to_cars` counter — was machinery around a gap this
+response cannot close.
 
-What is still open is the COVERAGE. `AllocQty` says how many of a line's cars are
-committed, but a line resolves to at most one vehicle and one car cannot satisfy
-two orders — so the pull can identify exactly one incumbent per line however high
-`AllocQty` goes. The rest are counted as
-`allocation_qty_not_resolvable_to_cars` and treated as unfilled demand. Closing
-that is the same VPO hop as Q1 below: without it a fleet line reads as almost
-entirely unallocated, and a repair looks bigger than it is.
+**The cost, stated plainly: a line asking for 3 cars is planned as 1, and the
+other 2 are not represented anywhere.** Nothing counts them and the report does
+not mention them. `AllocQty` may say all 3 are committed; those commitments live
+on a VPO this pull never hops to (Q1 below).
+
+**This is the open question.** Two shapes would each settle it:
+
+1. **One allocation cap per line** — confirm that a line is one car by design, and
+   the current reading becomes correct rather than an assumption.
+2. **Per-car fields** — each car on a line names its own vehicle, and the order
+   key regains a car level.
+
+Until one is chosen, `Quantity` stays unread and this section is the record of
+why.
 
 ## Call 2 — `get_vehicles` — supply
 

@@ -37,7 +37,7 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   — ONE mapping, both sources. `web.py` fetches it and mounts it into the sandbox
   as a file; `flatten` explodes each card into its `ModelItem` car lines and reads
   the vehicle pool into the `orders/units/incumbent` snapshot, expanding each
-  line's `Quantity` into one order per car. The *same* pull
+  card into its `ModelItem` car lines, one order each. The *same* pull
   backs every turn of a repair cycle — re-applying the same override against a
   different pull is not the same turn.
 - **The override is the session.** Steering is one combined override object
@@ -183,41 +183,35 @@ XAS endpoint and its credential never touch the sandbox.
   at once, so a contested vehicle yields **no** incumbent for anyone and the
   conflict rides in `meta.conflicts` — otherwise the solver's own self-check
   fires on its input.
-- **`Quantity` is expanded, so the order key has THREE levels.** One wanted CAR
-  is one order, keyed `{so_id}-{line}-{n}` — a qty-3 line is 3 capacity-1 demand
-  nodes, which is what the solver already models. Nothing parses a key, so the
-  shape change was cheap; what is not cheap is that an order is also NAMED by
-  string in four places (pins, forbid, scope/bump, and the disruption manifest).
-  All of them go through `solver.names_order` / `not_before_for` /
-  `disrupted_order_keys`, which match at any level. Skip that and the failure is
-  silent: `map_response` derives `disrupted_orders` at LINE grain, so comparing it
-  raw against car keys frees nothing and the report reads "0 of 0 delayed orders"
-  over a broken book. `Snapshot.order_by_key` now RAISES on a duplicate key —
-  it used to collapse two cars into one and lose paid-for demand with no error.
-  Coverage is the open half (tracked in `docs/mcp-response-schema.md`, same VPO
-  hop as its Q1):
-  a line resolves to at most ONE vehicle and one car cannot serve two orders, so
-  however high `AllocQty` claims, exactly one incumbent is identifiable and the
-  rest are counted `allocation_qty_not_resolvable_to_cars` and treated as unfilled.
+- **ONE CAR PER LINE, and `Quantity` is not read at all.** One car line is one
+  order, keyed `{so_id}-{line}` — two levels. This REPLACED qty expansion on
+  2026-08-25 (the expansion, `qty_index`, the per-car report naming and the
+  `allocation_qty_not_resolvable_to_cars` counter are all gone). The reason it is
+  safe to ignore `Quantity`: a line resolves to at most ONE vehicle code, so a
+  second car on it could never be linked to anything. The reason it is not free:
+  **a line asking for 3 cars is planned as 1 and the other 2 are not represented
+  anywhere, uncounted.** That was an explicit call, pending a response-shape
+  decision (one allocation cap per line, or per-car fields) — `docs/mcp-response-schema.md`
+  Q1, same VPO hop. Do not reinstate a counter or soften the report wording until
+  that lands. An order is NAMED by string in four places (pins, forbid,
+  scope/bump, the disruption manifest); all go through `solver.names_order` /
+  `not_before_for` / `disrupted_order_keys`, which match the line or the whole
+  VSO. `Snapshot.order_by_key` RAISES on a duplicate key rather than collapsing
+  two orders into one.
 - **The frozen fence protects an allocation, not empty demand.** `partition` skips
   the fence for an order with no incumbent: the fence is about churning a
   commitment near delivery, and an order with no car has none — freezing it makes
   it a permanent backorder. It also used to land in neither `plan` nor `unfilled`,
   so `_self_check` returned not-ok with an EMPTY violation list, which reads like a
-  solver bug rather than a partition one. Qty expansion made this routine, since
-  the cars beyond a line's one vehicle all arrive unallocated. `repairability`
-  agrees — no incumbent means "movable", never "locked in".
-- **The report speaks lines; the solver speaks cars.** `session.line_label` /
-  `group_by_line` collapse a line's cars into one row, and grouping is allowed
-  only when every displayed column agrees, so cars treated differently keep their
-  own rows, NAMED (`session.car_range`: "cars 1-3 of 5", "car 4 of 5"). The
-  naming is the point, not a nicety: a line's cars can be satisfied from different
-  shipments and so land on different dates, and a bare count cannot tell two rows
-  of one line apart. A one-car line prints as `VSO-4000-1`, never
-  `VSO-4000-1-1`. `_caveat` and the discrepancy tables follow the same rule, and
-  since 2026-08-25 nothing breaks it: `build_change_list` (the per-car change log
-  nothing ever consumed) is gone, so `planner_report` is the only renderer and the
-  line-vs-car rule has one place to hold.
+  solver bug rather than a partition one. `repairability` agrees — no incumbent
+  means "movable", never "locked in".
+- **The report and the solver speak the same grain: one row per order.** With one
+  car per line there is nothing to group, so `planner_report` prints an order key
+  (`VSO-4000-1`) per row and `line_sizes` / `car_range` / `line_label` /
+  `group_by_line` are gone (2026-08-25) along with `build_change_list`.
+  `planner_report` is the only renderer. Reinstating per-car rows means
+  reinstating the grouping rule with it: collapsing was only ever allowed when
+  every displayed column agreed.
 - **The fake speaks the MCP's shapes, and `pull.json` is DERIVED.**
   `scenario_engine` authors `data/mcp-jobcards.json` + `data/mcp-vehicles.json`
   — the two payloads of `docs/mcp-response-schema.md` — and both sources then run

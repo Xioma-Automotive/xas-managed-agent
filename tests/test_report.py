@@ -32,12 +32,11 @@ JARGON = ["λ", "lambda", "objective", "pareto", "incumbent", "min-cost", "arc",
 
 
 def _order(oid: str, model: str, priority: str, promised: date) -> Order:
-    # `oid` is the full order key: VSO + car line + the car within that line.
-    so_id, line, qty_index = oid.rsplit("-", 2)
+    # `oid` is the full order key: VSO + car line.
+    so_id, line = oid.rsplit("-", 1)
     return Order(
         so_id=so_id,
         line=int(line),
-        qty_index=int(qty_index),
         customer={"MOV": "Colmobil", "FRZ": "Delek", "UT": "Carasso"}.get(oid.split("-")[0], oid),
         customer_id=oid,
         sales_model=model,
@@ -61,9 +60,9 @@ def _unit(vid: str, model: str, planned: date) -> Unit:
 def _snapshot() -> Snapshot:
     return Snapshot(
         orders=[
-            _order("MOV-1-1", "SM1", "A", MOV_PROMISED),  # disrupted, repairable
-            _order("FRZ-1-1", "SM2", "A", FRZ_PROMISED),  # disrupted, locked in (frozen)
-            _order("UT-1-1", "SM3", "C", UT_PROMISED),  # untouched, on time
+            _order("MOV-1", "SM1", "A", MOV_PROMISED),  # disrupted, repairable
+            _order("FRZ-1", "SM2", "A", FRZ_PROMISED),  # disrupted, locked in (frozen)
+            _order("UT-1", "SM3", "C", UT_PROMISED),  # untouched, on time
         ],
         units=[
             _unit("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # MOV's late incumbent
@@ -71,11 +70,11 @@ def _snapshot() -> Snapshot:
             _unit("VEH-FRZ-LATE", "SM2", date(2026, 8, 25)),  # FRZ's late incumbent, stuck
             _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
         ],
-        incumbent={"MOV-1-1": "VEH-MOV-LATE", "FRZ-1-1": "VEH-FRZ-LATE", "UT-1-1": "VEH-UT-GOOD"},
+        incumbent={"MOV-1": "VEH-MOV-LATE", "FRZ-1": "VEH-FRZ-LATE", "UT-1": "VEH-UT-GOOD"},
         disruption={
             "delay_days": 30,
             "delayed_vehicles": ["VEH-MOV-LATE", "VEH-FRZ-LATE"],
-            "disrupted_orders": ["MOV-1-1", "FRZ-1-1"],
+            "disrupted_orders": ["MOV-1", "FRZ-1"],
         },
         now=NOW,
     )
@@ -85,18 +84,16 @@ def test_repairability_classifies_frozen_and_movable():
     snap = _snapshot()
     units = snap.unit_by_id()
     orders = snap.order_by_key()
-    assert repairability(orders["MOV-1-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
-    assert repairability(orders["FRZ-1-1"], NOW, units["VEH-FRZ-LATE"]) == "frozen"
+    assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
+    assert repairability(orders["FRZ-1"], NOW, units["VEH-FRZ-LATE"]) == "frozen"
 
 
 def test_discrepancy_report_flags_locked_in_on_turn_1():
     report = discrepancy_report(_snapshot())
     assert "locked in" in report.lower()
     assert "can be repaired" in report.lower()
-    # the frozen order is named on the locked-in side, not sold as fixable — by
-    # its LINE ("FRZ-1"), since a one-car line's per-car index says nothing
+    # the frozen order is named on the locked-in side, not sold as fixable
     assert "FRZ-1" in report
-    assert "FRZ-1-1" not in report, "the report speaks lines, not car indices"
 
 
 def test_planner_report_fixes_movable_and_keeps_frozen_late():
@@ -138,7 +135,7 @@ def test_hard_vehicle_allocation_is_movable_not_locked():
     # MOV rides VEH-MOV-LATE, a real vehicle (kind 'vehicle', so is_hard) that used
     # to be treated as committed/locked; now it is simply movable.
     assert units["VEH-MOV-LATE"].is_hard
-    assert repairability(orders["MOV-1-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
+    assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
 
 
 # --------------------------------------------------------------------------
@@ -152,16 +149,16 @@ def test_hard_vehicle_allocation_is_movable_not_locked():
 def _moved_but_late_snapshot() -> Snapshot:
     """One disrupted order whose best free car is an improvement and still late."""
     return Snapshot(
-        orders=[_order("MOV-1-1", "SM1", "A", date(2026, 9, 1))],
+        orders=[_order("MOV-1", "SM1", "A", date(2026, 9, 1))],
         units=[
             _unit("VEH-VERY-LATE", "SM1", date(2026, 10, 20)),
             _unit("VEH-LESS-LATE", "SM1", date(2026, 9, 20)),
         ],
-        incumbent={"MOV-1-1": "VEH-VERY-LATE"},
+        incumbent={"MOV-1": "VEH-VERY-LATE"},
         disruption={
             "delay_days": 30,
             "delayed_vehicles": ["VEH-VERY-LATE"],
-            "disrupted_orders": ["MOV-1-1"],
+            "disrupted_orders": ["MOV-1"],
         },
         now=NOW,
     )

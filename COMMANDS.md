@@ -28,7 +28,7 @@ uv run python -m scenario_engine.generate          # regenerate with defaults
 | --- | --- | --- |
 | `--seed` | `20` | Random seed. Same seed → byte-identical data. Change it for a different-but-reproducible world. |
 | `--customers` | `30` | How many dealers exist. |
-| `--orders` | `40` | How many wanted CARS (the demand) — Σ `Quantity`, not car lines. One line can want several, so this yields fewer VSOs than it does orders. |
+| `--orders` | `40` | How many car lines, which is how many wanted cars — one car per line. Spread across VSOs of 1-3 lines each, so this yields fewer VSOs than orders. |
 | `--spare-ratio` | `0.4` | Extra supply beyond demand. Higher = more spare cars the solver can shuffle to; lower = tighter, more orders stay stuck. |
 | `--delay-days` | `21` | How many days the disrupted PO slips. Bigger = a worse disruption, more orders pushed late. |
 | `--out` | `data/` | Output directory. |

@@ -53,8 +53,8 @@ def _snap(units: list[Unit]) -> Snapshot:
     return Snapshot(
         orders=[_order()],
         units=[*units, inc],
-        incumbent={"SO-1-1-1": "VEH-INC"},
-        disruption={"disrupted_orders": ["SO-1-1-1"]},  # free to re-allocate
+        incumbent={"SO-1-1": "VEH-INC"},
+        disruption={"disrupted_orders": ["SO-1-1"]},  # free to re-allocate
         now=NOW,
     )
 
@@ -64,7 +64,7 @@ def test_closer_early_car_preferred():
     far = _unit("VEH-FAR", date(2026, 9, 22))  # 40 days early
     snap = _snap([near, far])
     result = solve(snap, {}, lam=0)
-    assert result.plan["SO-1-1-1"] == "VEH-NEAR", "should prefer the less-early car"
+    assert result.plan["SO-1-1"] == "VEH-NEAR", "should prefer the less-early car"
 
 
 def test_slightly_early_beats_slightly_late():
@@ -72,7 +72,7 @@ def test_slightly_early_beats_slightly_late():
     late = _unit("VEH-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([early, late])
     result = solve(snap, {}, lam=0)
-    assert result.plan["SO-1-1-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
+    assert result.plan["SO-1-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
 
 
 def test_extreme_early_can_lose_to_slight_late():
@@ -82,7 +82,7 @@ def test_extreme_early_can_lose_to_slight_late():
     slight_late = _unit("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([far_early, slight_late])
     result = solve(snap, {}, lam=0)
-    assert result.plan["SO-1-1-1"] == "VEH-SLIGHT-LATE", (
+    assert result.plan["SO-1-1"] == "VEH-SLIGHT-LATE", (
         "extreme earliness may lose to slight lateness"
     )
 

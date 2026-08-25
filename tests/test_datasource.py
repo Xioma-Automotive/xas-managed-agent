@@ -226,11 +226,18 @@ def test_status_splits_future_from_real_by_name_not_code():
 
 def test_a_real_car_is_available_now_and_a_future_one_needs_a_date():
     assert datasource.unit_eta({}, NOW, "real") == NOW.isoformat()
-    assert datasource.unit_eta({"EtaDealer": "2026-10-01T00:00:00Z"}, NOW, "future") == "2026-10-01"
-    # AvailableBy is the fallback — the field the tenant actually fills
+    # AvailableBy is the PRIMARY source: it is the field the tenant fills (19
+    # vehicles fleet-wide vs 3 for EtaDealer), so preferring the schema's nominal
+    # field left nearly every future car undateable and therefore dropped.
     assert datasource.unit_eta({"AvailableBy": "2026-09-30T00:00:00.000Z"}, NOW, "future") == (
         "2026-09-30"
     )
+    # EtaDealer is the fallback, still read when AvailableBy is blank.
+    assert datasource.unit_eta({"EtaDealer": "2026-10-01T00:00:00Z"}, NOW, "future") == "2026-10-01"
+    # Both set: AvailableBy wins. This is the assertion that pins the precedence
+    # — either field alone passes whichever way round the code reads them.
+    both = {"AvailableBy": "2026-09-30T00:00:00.000Z", "EtaDealer": "2026-10-01T00:00:00Z"}
+    assert datasource.unit_eta(both, NOW, "future") == "2026-09-30"
     assert datasource.unit_eta({}, NOW, "future") == ""
 
 
@@ -248,7 +255,7 @@ def test_one_car_line_is_one_order():
     assert excluded["lines_kept"] == 2
     assert excluded["line_drops"] == {"not_a_car_line": 1}
     snap = flatten(rich)
-    assert sorted(o.key for o in snap.orders) == ["7-1-1", "7-2-1"]
+    assert sorted(o.key for o in snap.orders) == ["7-1", "7-2"]
 
 
 def test_a_card_with_no_car_line_is_dropped_with_a_reason():
@@ -336,7 +343,7 @@ def test_the_card_fallback_needs_a_single_car_line():
     one = [_card("1", [_car(1, "SM"), _config(9)], VehicleDMSCode="V1")]
     vehicles = [{"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
     assert flatten(datasource.map_response(two, vehicles, NOW)).incumbent == {}
-    assert flatten(datasource.map_response(one, vehicles, NOW)).incumbent == {"1-1-1": "V1"}
+    assert flatten(datasource.map_response(one, vehicles, NOW)).incumbent == {"1-1": "V1"}
 
 
 def test_the_line_link_beats_the_card_fallback():
@@ -357,7 +364,7 @@ def test_the_line_link_beats_the_card_fallback():
         },
     ]
     rich = datasource.map_response(orders, vehicles, NOW)
-    assert flatten(rich).incumbent == {"1-1-1": "V1", "1-2-1": "V2"}
+    assert flatten(rich).incumbent == {"1-1": "V1", "1-2": "V2"}
 
 
 def test_the_disruption_is_derived_not_declared():
@@ -374,7 +381,7 @@ def test_the_disruption_is_derived_not_declared():
     ]
     rich = datasource.map_response(orders, vehicles, NOW)
     # Per CAR — the vehicle is what slipped, and it carries exactly one car.
-    assert rich["disruption"]["disrupted_orders"] == ["9-1-1"]
+    assert rich["disruption"]["disrupted_orders"] == ["9-1"]
 
 
 def test_an_on_time_car_is_not_disrupted():

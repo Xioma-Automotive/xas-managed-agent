@@ -21,163 +21,13 @@
         "Color": "Ordered",
         "Name": "Ordered"
       },
-      "VehicleClassification": "Vehicle",
+      "VehicleClassification": "InventoryVehicles",
       "VehicleCode": "VEH-9001",
       "Vin": ""
     },
     {
-      "AvailableBy": "2026-11-02",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-11-02",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9002",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-09-07",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-07",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9003",
-      "Vin": "VIN00009003"
-    },
-    {
-      "AvailableBy": "2026-08-31",
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9004",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-31",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9005",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-09-21",
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-09-21",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9006",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-09-21",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-21",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9007",
-      "Vin": ""
-    },
-    {
       "AvailableBy": "2026-10-12",
-      "Description": "Chery Tiggo 8",
+      "Description": "BYD Atto 3",
       "EtaDealer": "2026-10-12",
       "IsReserved": false,
       "LicenseNumber": "",
@@ -186,118 +36,18 @@
         "Name": "Chery"
       },
       "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
       },
       "PortLocation": null,
-      "SalesModel": "SM1",
+      "SalesModel": "SM4",
       "Status": {
         "Code": "01",
         "Color": "Ordered",
         "Name": "Ordered"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9008",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-03",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-08-03",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9009",
-      "Vin": "VIN00009009"
-    },
-    {
-      "AvailableBy": "2026-08-03",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-08-03",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9010",
-      "Vin": "VIN00009010"
-    },
-    {
-      "AvailableBy": "2026-08-03",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-03",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9011",
-      "Vin": "VIN00009011"
-    },
-    {
-      "AvailableBy": "2026-08-24",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-24",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9012",
+      "VehicleCode": "VEH-9002",
       "Vin": ""
     },
     {
@@ -322,138 +72,13 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9013",
+      "VehicleCode": "VEH-9003",
       "Vin": ""
     },
     {
-      "AvailableBy": "2026-08-31",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9014",
-      "Vin": "VIN00009014"
-    },
-    {
-      "AvailableBy": "2026-08-31",
+      "AvailableBy": "2026-08-24",
       "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9015",
-      "Vin": "VIN00009015"
-    },
-    {
-      "AvailableBy": "2026-09-21",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-09-21",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9016",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-09-07",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-09-07",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9017",
-      "Vin": "VIN00009017"
-    },
-    {
-      "AvailableBy": "2026-09-21",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-09-21",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9018",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-10-12",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-10-12",
+      "EtaDealer": "2026-08-24",
       "IsReserved": false,
       "LicenseNumber": "",
       "Make": {
@@ -472,408 +97,8 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9019",
+      "VehicleCode": "VEH-9004",
       "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-31",
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9020",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-31",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9021",
-      "Vin": "VIN00009021"
-    },
-    {
-      "AvailableBy": "2026-08-10",
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-08-10",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9022",
-      "Vin": "VIN00009022"
-    },
-    {
-      "AvailableBy": "2026-10-12",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-10-12",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9023",
-      "Vin": "VIN00009023"
-    },
-    {
-      "AvailableBy": "2026-08-31",
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9024",
-      "Vin": "VIN00009024"
-    },
-    {
-      "AvailableBy": "2026-09-07",
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-09-07",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9025",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-09-21",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-21",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9026",
-      "Vin": "VIN00009026"
-    },
-    {
-      "AvailableBy": "2026-09-21",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-09-21",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9027",
-      "Vin": "VIN00009027"
-    },
-    {
-      "AvailableBy": "2026-08-17",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-17",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9028",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-10",
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-08-10",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9029",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-10",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-10",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9030",
-      "Vin": "VIN00009030"
-    },
-    {
-      "AvailableBy": "2026-08-10",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-10",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9031",
-      "Vin": "VIN00009031"
-    },
-    {
-      "AvailableBy": "2026-10-19",
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-10-19",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9032",
-      "Vin": ""
-    },
-    {
-      "AvailableBy": "2026-08-31",
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-31",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9033",
-      "Vin": "VIN00009033"
-    },
-    {
-      "AvailableBy": "2026-09-07",
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-09-07",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9034",
-      "Vin": "VIN00009034"
-    },
-    {
-      "AvailableBy": "2026-09-28",
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-09-28",
-      "IsReserved": false,
-      "LicenseNumber": "",
-      "Make": {
-        "Code": "LVV-J",
-        "Name": "Chery"
-      },
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "PortLocation": null,
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9035",
-      "Vin": "VIN00009035"
     },
     {
       "AvailableBy": "2026-08-03",
@@ -896,9 +121,534 @@
         "Color": "Ordered",
         "Name": "Ordered"
       },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9036",
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9005",
       "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-24",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-08-24",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9006",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-17",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-08-17",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9007",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-17",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-08-17",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9008",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-17",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-08-17",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9009",
+      "Vin": "VIN00009009"
+    },
+    {
+      "AvailableBy": "2026-10-12",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-10-12",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9010",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-10",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-08-10",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9011",
+      "Vin": "VIN00009011"
+    },
+    {
+      "AvailableBy": "2026-08-10",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-08-10",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9012",
+      "Vin": "VIN00009012"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9013",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-10-12",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-12",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9014",
+      "Vin": "VIN00009014"
+    },
+    {
+      "AvailableBy": "2026-08-03",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-08-03",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9015",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-10-05",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-05",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9016",
+      "Vin": "VIN00009016"
+    },
+    {
+      "AvailableBy": "2026-08-03",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-08-03",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9017",
+      "Vin": "VIN00009017"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9018",
+      "Vin": "VIN00009018"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9019",
+      "Vin": "VIN00009019"
+    },
+    {
+      "AvailableBy": "2026-08-31",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-08-31",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9020",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-10",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-08-10",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9021",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-10",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-08-10",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9022",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-09-28",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-09-28",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9023",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-09-21",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-21",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9024",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-31",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-31",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9025",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-10-12",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-12",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9026",
+      "Vin": "VIN00009026"
     },
     {
       "AvailableBy": "2026-08-31",
@@ -921,9 +671,59 @@
         "Color": "In Stock",
         "Name": "In Stock"
       },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9027",
+      "Vin": "VIN00009027"
+    },
+    {
+      "AvailableBy": "2026-09-07",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-07",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9028",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-09-28",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-09-28",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
       "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9037",
-      "Vin": "VIN00009037"
+      "VehicleCode": "VEH-9029",
+      "Vin": "VIN00009029"
     },
     {
       "AvailableBy": "2026-09-28",
@@ -947,13 +747,138 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9038",
+      "VehicleCode": "VEH-9030",
       "Vin": ""
     },
     {
-      "AvailableBy": "2026-09-28",
+      "AvailableBy": "2026-10-19",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-10-19",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9031",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-10-19",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-10-19",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9032",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-24",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-08-24",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9033",
+      "Vin": "VIN00009033"
+    },
+    {
+      "AvailableBy": "2026-10-05",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-10-05",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9034",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-10-05",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-10-05",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9035",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-09-14",
       "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-28",
+      "EtaDealer": "2026-09-14",
       "IsReserved": false,
       "LicenseNumber": "",
       "Make": {
@@ -971,14 +896,264 @@
         "Color": "Ordered",
         "Name": "Ordered"
       },
-      "VehicleClassification": "Truck",
-      "VehicleCode": "VEH-9039",
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9036",
       "Vin": ""
     },
     {
+      "AvailableBy": "2026-09-14",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9037",
+      "Vin": "VIN00009037"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9038",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9039",
+      "Vin": "VIN00009039"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9040",
+      "Vin": "VIN00009040"
+    },
+    {
+      "AvailableBy": "2026-10-12",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-12",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9041",
+      "Vin": "VIN00009041"
+    },
+    {
       "AvailableBy": "2026-10-05",
-      "Description": "BYD Atto 3",
+      "Description": "Chery Tiggo 8",
       "EtaDealer": "2026-10-05",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9042",
+      "Vin": "VIN00009042"
+    },
+    {
+      "AvailableBy": "2026-08-24",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-24",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9043",
+      "Vin": "VIN00009043"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9044",
+      "Vin": "VIN00009044"
+    },
+    {
+      "AvailableBy": "2026-10-26",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-10-26",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9045",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-10-26",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-10-26",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Truck",
+      "VehicleCode": "VEH-9046",
+      "Vin": "VIN00009046"
+    },
+    {
+      "AvailableBy": "2026-10-19",
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-10-19",
       "IsReserved": false,
       "LicenseNumber": "",
       "Make": {
@@ -997,8 +1172,33 @@
         "Name": "In Stock"
       },
       "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9040",
-      "Vin": "VIN00009040"
+      "VehicleCode": "VEH-9047",
+      "Vin": "VIN00009047"
+    },
+    {
+      "AvailableBy": "2026-09-07",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-07",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9048",
+      "Vin": ""
     },
     {
       "AvailableBy": "2026-10-05",
@@ -1022,13 +1222,13 @@
         "Name": "In Stock"
       },
       "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9041",
-      "Vin": "VIN00009041"
+      "VehicleCode": "VEH-9049",
+      "Vin": "VIN00009049"
     },
     {
-      "AvailableBy": "2026-09-21",
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-09-21",
+      "AvailableBy": "2026-09-07",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-09-07",
       "IsReserved": false,
       "LicenseNumber": "",
       "Make": {
@@ -1036,20 +1236,170 @@
         "Name": "Chery"
       },
       "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
       },
       "PortLocation": null,
-      "SalesModel": "SM4",
+      "SalesModel": "SM1",
       "Status": {
         "Code": "01",
         "Color": "Ordered",
         "Name": "Ordered"
       },
-      "VehicleClassification": "InventoryVehicles",
-      "VehicleCode": "VEH-9042",
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9050",
       "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-24",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-24",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9051",
+      "Vin": ""
+    },
+    {
+      "AvailableBy": "2026-08-24",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-08-24",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9052",
+      "Vin": "VIN00009052"
+    },
+    {
+      "AvailableBy": "2026-09-14",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-09-14",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9053",
+      "Vin": "VIN00009053"
+    },
+    {
+      "AvailableBy": "2026-10-12",
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-10-12",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9054",
+      "Vin": "VIN00009054"
+    },
+    {
+      "AvailableBy": "2026-09-07",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-09-07",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9055",
+      "Vin": "VIN00009055"
+    },
+    {
+      "AvailableBy": "2026-08-10",
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-08-10",
+      "IsReserved": false,
+      "LicenseNumber": "",
+      "Make": {
+        "Code": "LVV-J",
+        "Name": "Chery"
+      },
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "PortLocation": null,
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "InventoryVehicles",
+      "VehicleCode": "VEH-9056",
+      "Vin": "VIN00009056"
     }
   ],
-  "total": 42
+  "total": 56
 }

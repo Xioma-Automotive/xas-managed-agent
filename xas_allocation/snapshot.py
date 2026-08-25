@@ -12,18 +12,15 @@ module owns only the flattened shape the solver consumes and its JSON
 
 Grain: the allocatable **order** is one **wanted car**. A VSO (one customer's
 sales order) groups several car lines, and a line's ``Quantity`` says how many
-cars IT wants — so the key has three levels, ``{so_id}-{line}-{n}`` (VSO
-``JobKey`` + jobitem ``LineNum`` + a 1-based index within the line, e.g.
-``VSO-4000-2-3``). Every key carries all three, including a qty-1 line: one shape
-means a pin can never be ambiguous about which level it names.
+car — so the key has two levels, ``{so_id}-{line}`` (VSO ``JobKey`` + jobitem
+``LineNum``, e.g. ``VSO-4000-2``).
 
-The cars of one line are interchangeable when CHOOSING a vehicle — same model,
-same promise, same customer — which is why the solver may hand any eligible
-vehicle to any of them. They stop being interchangeable once it has: each car
-then has its own vehicle, from its own shipment, with its own arrival date. So
-``n`` is arbitrary going in and meaningful coming out, and the report names it
-("cars 1-3 by the 21st, car 4 by the 30th"). `Order.line_key` is the level a
-planner usually steers at; the car is the level a result is reported at.
+ONE CAR PER LINE is an assumption, not a fact the data guarantees: a jobitem
+carries a ``Quantity`` that can read 3, and this snapshot reads it as 1. It is
+deliberate (2026-08-25) — a line resolves to at most one vehicle, so the cars
+beyond the first could never be linked to anything — and it is pending a
+response-shape decision: one allocation cap per line, or per-car fields. Until
+that lands, ``Quantity`` is not read at all.
 Supply is ONE ``vehicles`` list; each vehicle is capacity-1 with a
 ``sales_model`` and an ``eta_dealer`` date, and a ``vehicle_classification`` of
 ``"Vehicle"`` (a real car, a hard binding) or ``"Future"`` (a not-yet-built car,
@@ -72,30 +69,16 @@ class Order:
     n_prior_delays: int  # supply-chain delays before us (escalates weight, §2)
     days_backordered: int
     times_rescheduled: int = 0  # reschedules OUR repair loop caused — fairness (DECIDE-11)
-    # 1-based car within its line; (so_id, line, qty_index) is the unique order.
-    # Defaults to the lone car of a qty-1 line, which is what every caller outside
-    # `flatten`'s expansion loop means.
-    qty_index: int = 1
 
     @property
     def key(self) -> str:
-        """The unique order key: one CAR. e.g. 'VSO-4000-2-3'."""
-        return f"{self.so_id}-{self.line}-{self.qty_index}"
-
-    @property
-    def line_key(self) -> str:
-        """The car LINE this order is one car of, e.g. 'VSO-4000-2'.
-
-        The steerable and reportable level: a planner defers "line 2 of VSO-4000",
-        never its third car. `solver._matches` accepts this, and the report groups
-        on it."""
+        """The unique order key: one car line, e.g. 'VSO-4000-2'."""
         return f"{self.so_id}-{self.line}"
 
     def to_dict(self) -> dict:
         return {
             "so_id": self.so_id,
             "line": self.line,
-            "qty_index": self.qty_index,
             "customer": self.customer,
             "customer_id": self.customer_id,
             "sales_model": self.sales_model,
@@ -112,8 +95,6 @@ class Order:
         return cls(
             so_id=str(d["so_id"]),
             line=int(d["line"]),
-            # Absent on a snapshot written before qty expansion: a lone car.
-            qty_index=int(d.get("qty_index", 1)),
             customer=d["customer"],
             customer_id=d["customer_id"],
             sales_model=d["sales_model"],

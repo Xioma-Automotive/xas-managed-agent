@@ -107,11 +107,6 @@ INBOUND_INCUMBENT_WEIGHTS = {"future": 70, "real": 30}
 # The spare pool is mixed — cars on the lot are the wiggle room a repair uses.
 SPARE_WEIGHTS = {"future": 45, "real": 55}
 
-# Cars per line. Mostly one, but a real book has fleet lines — and a fake that
-# never emits `Quantity > 1` leaves the whole expansion path untested offline.
-QUANTITIES = (1, 2, 3, 5)
-QUANTITY_WEIGHTS = (70, 18, 8, 4)
-
 CONFIG_ITEM_TYPE = "Configuration"  # a non-car line, for the type filter to drop
 BRANCH = "69f07fdaf930e4ee6d524dc1"  # opaque id, passthrough
 
@@ -180,22 +175,19 @@ def _car_line(
     model: str,
     vehicle: dict,
     bucket: str,
-    quantity: int,
-    alloc_qty: int,
 ) -> dict:
-    """One ``ModelItem`` jobitem: ``quantity`` wanted cars, and what is allocated.
+    """One ``ModelItem`` jobitem: ONE wanted car, and the car allocated to it.
 
-    ``Quantity`` is real demand — `flatten` expands it into one order per car —
-    and ``AllocQty`` says how many of them the existing allocation covers. The
-    fake emits both above 1 on purpose: pinning quantity at 1 would leave the
-    expansion path untested by every offline run.
+    ``Quantity`` and ``AllocQty`` are both emitted as 1. One car per line is the
+    current assumption (2026-08-25) — a line resolves to at most one vehicle code,
+    so a second car on it could never be linked to anything — and the fake matches
+    it rather than fabricating demand the pull cannot represent.
 
     The incumbent link is where the fake is deliberately kinder than dev: a car
     on the lot is a hard binding the line states outright (``VehicleId.Code``),
     and an inbound one gets ``AllocatedVehicleCode`` — the fake's direct stand-in
     for the Alloc block whose VPO hop the real pull cannot make yet
     (`docs/mcp-response-schema.md` Q1). ``datasource._line_vehicle`` reads both.
-    One vehicle covers one car, so a qty-3 line is at most partly allocated.
     """
     item = {
         "LineNum": line,
@@ -204,10 +196,8 @@ def _car_line(
         "JobItemType": datasource.CAR_ITEM_TYPE,
         "JobItemStatus": "Open",
         "Label": MODEL_NAMES.get(model, model),
-        "Quantity": quantity,
-        # The line TOTAL, as XAS carries it — `flatten` divides by Quantity for a
-        # per-car figure.
-        "Prices": [{"GrossTotal": quantity * rng.choice([32000, 38000, 45000, 52000, 61000])}],
+        "Quantity": 1,
+        "Prices": [{"GrossTotal": rng.choice([32000, 38000, 45000, 52000, 61000])}],
         # Solver escalation fields; real-data derivation is a TODO (there is no
         # direct XAS field — see docs/mcp-response-schema.md Q2). The mapper
         # passes them through when present, and flatten defaults an absent one to 0.
@@ -215,7 +205,7 @@ def _car_line(
         "days_backordered": rng.choices([0, 0, 0, 7, 14, 30], weights=[50, 15, 10, 12, 8, 5])[0],
         "times_rescheduled": rng.choices([0, 1, 2], weights=[75, 18, 7])[0],
     }
-    item["AllocQty"] = alloc_qty
+    item["AllocQty"] = 1
     if bucket == "real":
         item["VehicleId"] = {"Code": vehicle["VehicleCode"]}
     else:
@@ -264,8 +254,8 @@ def generate(
 ) -> dict[str, dict]:
     """Build the good world and its disrupted twin, both in MCP response shapes.
 
-    ``n_orders`` counts wanted CARS (Σ ``Quantity``), not car lines — one line can
-    want several, and the car is the allocatable grain.
+    ``n_orders`` counts car lines, which is the same as wanted cars: one car per
+    line.
 
     Returns ``{'baseline': world, 'pull': world}`` where a world is
     ``{jobcards, vehicles}`` — what ``datasource.map_world`` consumes.
@@ -313,21 +303,12 @@ def generate(
                 break
             model = rng.choice(SALES_MODELS)
             bucket = _pick_bucket(rng, INBOUND_INCUMBENT_WEIGHTS)
-            # Most lines want one car; some want a fleet. `flatten` expands this
-            # into one order per car, so this is what makes the expansion path
-            # exercised by every offline run.
-            quantity = rng.choices(QUANTITIES, weights=QUANTITY_WEIGHTS)[0]
-            quantity = min(quantity, n_orders - n_rows)
-            # The incumbent car is on time in the good world: EtaDealer == promise.
-            # ONE vehicle per line — a line resolves to a single vehicle code, so
-            # a multi-car line is only ever PARTLY allocated, and the rest is real
-            # unfilled demand for the solver to place out of the spare pool.
+            # ONE car per line, ONE vehicle per line. The incumbent car is on time
+            # in the good world: EtaDealer == promise.
             veh = new_vehicle(model, delivery, bucket)
-            incumbent[f"{job_key}-{line}-1"] = veh["VehicleCode"]
-            # `AllocQty` claims the whole line is committed when qty > 1 — which is
-            # what dev shows, and what the pull cannot resolve to individual cars.
-            items.append(_car_line(rng, line, model, veh, bucket, quantity, quantity))
-            n_rows += quantity
+            incumbent[f"{job_key}-{line}"] = veh["VehicleCode"]
+            items.append(_car_line(rng, line, model, veh, bucket))
+            n_rows += 1
         # Car lines keep 1..n so an order key reads VSO-4000-1; the config line
         # trails them (real cards put it anywhere — LineNum order is not meaning).
         items.append(_config_line(len(items) + 1))
@@ -408,7 +389,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Fabricate an XAS allocation scenario.")
     ap.add_argument("--seed", type=int, default=20)
     ap.add_argument("--customers", type=int, default=30)
-    ap.add_argument("--orders", type=int, default=40, help="wanted CARS (demand, = Σ Quantity)")
+    ap.add_argument("--orders", type=int, default=40, help="car lines (demand; one car each)")
     ap.add_argument("--spare-ratio", type=float, default=0.4)
     ap.add_argument("--delay-days", type=int, default=21)
     ap.add_argument("--out", type=Path, default=DATA_DIR, help="output directory")
@@ -453,7 +434,7 @@ def main() -> None:
         )
         print(
             f"wrote {path}  ({excluded['orders_kept']} VSOs / "
-            f"{excluded['lines_kept']} car lines / {excluded['cars_wanted']} cars, "
+            f"{excluded['lines_kept']} car lines, "
             f"{by_bucket.get('Vehicle', 0)} on the lot + "
             f"{by_bucket.get('Future', 0)} inbound; {tag})"
         )

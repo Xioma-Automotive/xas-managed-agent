@@ -226,29 +226,28 @@ def _filter_active(filt: dict) -> bool:
 
 
 def names_order(order: Order, names: set[str] | dict) -> bool:
-    """Whether a set of order NAMES refers to this order, at any of its three key
-    levels: one car, its car line, or its whole VSO.
+    """Whether a set of order NAMES refers to this order, at either key level:
+    the car line itself, or its whole VSO.
 
     Every place an order is named by a string has to go through this. A pin, a
-    forbid, or the disruption manifest naming the LINE (`VSO-4000-1`) would
-    otherwise never match a per-car key (`VSO-4000-1-1`) and the instruction would
-    silently do nothing — the schema tells the agent to prefer the line level, so
-    an exact-match lookup makes that advice a trap."""
-    return bool(names) and bool({order.key, order.line_key, order.so_id} & set(names))
+    forbid, or the disruption manifest naming the whole VSO (`VSO-4000`) would
+    otherwise never match a line key (`VSO-4000-1`) and the instruction would
+    silently do nothing."""
+    return bool(names) and bool({order.key, order.so_id} & set(names))
 
 
 def disrupted_order_keys(snapshot: Snapshot) -> set[str]:
     """The disruption manifest resolved to real order keys.
 
     What slips is a VEHICLE: a VPO/VGR shipment runs late, so the cars on it do,
-    and a VSO line is affected only through the vehicle allocated to it. A line's
-    cars can come from different shipments, so the manifest is derived per CAR
-    (`xas_allocation.flatten`) and normally needs no resolving at all.
+    and an order is affected only through the vehicle allocated to it. The manifest
+    is derived at order grain (`xas_allocation.flatten`) and normally needs no
+    resolving at all.
 
-    This exists for a manifest named more coarsely — a line, or a whole VSO, as a
-    hand-written override or an older snapshot may carry. Comparing such names raw
-    against per-car keys is the silent version of the bug: nothing matches, nothing
-    is freed, and the report reads "0 of 0 delayed orders" over a broken book."""
+    This exists for a manifest named more coarsely — a whole VSO, as a hand-written
+    override or an older snapshot may carry. Comparing such names raw against order
+    keys is the silent version of the bug: nothing matches, nothing is freed, and
+    the report reads "0 of 0 delayed orders" over a broken book."""
     names = set(snapshot.disruption.get("disrupted_orders", []))
     return {o.key for o in snapshot.orders if names_order(o, names)}
 
@@ -256,8 +255,8 @@ def disrupted_order_keys(snapshot: Snapshot) -> set[str]:
 def not_before_for(not_before: dict, order: Order) -> date | None:
     """The `not_before` a pin set for this order, matched most-specific-first.
 
-    A pin on one car beats one on its line, which beats one on the whole VSO."""
-    for name in (order.key, order.line_key, order.so_id):
+    A pin on the line beats one on the whole VSO."""
+    for name in (order.key, order.so_id):
         if name in not_before:
             return not_before[name]
     return None

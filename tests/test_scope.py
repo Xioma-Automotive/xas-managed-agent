@@ -16,12 +16,11 @@ ON_TIME = date(2026, 9, 14)
 
 
 def _order(oid: str, customer_id: str) -> Order:
-    # `oid` is the full order key: VSO + car line + the car within that line.
-    so_id, line, qty_index = oid.rsplit("-", 2)
+    # `oid` is the full order key: VSO + car line.
+    so_id, line = oid.rsplit("-", 1)
     return Order(
         so_id=so_id,
         line=int(line),
-        qty_index=int(qty_index),
         customer="Dealer",
         customer_id=customer_id,
         sales_model="SM1",

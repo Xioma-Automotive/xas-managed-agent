@@ -12,12 +12,13 @@ Output: an ``xas_allocation.snapshot.Snapshot`` — the ``orders[] / units[] /
 incumbent[]`` arrays the solver reads, in one shared vocabulary with the API.
 
 Field mapping (real XAS → solver):
-  * order = one wanted **car**; key = ``{JobKey}-{LineNum}-{n}``. A jobitem's
-    ``Quantity`` is EXPANDED here: a line wanting 3 cars becomes 3 orders, each a
-    capacity-1 demand node. ``AllocQty`` says how many of them the line's existing
-    allocation already covers; the rest are unallocated demand.
+  * order = one car line, ONE CAR; key = ``{JobKey}-{LineNum}``. A jobitem's
+    ``Quantity`` is not read — one car per line is the current assumption, since
+    a line resolves to at most one vehicle code (see the module docstring in
+    ``snapshot.py``).
   * ``DeliveryDate`` (VSO header) → ``Order.delivery_date`` (the promise).
-  * ``EtaDealer`` (vehicle) → ``Unit.eta_dealer`` (the mutable delivery date).
+  * ``AvailableBy``, else ``EtaDealer`` (vehicle) → ``Unit.eta_dealer`` (the
+    mutable delivery date).
   * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Unit.vehicle_classification``.
   * eligibility: jobitem ``SalesModelCode`` == vehicle ``SalesModel`` — the full
     trim/colour code (``T5040UECLMQ0009``), NOT ``ModelId.Code`` (``T5040``),
@@ -113,49 +114,31 @@ def flatten(rich: dict) -> Snapshot:
                 skip("order_line_without_a_model")
                 continue
             line = int(item["LineNum"])
-            # QTY EXPANSION: a line wanting 3 cars is 3 orders. The solver models
-            # one order as one capacity-1 demand node, so this is the only place
-            # quantity has to be understood — but it MUST be, or two of those
-            # three cars silently vanish from the plan.
-            quantity = max(1, int(item.get("Quantity") or 1))
-            # Line total / qty. Display-only either way (never a cost-model
-            # input), but a per-car row showing the whole line's value would read
-            # as three times the money.
-            price = sum(float(p.get("GrossTotal", 0.0)) for p in item.get("Prices", [])) / quantity
-            # How many of this line's cars already have a car. `AllocQty` SAYS how
-            # many are committed — but a line resolves to at most ONE vehicle
-            # code, and one car cannot satisfy two orders: handing it to k of them
-            # would double-book it and trip the solver's self-check on its own
-            # input. So coverage is 1, and any claim above that is recorded rather
-            # than guessed at (`allocation_qty_not_resolvable_to_cars`) — it is the
-            # same projection gap as the rest of Q1 in the schema doc, since the
-            # remaining committed cars live on a VPO the pull never hops to. The
-            # uncovered cars arrive unallocated, which `solver.partition` already
-            # frees as demand needing a car.
+            # ONE CAR PER LINE. The jobitem's `Quantity` is NOT read: a line
+            # resolves to at most one vehicle code, so a car beyond the first
+            # could never be linked to anything anyway. Assumed 2026-08-25,
+            # pending a response-shape decision (one cap per line, or per-car
+            # fields) — see `docs/mcp-response-schema.md`.
+            price = sum(float(p.get("GrossTotal", 0.0)) for p in item.get("Prices", []))
+            order = Order(
+                so_id=so_id,
+                line=line,
+                customer=customer,
+                customer_id=customer_id,
+                sales_model=item["SalesModelCode"],
+                priority=priority,
+                delivery_date=delivery_date,
+                price=price,
+                # Solver escalation fields; the real-data derivation is a TODO
+                # (see scenario_engine). Absent => 0.
+                n_prior_delays=int(item.get("n_prior_delays", 0)),
+                days_backordered=int(item.get("days_backordered", 0)),
+                times_rescheduled=int(item.get("times_rescheduled", 0)),
+            )
+            orders.append(order)
             inc = _incumbent_of(item)
-            claimed = max(0, int(item.get("AllocQty") or 1)) if inc else 0
-            covered = min(1, claimed, quantity)
-            skip("allocation_qty_not_resolvable_to_cars", min(claimed, quantity) - covered)
-            for n in range(1, quantity + 1):
-                order = Order(
-                    so_id=so_id,
-                    line=line,
-                    qty_index=n,
-                    customer=customer,
-                    customer_id=customer_id,
-                    sales_model=item["SalesModelCode"],
-                    priority=priority,
-                    delivery_date=delivery_date,
-                    price=price,
-                    # Solver escalation fields; the real-data derivation is a TODO
-                    # (see scenario_engine). Absent => 0.
-                    n_prior_delays=int(item.get("n_prior_delays", 0)),
-                    days_backordered=int(item.get("days_backordered", 0)),
-                    times_rescheduled=int(item.get("times_rescheduled", 0)),
-                )
-                orders.append(order)
-                if inc and n <= covered:
-                    incumbent[order.key] = inc
+            if inc:
+                incumbent[order.key] = inc
 
     units: list[Unit] = []
     for v in rich["vehicles"]:
@@ -181,17 +164,13 @@ def flatten(rich: dict) -> Snapshot:
         del incumbent[key]
         skip("allocation_to_a_dropped_vehicle")
 
-    # --- the disruption is derived PER CAR, and it has to be ------------------
+    # --- the disruption is DERIVED, and it has to be --------------------------
     # What actually slips is a VEHICLE: a shipment (VPO/VGR) runs late, so its
-    # cars arrive late. A VSO line is only affected THROUGH the vehicle allocated
-    # to it — and the cars of one line can be satisfied from different shipments,
-    # so one of them slipping says nothing about the others. Deriving this at line
-    # grain would free every car of the line whenever any one of its vehicles
-    # slipped, handing the solver work it was never asked to do.
-    #
-    # The rich pull carries a line-grained preview of the same thing (it has not
-    # expanded `Quantity` yet); this is the authoritative version and it replaces
-    # it, so the solver's free set is exactly the cars whose own vehicle is late.
+    # cars arrive late. An order is only affected THROUGH the vehicle allocated to
+    # it, and XAS records no "this shipment slipped" manifest, so it is derived
+    # here rather than read. The rich pull carries a preview of the same thing;
+    # this is the authoritative version and replaces it, so the solver's free set
+    # is exactly the orders whose own vehicle is late.
     eta_of = {u.vehicle_id: u.eta_dealer for u in units}
     promise_of = {o.key: o.delivery_date for o in orders}
     disruption = dict(rich.get("disruption") or {})
