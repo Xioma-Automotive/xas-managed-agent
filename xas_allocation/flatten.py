@@ -214,6 +214,7 @@ if __name__ == "__main__":
     )
     d = snap.disruption
     print(
-        f"disruption: +{d.get('delay_days')}d on {len(d.get('delayed_vehicles', []))} vehicles, "
+        f"disruption: {d.get('delay_label') or str(d.get('delay_days')) + ' days'} on "
+        f"{len(d.get('delayed_vehicles', []))} vehicles, "
         f"{len(d.get('disrupted_orders', []))} orders to repair"
     )

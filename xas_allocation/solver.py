@@ -56,6 +56,32 @@ def fence_of(order: Order, now: date) -> str:
     return "liquid"
 
 
+def is_locked_in(order: Order, now: date, incumbent_unit: Unit | None) -> bool:
+    """Whether the fence protects this allocation, so nothing may touch it.
+
+    Two conditions, and BOTH matter:
+
+    * the promise is close (``fence_of`` says frozen), and
+    * the allocated car actually arrives ON TIME.
+
+    The fence exists to stop a KEPT promise being churned days before delivery.
+    An order whose car already lands late has no kept promise left to protect —
+    freezing it just refuses to try, which is how nine orders on the fabricated
+    book sat "locked in" while a better free car stood unused, one of them 37
+    days earlier. Leaving an already-late allocation alone is likewise free of
+    break cost (``break_cost_of``); this is the same rule, and the two used to
+    disagree.
+
+    An order with NO car has no commitment either, and freezing it would
+    manufacture a permanent backorder out of a rule about churn.
+    """
+    if incumbent_unit is None:
+        return False
+    if fence_of(order, now) != "frozen":
+        return False
+    return tardiness(order, incumbent_unit) == 0
+
+
 def effective_weight(order: Order, boosts: dict[str, float]) -> float:
     """W(o) per §2, with DECIDE-1 controlling how back-order aging enters.
 
@@ -164,18 +190,17 @@ def break_cost_of(order: Order, incumbent_unit: Unit | None, break_cost: dict[st
 
 
 def repairability(order: Order, now: date, incumbent_unit: Unit | None) -> str:
-    """Can a broken order even be re-slotted? Returns 'movable' | 'frozen' — the
-    only hard wall left is the frozen fence (DECIDE-2), surfaced for the
-    discrepancy map so the planner learns on turn 1 (not turn 4) that an order is
-    stuck. A real-vehicle (hard) allocation is NOT stuck: it is movable, just
-    expensive (DECIDE-3), so it reads 'movable' — the break cost, not a wall,
-    decides whether the solver actually moves it."""
-    # An order with NO car has no commitment for the fence to protect, and
-    # calling it frozen would report "locked in" for something that is simply
-    # unallocated. Only an existing allocation can be locked in.
-    if incumbent_unit is not None and fence_of(order, now) == "frozen":
-        return "frozen"
-    return "movable"
+    """Can a broken order even be re-slotted? Returns 'movable' | 'frozen'.
+
+    The only hard wall is the fence, and it applies only to an allocation that is
+    both close to delivery AND arriving on time (``is_locked_in``). A car riding a
+    real vehicle is NOT stuck: it is movable, just expensive, so it reads
+    'movable' — the break cost, not a wall, decides whether the solver moves it.
+
+    Note what this means for the discrepancy report: every order in it is late by
+    definition, so under this rule none of them is ever frozen. That is the point
+    — a late order is always worth trying."""
+    return "frozen" if is_locked_in(order, now, incumbent_unit) else "movable"
 
 
 def eligible(order: Order, unit: Unit) -> bool:
@@ -332,14 +357,11 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
         assigned = incumbent.get(oid)
         if names_order(o, forbid_no_move):
             continue
-        # The frozen fence stops an EXISTING allocation being churned this close
-        # to delivery. An order with no car has nothing to protect, and refusing
-        # to free it means it can never be filled at all — a permanent backorder
-        # manufactured by a rule about churn. Qty expansion makes this routine:
-        # the cars of a qty-3 line beyond its one resolvable vehicle all arrive
-        # unallocated. Left frozen they land in neither `plan` nor `unfilled`, and
-        # `_self_check` then reports not-ok with an empty violation list.
-        if assigned is not None and fence_of(o, snapshot.now) == "frozen":
+        # The fence stops a KEPT promise being churned this close to delivery —
+        # see `is_locked_in` for why an already-late allocation is not protected.
+        # A locked-in row is excluded here, which also keeps its car out of
+        # `free_units` below: nothing can take it.
+        if is_locked_in(o, snapshot.now, units.get(assigned) if assigned else None):
             continue
         if scoped:
             include = _matches(o, scope)

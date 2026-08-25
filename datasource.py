@@ -522,8 +522,12 @@ def map_response(
         "vsos": vsos,
         "vehicles": reachable,
         "disruption": {
-            "delayed_model": manifest.get("delayed_model"),
+            # `delay_days` is the WORST slip; `delay_tiers` is the split by size,
+            # because one disruption is normally several shipments slipping by
+            # different amounts. `delay_label` is the phrase for a one-liner.
             "delay_days": manifest.get("delay_days", 0),
+            "delay_label": manifest.get("delay_label", ""),
+            "delay_tiers": manifest.get("delay_tiers", {}),
             "delayed_vehicles": manifest.get("delayed_vehicles", []),
             "disrupted_orders": disrupted,
         },

@@ -186,8 +186,10 @@ def summarize(rich: dict) -> dict[str, Any]:
         "incumbent_assignments": sum(_incumbent_count(r) for r in rows),
         "sales_models": meta.get("sales_models", []),
         "disruption": {
-            "delayed_model": disruption.get("delayed_model"),
             "delay_days": disruption.get("delay_days"),
+            "delay_tiers": {
+                days: len(codes) for days, codes in (disruption.get("delay_tiers") or {}).items()
+            },
             "delayed_vehicles": len(disruption.get("delayed_vehicles", [])),
         },
         "disrupted_orders": len(disruption.get("disrupted_orders", [])),

@@ -43,9 +43,14 @@ def test_summary_carries_the_disruption():
     assert summary["now"]
     assert summary["orders"] > 0  # VSO car lines
     assert summary["supply"] > 0  # the vehicle pool: real ∪ future
-    assert summary["disruption"]["delayed_model"]
-    assert summary["disruption"]["delay_days"] > 0
+    assert summary["disruption"]["delay_days"] > 0  # the worst slip
     assert summary["disruption"]["delayed_vehicles"] > 0
+    # A disruption is normally several shipments slipping by DIFFERENT amounts, so
+    # the summary carries the split, not just one number. The counts must add up
+    # to the delayed cars, or the agent is told about cars nobody slipped.
+    tiers = summary["disruption"]["delay_tiers"]
+    assert tiers, "the per-slip split must reach the agent"
+    assert sum(tiers.values()) == summary["disruption"]["delayed_vehicles"]
     assert summary["disrupted_orders"] == len(summary["disrupted_order_ids"])
 
 

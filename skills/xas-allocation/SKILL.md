@@ -123,19 +123,42 @@ costs the churn penalty. Beyond that, changes are free.
 
 ## Each turn
 
+`pip install ortools` once per session. The whole API is three calls — do not go
+looking for more:
+
+```python
+import json, sys, pathlib
+
+sys.path.insert(
+    0, str(next(pathlib.Path("/workspace").rglob("xas_allocation/session.py")).parent.parent)
+)
+from xas_allocation import session as S
+
+snap = S.Snapshot.from_dict(json.load(open("snapshot.json")))
+print(S.discrepancy_report(snap))  # where things stand
+print(S.repair_and_report(snap, override))  # solve + write plan.json + the reply
+S.bump_candidates(snap, S.solve(snap, override))  # who could be displaced
+```
+
 1. Call `pull_allocation_snapshot`, then run the `flatten` command it returns,
-   verbatim.
-2. Print `session.discrepancy_report(...)` — what the data could not use, then
-   the orders whose car now arrives past the promise, split into repairable vs
-   locked-in. **Show this before solving anything.**
-3. If they asked for a repair: update the override and print
-   `session.repair_and_report(...)`. It solves, runs the hard-constraint
-   self-check, and returns the finished reply.
+   verbatim. It writes `snapshot.json`.
+2. Print `discrepancy_report` — what the data could not use, then the orders whose
+   car now arrives past the promise. **Show this before solving anything.**
+3. If they asked for a repair: update the override and print `repair_and_report`.
+   It solves, self-checks, **writes every allocation to `plan.json`**, and returns
+   the finished reply.
 4. Steering → edit the same override, run it again.
 
-**Print what those two helpers return; don't rebuild it.** Re-deriving the
-solver's output by hand, or writing your own analysis script over it, is the exact
-failure this skill exists to prevent — and it is slower.
+**The allocations live in `plan.json`. Read them from there.** One row per order:
+`order`, `customer`, `priority`, `promised`, `was_car`, `was_arriving`, `now_car`,
+`now_arriving`, `days_late`, `status`, `bumped`, `why_late`. Any follow-up — "show
+me the new allocations", "what did VSO-4007 get?", "which ones are still late?" —
+is a read of that file. **Never re-type allocations out of the conversation and
+never re-derive them:** a retyped table loses a row or mistypes a car id, and
+nothing catches it. If you find yourself writing a script that reads
+`snapshot.json` to work out an answer yourself, stop — that is the failure this
+skill exists to prevent, it produces confident wrong answers, and the helpers
+already have it.
 
 Never move a frozen order. Never bump an order the disruption did not touch
 without being asked. If the solver comes back infeasible, or an instruction

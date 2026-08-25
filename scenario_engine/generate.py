@@ -107,6 +107,11 @@ INBOUND_INCUMBENT_WEIGHTS = {"future": 70, "real": 30}
 # The spare pool is mixed — cars on the lot are the wiggle room a repair uses.
 SPARE_WEIGHTS = {"future": 45, "real": 55}
 
+# The slips the disruption applies, in days. Delayed cars are split evenly across
+# these, so a mixed disruption — one shipment a week late, another a month — is
+# the default rather than a special case. A single tier still works.
+DELAY_TIERS = (7, 21, 30)
+
 CONFIG_ITEM_TYPE = "Configuration"  # a non-car line, for the type filter to drop
 BRANCH = "69f07fdaf930e4ee6d524dc1"  # opaque id, passthrough
 
@@ -248,14 +253,22 @@ def _payloads(cards: list[dict], vehicles: list[dict], disruption: dict) -> dict
 def generate(
     seed: int = 20,
     n_customers: int = 30,
-    n_orders: int = 40,
-    spare_ratio: float = 0.4,
-    delay_days: int = 21,
+    n_vsos: int = 20,
+    unallocated_share: float = 0.4,
+    delay_tiers: tuple[int, ...] = DELAY_TIERS,
 ) -> dict[str, dict]:
     """Build the good world and its disrupted twin, both in MCP response shapes.
 
-    ``n_orders`` counts car lines, which is the same as wanted cars: one car per
-    line.
+    ``n_vsos`` is the number of job cards. Each carries 1-3 car lines and each
+    line is one order for one car, so the order count follows from it.
+
+    ``unallocated_share`` is the fraction of the CAR POOL left unallocated — the
+    wiggle room a repair has. 0.4 means 40% of the cars are free, so the spare
+    count is derived from demand rather than set directly.
+
+    ``delay_tiers`` are the slips the disruption applies, in days. The delayed
+    cars are split evenly across the tiers, so one shipment slipping a week and
+    another a month is the normal case rather than a special one.
 
     Returns ``{'baseline': world, 'pull': world}`` where a world is
     ``{jobcards, vehicles}`` — what ``datasource.map_world`` consumes.
@@ -286,7 +299,7 @@ def generate(
     incumbent: dict[str, str] = {}
     n_rows = 0
     vso_num = FIRST_VSO
-    while n_rows < n_orders:
+    for _ in range(n_vsos):
         name, cid, prio = rng.choice(customers)
         job_key = f"VSO-{vso_num}"
         entry_num = FIRST_ENTRY + (vso_num - FIRST_VSO)
@@ -299,8 +312,6 @@ def generate(
         items: list[dict] = []
         n_lines = rng.choices([1, 2, 3], weights=[55, 30, 15])[0]
         for line in range(1, n_lines + 1):
-            if n_rows >= n_orders:
-                break
             model = rng.choice(SALES_MODELS)
             bucket = _pick_bucket(rng, INBOUND_INCUMBENT_WEIGHTS)
             # ONE car per line, ONE vehicle per line. The incumbent car is on time
@@ -337,32 +348,40 @@ def generate(
         )
 
     # --- Spare (unallocated) supply — the wiggle room a repair uses. ---------
-    for _ in range(int(n_orders * spare_ratio)):
+    # Every order already has one car, so demand == allocated cars. To leave
+    # `unallocated_share` of the FINAL pool free, the spare count is
+    # demand * f/(1-f) rather than demand * f.
+    f = min(max(unallocated_share, 0.0), 0.95)
+    n_spare = round(n_rows * f / (1 - f)) if f else 0
+    for _ in range(n_spare):
         model = rng.choice(SALES_MODELS)
         eta = rng.choice(weeks)
         new_vehicle(model, eta, _pick_bucket(rng, SPARE_WEIGHTS))
 
     baseline = _payloads(cards, vehicles, {})
 
-    # --- Disruption: delay a COHERENT batch — every INBOUND incumbent-carrying
-    #     vehicle of ONE model (a "model X shipment slipped") — so the repair is
-    #     meaningful and the disrupted orders are guaranteed late (their incumbent
-    #     was on time, EtaDealer == promise, so +delay_days runs past it). A car
-    #     already on the lot is excluded: `unit_eta` pins its eta to `now`, so
-    #     slipping its EtaDealer changes nothing. Pick the model with the most
-    #     such cars; tie by code.
-    veh_by_code = {v["VehicleCode"]: v for v in vehicles}
-    by_model: dict[str, list[str]] = defaultdict(list)
-    for code in set(incumbent.values()):
-        if bucket_by_code[code] == "future":
-            by_model[veh_by_code[code]["SalesModel"]].append(code)
-    delayed_model = min(by_model, key=lambda m: (-len(by_model[m]), m))
-    delayed_codes = set(by_model[delayed_model])
+    # --- Disruption: slip the INBOUND cars that orders are counting on, by
+    #     several different amounts. Only inbound cars are eligible — a car
+    #     already on the lot has its eta pinned to `now`, so moving its EtaDealer
+    #     changes nothing. Their incumbents were on time (eta == promise), so any
+    #     slip puts them past it and the repair is meaningful.
+    #
+    #     Cars are dealt round-robin into the tiers after a deterministic
+    #     shuffle, so each tier gets a spread of models and customers rather than
+    #     one shipment's worth. That matters: a disruption where every 30-day slip
+    #     lands on one model is a much easier problem than a mixed one.
+    candidates = sorted(
+        code for code in set(incumbent.values()) if bucket_by_code[code] == "future"
+    )
+    rng.shuffle(candidates)
+    tiers = tuple(delay_tiers) or (0,)
+    slip_by_code = {code: tiers[i % len(tiers)] for i, code in enumerate(candidates)}
 
     disrupted_vehicles: list[dict] = []
     for v in vehicles:
-        if v["VehicleCode"] in delayed_codes:
-            new_eta = date.fromisoformat(v["EtaDealer"]) + timedelta(days=delay_days)
+        slip = slip_by_code.get(v["VehicleCode"])
+        if slip:
+            new_eta = date.fromisoformat(v["EtaDealer"]) + timedelta(days=slip)
             # Both, because the tenant fills AvailableBy and the schema prefers
             # EtaDealer — a slip that moved only one would be incoherent.
             disrupted_vehicles.append(
@@ -371,15 +390,21 @@ def generate(
         else:
             disrupted_vehicles.append(dict(v))
 
+    by_tier: dict[str, list[str]] = defaultdict(list)
+    for code, slip in sorted(slip_by_code.items()):
+        by_tier[str(slip)].append(code)
+
     # `disrupted_orders` is NOT declared here: map_response derives it from the
     # etas, and that derivation is what the real pull has to rely on.
     pull = _payloads(
         cards,
         disrupted_vehicles,
         {
-            "delay_days": delay_days,
-            "delayed_model": delayed_model,
-            "delayed_vehicles": sorted(delayed_codes),
+            # The worst slip, for a one-line summary; `delay_tiers` has the split.
+            "delay_days": max(tiers),
+            "delay_label": "/".join(str(d) for d in sorted(tiers)) + " days",
+            "delay_tiers": {k: v for k, v in sorted(by_tier.items(), key=lambda kv: int(kv[0]))},
+            "delayed_vehicles": sorted(slip_by_code),
         },
     )
     return {"baseline": baseline, "pull": pull}
@@ -389,18 +414,30 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Fabricate an XAS allocation scenario.")
     ap.add_argument("--seed", type=int, default=20)
     ap.add_argument("--customers", type=int, default=30)
-    ap.add_argument("--orders", type=int, default=40, help="car lines (demand; one car each)")
-    ap.add_argument("--spare-ratio", type=float, default=0.4)
-    ap.add_argument("--delay-days", type=int, default=21)
+    ap.add_argument("--vsos", type=int, default=20, help="job cards; 1-3 car lines each")
+    ap.add_argument(
+        "--unallocated",
+        type=float,
+        default=0.4,
+        help="fraction of the car pool left free (0.4 = 40%% unallocated)",
+    )
+    ap.add_argument(
+        "--delay-days",
+        type=int,
+        nargs="+",
+        default=list(DELAY_TIERS),
+        metavar="D",
+        help="the slips to apply, in days; delayed cars are split across them",
+    )
     ap.add_argument("--out", type=Path, default=DATA_DIR, help="output directory")
     args = ap.parse_args()
 
     result = generate(
         seed=args.seed,
         n_customers=args.customers,
-        n_orders=args.orders,
-        spare_ratio=args.spare_ratio,
-        delay_days=args.delay_days,
+        n_vsos=args.vsos,
+        unallocated_share=args.unallocated,
+        delay_tiers=tuple(args.delay_days),
     )
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -425,13 +462,14 @@ def main() -> None:
         for v in rich["vehicles"]:
             c = v["VehicleClassification"]
             by_bucket[c] = by_bucket.get(c, 0) + 1
-        tag = (
-            f"disruption {d['delayed_model']} +{d['delay_days']}d on "
-            f"{len(d['delayed_vehicles'])} vehicles, "
-            f"{len(d['disrupted_orders'])} orders freed"
-            if d["delayed_model"]
-            else "no disruption"
-        )
+        delayed = d.get("delayed_vehicles") or []
+        if delayed:
+            split = ", ".join(
+                f"{len(codes)}x +{days}d" for days, codes in (d.get("delay_tiers") or {}).items()
+            )
+            tag = f"disruption {split} on {len(delayed)} cars, {len(d['disrupted_orders'])} orders freed"
+        else:
+            tag = "no disruption"
         print(
             f"wrote {path}  ({excluded['orders_kept']} VSOs / "
             f"{excluded['lines_kept']} car lines, "

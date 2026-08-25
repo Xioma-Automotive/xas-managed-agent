@@ -8,6 +8,7 @@
 ledger.json
 residual_cache.json
 snapshot.json
+plan.json
 
 # QA agent chart outputs downloaded from sessions (qa/run_qa.py)
 qa-outputs/

@@ -23,9 +23,11 @@ the solver's result by hand.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 from . import decisions as D
 from .flatten import flatten_default
@@ -34,6 +36,7 @@ from .solver import (
     SolveResult,
     SweepPoint,
     disrupted_order_keys,
+    is_locked_in,
     lambda_sweep,
     repairability,
     scale_units,
@@ -237,10 +240,16 @@ def bump_candidates(snapshot: Snapshot, result: SolveResult) -> list[dict]:
     disrupted = disrupted_order_keys(snapshot)
     prio_rank = {"C": 0, "B": 1, "A": 2}
 
+    # A rescue target that is LOCKED IN cannot accept a different car, so offering
+    # a bump for it wastes the planner's authorization: the freed car sits idle and
+    # the target stays on its late one. Observed 2026-08-25 — three authorized
+    # bumps all no-oped for exactly this reason.
     still_late = [
         oid
         for oid in disrupted
-        if result.plan.get(oid) and tardiness(orders[oid], units[result.plan[oid]]) > 0
+        if result.plan.get(oid)
+        and tardiness(orders[oid], units[result.plan[oid]]) > 0
+        and not is_locked_in(orders[oid], snapshot.now, units.get(snapshot.incumbent.get(oid, "")))
     ]
     cands: dict[str, dict] = {}
     for lid in still_late:
@@ -290,7 +299,8 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
                 f'{n_orders} car lines · {n_real} real + {n_future} future"]'
             ),
             (
-                f'  DIS["disruption<br/>{n_delayed} vehicles +{d.get("delay_days", 0)}d<br/>'
+                f'  DIS["disruption<br/>{n_delayed} vehicles '
+                f"{d.get('delay_label') or str(d.get('delay_days', 0)) + ' days'}<br/>"
                 f'{n_disrupted} orders freed"]'
             ),
             '  FL["flatten + freeze<br/>(pure code, no model judgment)"]',
@@ -533,10 +543,105 @@ def _caveat(orders: dict[str, Order], stuck: list[str], no_car: list[str]) -> st
     return None
 
 
-def repair_and_report(snapshot: Snapshot, override: dict | None = None) -> str:
-    """Solve with the current combined override and return the finished reply.
-    This is the one call the agent makes per turn — print it verbatim."""
+# Where the new allocations are written. The agent must answer follow-ups from
+# THIS FILE, never from the report text in the conversation: a retyped table is a
+# table that can lose a row or mistype a vehicle id, and the transcript is not a
+# record the next turn can trust.
+PLAN_FILENAME = "plan.json"
+
+
+def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = None) -> list[dict]:
+    """One row per order — the full allocation, as data rather than prose.
+
+    Everything the report shows and a few things it does not, so a follow-up
+    question ("show me the new allocations", "what did VSO-4007 get?") is answered
+    by reading this back, not by re-reading the report.
+    """
+    override = override or {}
+    orders = snapshot.order_by_key()
+    units = snapshot.unit_by_id()
+    incumbent = snapshot.incumbent
+    disrupted = disrupted_order_keys(snapshot)
+    rows: list[dict] = []
+    for oid in sorted(orders):
+        o = orders[oid]
+        was_id = incumbent.get(oid)
+        now_id = result.plan.get(oid)
+        was, now = units.get(was_id or ""), units.get(now_id or "")
+        late = tardiness(o, now) if now else None
+        if oid in result.unfilled:
+            status = "no_car"
+        elif now_id and now_id != was_id:
+            status = "moved"
+        else:
+            status = "unchanged"
+        rows.append(
+            {
+                "order": oid,
+                "customer": o.customer,
+                "customer_id": o.customer_id,
+                "priority": o.priority,
+                "model": o.sales_model,
+                "promised": date_label(o.delivery_date),
+                "was_car": was_id,
+                "was_arriving": date_label(was.eta_dealer) if was else None,
+                "now_car": now_id,
+                "now_arriving": date_label(now.eta_dealer) if now else None,
+                "on_the_lot": (now.is_hard if now else None),
+                "days_late": late,
+                "on_time": (late == 0) if late is not None else None,
+                "status": status,
+                # An order the disruption did not touch, moved anyway = displaced.
+                "bumped": status == "moved" and oid not in disrupted and was_id is not None,
+                "why_late": _why_late(repairability(o, snapshot.now, units.get(was_id or "")))
+                if late
+                else None,
+            }
+        )
+    return rows
+
+
+def save_plan(
+    snapshot: Snapshot,
+    result: SolveResult,
+    override: dict | None = None,
+    path: str | Path = PLAN_FILENAME,
+) -> Path:
+    """Write the plan to ``path`` and return it. The durable record of a turn."""
+    out = Path(path)
+    payload = {
+        "now": date_label(snapshot.now),
+        "override": override or {},
+        "lambda": result.lam,
+        "self_check": result.self_check,
+        "counts": {
+            "orders": len(snapshot.orders),
+            "moved": sum(
+                1 for r in plan_rows(snapshot, result, override) if r["status"] == "moved"
+            ),
+            "still_late": sum(1 for r in plan_rows(snapshot, result, override) if r["days_late"]),
+            "no_car": len(result.unfilled),
+        },
+        "allocations": plan_rows(snapshot, result, override),
+    }
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return out
+
+
+def repair_and_report(
+    snapshot: Snapshot,
+    override: dict | None = None,
+    plan_path: str | Path = PLAN_FILENAME,
+) -> str:
+    """Solve with the current combined override, WRITE the plan, return the reply.
+
+    Two outputs on purpose. The string is what the planner reads; the file is the
+    record — every allocation this turn produced, as data. Answer any follow-up
+    from the file. Re-typing allocations out of the conversation is how a row goes
+    missing or a vehicle id changes by one character.
+    """
     cyc = run_cycle(snapshot, override)
+    save_plan(snapshot, cyc.chosen, override, plan_path)
     return planner_report(snapshot, cyc.chosen, override)
 
 
@@ -557,7 +662,8 @@ def main() -> None:
     print(
         f"\nsnapshot now={date_label(snap.now)}: {len(snap.orders)} orders, "
         f"{len(snap.units)} vehicles. Disruption: {len(d.get('delayed_vehicles', []))} vehicles "
-        f"delayed {d.get('delay_days')}d, {len(d.get('disrupted_orders', []))} orders to repair."
+        f"delayed {d.get('delay_label') or str(d.get('delay_days')) + ' days'}, "
+        f"{len(d.get('disrupted_orders', []))} orders to repair."
     )
     print(_banner("DISCREPANCY MAP (what broke, before solving)"))
     print(discrepancy_report(snap))

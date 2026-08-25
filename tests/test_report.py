@@ -1,16 +1,21 @@
 """The planner-facing report is jargon-free and tells the truth about what's stuck.
 
-Two things the run analysis flagged and this guards:
-  1. `discrepancy_report` / `planner_report` must classify a broken order that
-     can't be re-slotted (only the frozen fence is a hard wall now) as **locked
-     in** — the turn-1 truth the live run hid until turn 4.
+Two things this guards:
+  1. The fence protects a KEPT promise, not any promise. An order close to
+     delivery whose car arrives ON TIME is untouchable, and its car cannot be
+     given away. One that is close to delivery and already LATE is movable — the
+     promise is broken either way, so refusing to try just leaves a better free
+     car unused. (Before 2026-08-25 both were frozen, and on the fabricated book
+     that left nine orders "locked in" with a better car standing idle.)
   2. the reply must carry NO solver internals (λ, objective, Pareto, incumbent,
      min-cost) — those are the jargon the planner shouldn't see.
 """
 
+import json
 from datetime import date
 
 from xas_allocation.session import (
+    bump_candidates,
     discrepancy_report,
     exclusion_note,
     planner_report,
@@ -18,12 +23,15 @@ from xas_allocation.session import (
     run_cycle,
 )
 from xas_allocation.snapshot import Order, Snapshot, Unit
-from xas_allocation.solver import repairability
+from xas_allocation.solver import is_locked_in, repairability
 
 NOW = date(2026, 8, 3)
-# MOV: promised far out -> liquid -> movable; FRZ: promised within 14d -> frozen.
+# MOV: promised far out, car late -> movable.
+# NEAR: promised inside the 14-day fence AND its car is late -> STILL movable.
+# KEPT: promised inside the fence and its car is on time -> locked in, untouchable.
 MOV_PROMISED = date(2026, 9, 30)
-FRZ_PROMISED = date(2026, 8, 10)
+NEAR_PROMISED = date(2026, 8, 10)
+KEPT_PROMISED = date(2026, 8, 10)
 UT_PROMISED = date(2026, 9, 30)
 
 # Anything the report might legitimately print is fine; these are the tokens that
@@ -37,7 +45,9 @@ def _order(oid: str, model: str, priority: str, promised: date) -> Order:
     return Order(
         so_id=so_id,
         line=int(line),
-        customer={"MOV": "Colmobil", "FRZ": "Delek", "UT": "Carasso"}.get(oid.split("-")[0], oid),
+        customer={"MOV": "Colmobil", "NEAR": "Delek", "KEPT": "Talcar", "UT": "Carasso"}.get(
+            oid.split("-")[0], oid
+        ),
         customer_id=oid,
         sales_model=model,
         priority=priority,
@@ -61,51 +71,71 @@ def _snapshot() -> Snapshot:
     return Snapshot(
         orders=[
             _order("MOV-1", "SM1", "A", MOV_PROMISED),  # disrupted, repairable
-            _order("FRZ-1", "SM2", "A", FRZ_PROMISED),  # disrupted, locked in (frozen)
+            _order("NEAR-1", "SM2", "A", NEAR_PROMISED),  # near delivery AND late -> movable
+            _order("KEPT-1", "SM4", "A", KEPT_PROMISED),  # near delivery, on time -> untouchable
             _order("UT-1", "SM3", "C", UT_PROMISED),  # untouched, on time
         ],
         units=[
             _unit("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # MOV's late incumbent
             _unit("VEH-GOOD", "SM1", date(2026, 9, 14)),  # a spare that rescues MOV
-            _unit("VEH-FRZ-LATE", "SM2", date(2026, 8, 25)),  # FRZ's late incumbent, stuck
+            _unit("VEH-NEAR-LATE", "SM2", date(2026, 8, 25)),  # NEAR's late incumbent
+            _unit("VEH-KEPT-OK", "SM4", date(2026, 8, 10)),  # KEPT's on-time car — hands off
             _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
         ],
-        incumbent={"MOV-1": "VEH-MOV-LATE", "FRZ-1": "VEH-FRZ-LATE", "UT-1": "VEH-UT-GOOD"},
+        incumbent={
+            "MOV-1": "VEH-MOV-LATE",
+            "NEAR-1": "VEH-NEAR-LATE",
+            "KEPT-1": "VEH-KEPT-OK",
+            "UT-1": "VEH-UT-GOOD",
+        },
         disruption={
             "delay_days": 30,
-            "delayed_vehicles": ["VEH-MOV-LATE", "VEH-FRZ-LATE"],
-            "disrupted_orders": ["MOV-1", "FRZ-1"],
+            "delayed_vehicles": ["VEH-MOV-LATE", "VEH-NEAR-LATE"],
+            "disrupted_orders": ["MOV-1", "NEAR-1"],
         },
         now=NOW,
     )
 
 
-def test_repairability_classifies_frozen_and_movable():
+def test_the_fence_protects_a_kept_promise_not_a_broken_one():
+    """The whole point of change A. Same promised date on both orders; the only
+    difference is whether the car actually arrives on time."""
     snap = _snapshot()
-    units = snap.unit_by_id()
-    orders = snap.order_by_key()
+    units, orders = snap.unit_by_id(), snap.order_by_key()
+    # on time and close to delivery -> nobody may touch it
+    assert repairability(orders["KEPT-1"], NOW, units["VEH-KEPT-OK"]) == "frozen"
+    # SAME promised date, but the car is late -> worth trying
+    assert repairability(orders["NEAR-1"], NOW, units["VEH-NEAR-LATE"]) == "movable"
+    # and far-out-and-late is movable as it always was
     assert repairability(orders["MOV-1"], NOW, units["VEH-MOV-LATE"]) == "movable"
-    assert repairability(orders["FRZ-1"], NOW, units["VEH-FRZ-LATE"]) == "frozen"
 
 
-def test_discrepancy_report_flags_locked_in_on_turn_1():
+def test_a_locked_in_order_keeps_its_car_out_of_the_pool():
+    """Untouchable has to mean its CAR is untouchable too — otherwise the solver
+    can hand it to someone else and the protected order silently loses it."""
+    snap = _snapshot()
+    cyc = run_cycle(snap)
+    assert cyc.chosen.plan["KEPT-1"] == "VEH-KEPT-OK"
+
+
+def test_discrepancy_report_tries_a_late_order_close_to_delivery():
     report = discrepancy_report(_snapshot())
-    assert "locked in" in report.lower()
     assert "can be repaired" in report.lower()
-    # the frozen order is named on the locked-in side, not sold as fixable
-    assert "FRZ-1" in report
+    # NEAR-1 is inside the fence but late, so it is offered as repairable rather
+    # than written off — the behaviour this change bought.
+    repairable = report.split("can be repaired")[1]
+    assert "NEAR-1" in repairable
 
 
-def test_planner_report_fixes_movable_and_keeps_frozen_late():
+def test_planner_report_fixes_what_it_can():
     snap = _snapshot()
     cyc = run_cycle(snap)
     report = planner_report(snap, cyc.chosen, {})
     # the repairable order got the good car and reads on time...
     assert "VEH-GOOD" in report
     assert "1 of 2 delayed orders now on time" in report
-    # ...the frozen one is surfaced as locked-in, still late, needing a call
-    assert "FRZ-1" in report
-    assert "locked in" in report.lower()
+    # ...and the near-delivery late one is still named, with a real reason
+    assert "NEAR-1" in report
 
 
 def test_a_steered_lambda_is_honoured_even_at_zero():
@@ -288,3 +318,41 @@ def test_without_a_projection_gap_the_drops_ARE_the_orders():
     note = exclusion_note(_snapshot_with(EXCLUDED_META))
     assert "need completing in the system" in note
     assert "counts mean nothing" not in note
+
+
+def test_the_plan_is_written_to_a_file_not_just_reported(tmp_path):
+    """Observed 2026-08-25: the only record of a turn's allocations was the
+    markdown table in the transcript, which the agent then RETYPED into its reply
+    — four turns running, and a later turn answered "show me the new allocations"
+    from that prose rather than from data. A retyped table can lose a row or
+    mistype a vehicle id, and nothing would catch it."""
+    snap = _snapshot()
+    out = tmp_path / "plan.json"
+    repair_and_report(snap, {}, plan_path=out)
+    saved = json.loads(out.read_text())
+
+    # every order is in the file, whether it moved or not
+    assert {r["order"] for r in saved["allocations"]} == set(snap.order_by_key())
+    # and the cars in the file ARE the solver's plan, not a re-derivation
+    cyc = run_cycle(snap, {})
+    assert {
+        r["order"]: r["now_car"] for r in saved["allocations"] if r["now_car"]
+    } == cyc.chosen.plan
+    # the protected order is recorded keeping its car, and nothing reads as bumped
+    kept = next(r for r in saved["allocations"] if r["order"] == "KEPT-1")
+    assert kept["now_car"] == "VEH-KEPT-OK" and kept["bumped"] is False
+
+
+def test_a_bump_is_never_offered_for_an_order_that_cannot_accept_a_car(tmp_path):
+    """Observed 2026-08-25: three authorized bumps all no-oped, because every
+    rescue target was locked in — it could not take the freed car. The freed cars
+    would have sat idle and the targets stayed late, so the authorization was
+    spent on nothing."""
+    snap = _snapshot()
+    cyc = run_cycle(snap, {})
+    for c in bump_candidates(snap, cyc.chosen):
+        target = snap.order_by_key()[c["would_rescue"]]
+        inc = snap.unit_by_id().get(snap.incumbent.get(c["would_rescue"], ""))
+        assert not is_locked_in(target, snap.now, inc), (
+            f"{c['row']} offered to rescue {c['would_rescue']}, which cannot move"
+        )

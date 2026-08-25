@@ -1,17 +1,53 @@
 {
   "_scenario": {
     "disruption": {
-      "delay_days": 21,
-      "delayed_model": "SM3",
+      "delay_days": 30,
+      "delay_label": "7/21/30 days",
+      "delay_tiers": {
+        "21": [
+          "VEH-9001",
+          "VEH-9004",
+          "VEH-9006",
+          "VEH-9007",
+          "VEH-9010",
+          "VEH-9023"
+        ],
+        "30": [
+          "VEH-9005",
+          "VEH-9013",
+          "VEH-9020",
+          "VEH-9021",
+          "VEH-9024",
+          "VEH-9028"
+        ],
+        "7": [
+          "VEH-9002",
+          "VEH-9003",
+          "VEH-9008",
+          "VEH-9015",
+          "VEH-9022",
+          "VEH-9025"
+        ]
+      },
       "delayed_vehicles": [
+        "VEH-9001",
+        "VEH-9002",
         "VEH-9003",
+        "VEH-9004",
+        "VEH-9005",
         "VEH-9006",
+        "VEH-9007",
+        "VEH-9008",
+        "VEH-9010",
         "VEH-9013",
+        "VEH-9015",
         "VEH-9020",
+        "VEH-9021",
+        "VEH-9022",
+        "VEH-9023",
         "VEH-9024",
-        "VEH-9028",
-        "VEH-9031",
-        "VEH-9032"
+        "VEH-9025",
+        "VEH-9028"
       ]
     },
     "now": "2026-08-03"
@@ -1269,394 +1305,7 @@
           "Quantity": 1
         }
       ]
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D017",
-          "AccountName": "Dealer 17",
-          "AccountUUID": "CUST-017"
-        }
-      },
-      "Branch": "69f07fdaf930e4ee6d524dc1",
-      "DMSJCEntry": "502401",
-      "DMSJCNum": "502401",
-      "DueDateTime": "2026-09-28T06:00:00Z",
-      "EntryDateTime": "2026-07-03T06:00:00Z",
-      "JobEntryNum": 502401,
-      "JobKey": "VSO-4020",
-      "JobPriority": {
-        "Code": "C"
-      },
-      "JobStatus": {
-        "Code": "23",
-        "Label": "Order"
-      },
-      "isCanceled": false,
-      "jobitems": [
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9030",
-          "JobItemCode": "SM2",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 61000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM2",
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9031",
-          "JobItemCode": "SM3",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "Omoda 5",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM3",
-          "days_backordered": 7,
-          "n_prior_delays": 0,
-          "times_rescheduled": 1
-        },
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9032",
-          "JobItemCode": "SM3",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "Omoda 5",
-          "LineNum": 3,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM3",
-          "days_backordered": 7,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
-        },
-        {
-          "JobItemCode": "CCO",
-          "JobItemStatus": "Open",
-          "JobItemType": "Configuration",
-          "Label": "Customer configuration",
-          "LineNum": 4,
-          "Quantity": 1
-        }
-      ]
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D010",
-          "AccountName": "Dealer 10",
-          "AccountUUID": "CUST-010"
-        }
-      },
-      "Branch": "69f07fdaf930e4ee6d524dc1",
-      "DMSJCEntry": "502402",
-      "DMSJCNum": "502402",
-      "DueDateTime": "2026-08-24T06:00:00Z",
-      "EntryDateTime": "2026-06-27T06:00:00Z",
-      "JobEntryNum": 502402,
-      "JobKey": "VSO-4021",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": {
-        "Code": "23",
-        "Label": "Order"
-      },
-      "isCanceled": false,
-      "jobitems": [
-        {
-          "AllocQty": 1,
-          "JobItemCode": "SM4",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 45000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM4",
-          "VehicleId": {
-            "Code": "VEH-9033"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 2
-        },
-        {
-          "JobItemCode": "CCO",
-          "JobItemStatus": "Open",
-          "JobItemType": "Configuration",
-          "Label": "Customer configuration",
-          "LineNum": 2,
-          "Quantity": 1
-        }
-      ]
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D018",
-          "AccountName": "Dealer 18",
-          "AccountUUID": "CUST-018"
-        }
-      },
-      "Branch": "69f07fdaf930e4ee6d524dc1",
-      "DMSJCEntry": "502403",
-      "DMSJCNum": "502403",
-      "DueDateTime": "2026-10-05T06:00:00Z",
-      "EntryDateTime": "2026-07-06T06:00:00Z",
-      "JobEntryNum": 502403,
-      "JobKey": "VSO-4022",
-      "JobPriority": {
-        "Code": "C"
-      },
-      "JobStatus": {
-        "Code": "23",
-        "Label": "Order"
-      },
-      "isCanceled": false,
-      "jobitems": [
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9034",
-          "JobItemCode": "SM2",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM2",
-          "days_backordered": 14,
-          "n_prior_delays": 0,
-          "times_rescheduled": 1
-        },
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9035",
-          "JobItemCode": "SM2",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 61000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM2",
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
-        },
-        {
-          "JobItemCode": "CCO",
-          "JobItemStatus": "Open",
-          "JobItemType": "Configuration",
-          "Label": "Customer configuration",
-          "LineNum": 3,
-          "Quantity": 1
-        }
-      ]
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D009",
-          "AccountName": "Dealer 09",
-          "AccountUUID": "CUST-009"
-        }
-      },
-      "Branch": "69f07fdaf930e4ee6d524dc1",
-      "DMSJCEntry": "502404",
-      "DMSJCNum": "502404",
-      "DueDateTime": "2026-09-14T06:00:00Z",
-      "EntryDateTime": "2026-06-23T06:00:00Z",
-      "JobEntryNum": 502404,
-      "JobKey": "VSO-4023",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": {
-        "Code": "23",
-        "Label": "Order"
-      },
-      "isCanceled": false,
-      "jobitems": [
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9036",
-          "JobItemCode": "SM5",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "Geely Coolray",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM5",
-          "days_backordered": 14,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocQty": 1,
-          "JobItemCode": "SM2",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM2",
-          "VehicleId": {
-            "Code": "VEH-9037"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocQty": 1,
-          "AllocatedVehicleCode": "VEH-9038",
-          "JobItemCode": "SM2",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
-          "LineNum": 3,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM2",
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "JobItemCode": "CCO",
-          "JobItemStatus": "Open",
-          "JobItemType": "Configuration",
-          "Label": "Customer configuration",
-          "LineNum": 4,
-          "Quantity": 1
-        }
-      ]
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D015",
-          "AccountName": "Dealer 15",
-          "AccountUUID": "CUST-015"
-        }
-      },
-      "Branch": "69f07fdaf930e4ee6d524dc1",
-      "DMSJCEntry": "502405",
-      "DMSJCNum": "502405",
-      "DueDateTime": "2026-09-14T06:00:00Z",
-      "EntryDateTime": "2026-07-08T06:00:00Z",
-      "JobEntryNum": 502405,
-      "JobKey": "VSO-4024",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": {
-        "Code": "23",
-        "Label": "Order"
-      },
-      "isCanceled": false,
-      "jobitems": [
-        {
-          "AllocQty": 1,
-          "JobItemCode": "SM5",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "Geely Coolray",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 32000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM5",
-          "VehicleId": {
-            "Code": "VEH-9039"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocQty": 1,
-          "JobItemCode": "SM3",
-          "JobItemStatus": "Open",
-          "JobItemType": "ModelItem",
-          "Label": "Omoda 5",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 45000
-            }
-          ],
-          "Quantity": 1,
-          "SalesModelCode": "SM3",
-          "VehicleId": {
-            "Code": "VEH-9040"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 3,
-          "times_rescheduled": 1
-        },
-        {
-          "JobItemCode": "CCO",
-          "JobItemStatus": "Open",
-          "JobItemType": "Configuration",
-          "Label": "Customer configuration",
-          "LineNum": 3,
-          "Quantity": 1
-        }
-      ]
     }
   ],
-  "totalCount": 25
+  "totalCount": 20
 }
