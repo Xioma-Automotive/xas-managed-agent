@@ -11,12 +11,14 @@ Two things this guards:
 """
 
 import json
+from dataclasses import replace
 from datetime import date
 
 from xas_allocation.session import (
     bump_candidates,
     discrepancy_report,
     exclusion_note,
+    plan_rows,
     planner_report,
     repair_and_report,
     run_cycle,
@@ -322,3 +324,102 @@ def test_the_fleet_wide_authorisation_is_said_in_plain_words():
     low = report.lower()
     leaked = [t for t in JARGON if t.lower() in low]
     assert not leaked, f"solver jargon leaked into planner reply: {leaked}"
+
+
+def _named(snap: Snapshot, names: dict[str, str]) -> Snapshot:
+    """The same book with a client on each order — one client holding two of them,
+    which is the case the agent has to group rather than treat as one order."""
+    return Snapshot(
+        orders=[replace(o, customer=names.get(o.key, "")) for o in snap.orders],
+        vehicles=snap.vehicles,
+        allocations=snap.allocations,
+        disruption=snap.disruption,
+        now=snap.now,
+    )
+
+
+NAMES = {"MOV": "Delek Motors Fleet", "NEAR": "Delek Motors Fleet", "KEPT": "Shira Peretz"}
+
+
+def test_every_planner_facing_table_names_the_client():
+    """The planner is asked which clients should come first, so they must be able
+    to read the client off the tables they are answering from — the late list,
+    what moved, and the call list. An id-only table forces them to look the name
+    up in another system, which is where a wrong order gets prioritised."""
+    # NEAR is deliberately left unnamed and it is late, so it appears in both
+    # tables: an order with no client must render a dash, never an empty cell,
+    # which reads as a broken table rather than as missing data.
+    snap = _named(_snapshot(), {"MOV": "Delek Motors Fleet", "KEPT": "Shira Peretz"})
+    cyc = run_cycle(snap)
+
+    for table in (discrepancy_report(snap), planner_report(snap, cyc.chosen)):
+        assert "| Customer |" in table
+        assert "Delek Motors Fleet" in table
+        assert "| — |" in table
+
+
+def test_the_client_is_in_the_plan_file_and_the_bump_list():
+    """plan.json is where every follow-up is answered from, so "which of Delek's
+    orders moved?" has to be a read of the file, not a re-derivation. And the bump
+    list is what the agent asks WITH — the planner cannot judge a displacement
+    without knowing whose order it is."""
+    snap = _named(_snapshot(), NAMES)
+    cyc = run_cycle(snap)
+    rows = plan_rows(snap, cyc.chosen)
+    by_order = {r["order"]: r for r in rows}
+    assert by_order["MOV"]["customer"] == "Delek Motors Fleet"
+    assert by_order["NEAR"]["customer"] == "Delek Motors Fleet"
+    # unnamed orders are represented, not dropped
+    assert by_order["UT"]["customer"] == ""
+    # one client, two orders: grouping is the agent's job and the data supports it
+    assert sum(1 for r in rows if r["customer"] == "Delek Motors Fleet") == 2
+
+    for cand in bump_candidates(snap, cyc.chosen):
+        assert "customer" in cand
+
+
+def test_the_steering_summary_still_renders_a_may_move_filter():
+    """Regression guard: the client-name helper was briefly named `_who` too and
+    shadowed the filter renderer, so any turn with `may_move.only` set would have
+    crashed on the headline — a path no test covered."""
+    snap = _named(_snapshot(), NAMES)
+    override = {"may_move": {"only": {"orders": ["MOV"]}, "also": True}}
+    head = planner_report(snap, run_cycle(snap, override).chosen, override).splitlines()[0]
+    assert "working only MOV" in head
+    assert "bumping" in head
+
+
+# --- The planner channel -----------------------------------------------------
+# `web.py` drops every builtin tool result, so a report printed in the sandbox
+# reaches nobody. Text inside these markers is forwarded to the planner's screen,
+# which is what stops the agent retyping every table into its own reply.
+
+
+def test_show_wraps_text_and_planner_span_takes_it_back_out():
+    from xas_allocation.planner_channel import planner_span, show
+
+    wrapped = show("**Done** — 3 of 4 fixed.")
+    assert planner_span(wrapped) == "**Done** — 3 of 4 fixed."
+
+
+def test_planner_span_ignores_output_that_was_never_marked():
+    from xas_allocation.planner_channel import planner_span
+
+    assert planner_span("Successfully installed ortools-9.15.6755") is None
+    assert planner_span("") is None
+
+
+def test_planner_span_keeps_the_markdown_table_intact():
+    from xas_allocation.planner_channel import planner_span, show
+
+    body = planner_span(show(repair_and_report(_snapshot())))
+    assert body is not None
+    assert "| Order | Customer | Model |" in body
+    assert "<<<" not in body
+
+
+def test_show_survives_stdout_noise_around_the_span():
+    from xas_allocation.planner_channel import planner_span, show
+
+    printed = "WARNING: pip as root\n" + show("the table") + "\nwrote plan.json"
+    assert planner_span(printed) == "the table"
