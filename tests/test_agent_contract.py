@@ -636,4 +636,3 @@ def test_reporting_skill_establishes_before_it_narrows():
     assert "carries NO information" in skill
     assert "ONE control call" in skill
     assert "get_account_list" in skill, "a fresh name resolves as an account"
-

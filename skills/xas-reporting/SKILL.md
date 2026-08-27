@@ -153,12 +153,15 @@ Other recipes:
 
 ## Getting the number — a count, or the cards
 
-**Probe once, then answer.** Send the filter with `paging: {"count": 1}` and the
-key alone in `fields`. One cheap row tells you two things you cannot know in
-advance: `totalCount` — how many MATCHED the filter, not how many came back in the
-page — and which fields this data actually carries, since `fields` is silent about
-the ones it does not return. Both decide the real call, so probe before you shape
-it.
+**Probe once, then answer.** Send the filter with `paging: {"count": 1}` and, in
+`fields`, the columns you are CONSIDERING. One cheap row answers two things you
+cannot know in advance: `totalCount` — how many MATCHED the filter, not how many
+came back in the page — and which of those columns this data actually carries,
+since a field the tool does not return is dropped in silence. Both shape the real
+call, so probe before you shape it. (A field you did not ask for tells you nothing:
+the probe reveals only the columns it named.)
+
+A pure count question needs no columns at all — ask for the key alone.
 
 Then, with the count in hand:
 
@@ -190,7 +193,8 @@ Every row sends `fields`. See below for why, and what to put in it.
 
 | Goal | Call |
 | --- | --- |
-| The probe, and any count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
+| A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
+| A probe before asking for cards | the same call, `fields:` the columns you are considering |
 | Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
 | Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
