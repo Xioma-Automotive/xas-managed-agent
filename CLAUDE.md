@@ -227,6 +227,28 @@ XAS endpoint and its credential never touch the sandbox.
   `time_scale_of` / `not_before_for` are gone with them; so are `Order.priority`
   and the three history fields. Do not reinstate a smaller version of any of it —
   the register (`decisions.py`) keeps each one RETIRED with what went wrong.
+- **No repair without asking the planner what matters first.** Added 2026-08-27:
+  the allocation skill gates every solve behind one question — which orders or
+  CLIENTS count for more, which must keep the car they hold, anything else that
+  should hold —
+  asked AFTER the discrepancy report and BEFORE any plan is offered. Solving
+  first and asking after is the failure it prevents: a plan on the table is an
+  anchor, and the planner corrects it instead of stating their own preferences.
+  "Fix it" is a request for a repair, not an answer; "nothing special" IS an
+  answer and may never be assumed. It is stated twice on purpose — the skill's
+  own section and a prompt hard rule, because the skill body can be summarised —
+  and pinned by two tests in `tests/test_agent_contract.py`. Nothing structural
+  can force an ask, so the prose is the whole mechanism.
+- **The client's name is a LABEL, and it is the only thing the planner steers by
+  that the solver cannot see.** `customer.name` reaches `Order.customer`, the
+  three planner-facing tables, the bump list and `plan.json` (2026-08-27), so the
+  agent can group orders by client and answer "which are Delek's". Nothing reads
+  it — not eligibility, not cost, not a filter: the `customers` filter dimension
+  was removed the same day and stays gone. The consequence is the agent's job:
+  every lever names ORDER IDS, so a client instruction must be resolved to ALL of
+  that client's orders and the ids confirmed back. Resolve two of three and the
+  client is half-prioritised with nothing to catch it. The names are also
+  ASSIGNED, not the vendor's — see the carve notes below.
 - **`may_move` precedence is part of the contract: never beats only beats also.**
   `only` bounds the WHOLE turn (including anything `also` authorised) and NARROWS
   the default rather than replacing it — the `scope` key it replaced replaced the
@@ -267,12 +289,29 @@ XAS endpoint and its credential never touch the sandbox.
   `vehicles.csv` + a `scenario.json` sidecar, carved out of the real export by
   `scenario_engine/real_*.py`. Editing one by hand is editing build output — the
   next carve overwrites it. Change a scenario by re-running the script or its
-  knobs, never the CSVs. The sidecar exists because the pull date has no column
+  knobs, never the CSVs. As of 2026-08-27 all three are **10-order books** and a
+  bare run of each script reproduces the committed files exactly — the prompt
+  defaults ARE the carve (8/0/2, 0/8/2, 4/4/2 by no-car / late / on-time). The sidecar exists because the pull date has no column
   and cannot be the clock: `datasource.scenario_now` reads it, `XAS_PULL_NOW`
   overrides it. The fabricated `scenario_engine/generate.py` world and the two
   `data/mcp-*.json` payloads it authored were deleted on 2026-08-27 — with the
   export as the only source there is nothing for an invented vocabulary to be
   substitutable for, and `data/pull.json` / `data/baseline.json` went with them.
+- **A book is THREE classes, and the on-time ones are a SHARE, not a remainder.**
+  Unallocated, late, and allocated-and-on-time — `--on-time-pct` (20% by default)
+  sets the third as a share of the whole book, so the book SIZE follows from the
+  disturbance counts (`--empty 4 --late 4` at 20% is 10 orders) and the car subset
+  follows from the book. `--subset` is gone with that (2026-08-27): asking for
+  both a car count and an order mix let the two disagree. The on-time orders are
+  the control group — with every order in the book needing something, a plan that
+  moves everything cannot be told from one that moves only what it should. Two
+  traps. The draw takes only orders that are ACTUALLY on time: the export ships
+  256 already-late orders, and drawing the remainder at random folded some in, so
+  `--late 100` reported ~124 and the share was a lie; `carve` now re-measures the
+  finished files and RAISES if one got in. And a mostly-unallocated book forces
+  `--available-pct` HIGH — every emptied order's car is free by construction, so 8
+  emptied of a 10-order book cannot sit under 80% — which is why the unallocated
+  scenario carves at 85% and the error names the floor.
 - **In the real export, a car's status IS its allocation state.** `data/vehicles.csv`
   + `data/orders.csv` (3523 cars, 1641 orders) hold a perfect 1:1 matching: every
   `Dealer Order Confirmation` (1380) and `Dealer Reservation` (261) car is claimed
@@ -288,7 +327,14 @@ XAS endpoint and its credential never touch the sandbox.
   cars appear in every stage), the order row itself in the delay scenario, and the
   order's colour, which the export copies from the assigned car (so re-matching on
   colour is circular — 13 of 66 sales models exist in more than one). A freed car's
-  status keeps its REAL trailing space, `'Available For Sale '`. Two traps: only an
+  status keeps its REAL trailing space, `'Available For Sale '`. `customer.name`
+  is the one column that is NOT the vendor's export (added 2026-08-27): 30
+  customers assigned at random, seeded, so the book has someone to name. It rides
+  through the carve because the header is copied, and since 2026-08-27 it also
+  rides through `datasource.translate` (as `Customer`) into `Order.customer`, the
+  discrepancy and change tables, the bump list and `plan.json`. So every client
+  name a planner sees is ASSIGNED, not the dealer's own — real names arrive with
+  real dealer data, and nothing about the plan changes when they do. Two traps: only an
   INBOUND car can be delayed (1727 of 3523 have already arrived; slipping one
   rewrites history, so candidates are the 694 inbound-and-on-time orders), and the
   export already ships 256 LATE orders, so a subset inherits some and the late
@@ -330,11 +376,11 @@ XAS endpoint and its credential never touch the sandbox.
 - **Everything the filter drops is counted, and the count must be reported.**
   `meta.excluded` carries the funnel by reason and `session.exclusion_note` turns
   it into the first thing the planner reads. A plan over a survivor presented as
-  the whole book is the worst thing this pipeline can do. On the three scenarios
-  nothing drops but unwanted models (13 of 400 cars in the mixed one), which is
-  what makes the OTHER half of that note load-bearing: it also names the orders
-  **holding no car** — 50 of 290 mixed, 7 of 7 in the unallocated carve, where
-  "no orders are late" on its own would read as "nothing to do".
+  the whole book is the worst thing this pipeline can do. On the three 10-order
+  scenarios nothing drops at all — the carve already prunes to the models in play
+  — which is what makes the OTHER half of that note load-bearing: it also names
+  the orders **holding no car** — 4 of 10 mixed, 8 of 10 in the unallocated carve,
+  where "no orders are late" on its own would read as "nothing to do".
 - **The pull mounts files, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
   context. So the tool returns only a summary + a `flatten` command; the rows
@@ -342,8 +388,9 @@ XAS endpoint and its credential never touch the sandbox.
   `flatten` reads them there — nothing dumps ~100KB of JSON into the transcript.
   The scenario scripts' *code* stays out of the sandbox; only the translated
   *output* travels in. The summary carries counts, the scenario name, the drop
-  funnel and the min/median/max days late — no rows, and no customer map, because
-  there are no customers.
+  funnel and the min/median/max days late — no rows, and no customer map: the
+  client's name rides on the order rows in the mounted file, so there is nothing
+  for a separate map to key.
 - **`flatten_command` searches from `.`/`/workspace`, never from `/`.** The solver
   lands wherever the platform puts skills, so the command self-locates
   `xas_allocation/flatten.py` — but bounded to the sandbox tree. An unbounded

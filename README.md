@@ -149,20 +149,33 @@ uv run python -m scenario_engine.real_delayed       # orders whose car turned la
 uv run python -m scenario_engine.real_mixed         # both, competing for one pool
 ```
 
-Each asks the same knobs — how many orders to disturb, how many *further* cars to
-free by deleting an allocation (those orders leave the book, so the pool gains
-slack), the subset size, the available share, and how many sales models to narrow
-to — and writes `data/scenario-{unallocated,delayed,mixed}/{orders,vehicles}.csv`
-in the export's own shape. The first two are the mixed one with a count pinned to
-zero. `real_delayed`/`real_mixed` add `--days-late` and can only slip a car that is
-still inbound. Every knob is a flag too, and one `--seed` makes a run reproducible.
+Every book they cut has **three classes of order** and they differ only in the
+mix: orders with no car, orders whose car lands late, and orders that are
+allocated and on time. The third is a *share* (`--on-time-pct`, 20% by default)
+rather than a count, because it is the control group — what a plan leaves alone is
+only readable if some orders needed nothing. It also fixes the scale: 8 disturbed
+orders at a 20% share is a 10-order book, and the car subset follows from the
+book, so neither size is a knob.
 
-Two things worth knowing before picking knobs: the export already ships 256 late
-orders, so any subset inherits some and every run breaks the late count into
-"delayed here / already late / on time"; and because eligibility is exact
-sales-model equality across 66 models, a *small* subset needs `--models` to pose
-any choice at all — the available percentage cannot fix 0.9 cars per model.
-`COMMANDS.md` has every flag and the numbers behind that.
+The rest of the knobs: how many orders to disturb, how far past the promise
+(`--days-late`, delayed/mixed only, and only an inbound car can slip), how many
+*further* cars to free by deleting an allocation (those orders leave the book, so
+the pool gains slack), the available share of the cars, and how many sales models
+to narrow to. Each writes
+`data/scenario-{unallocated,delayed,mixed}/{orders,vehicles}.csv` in the export's
+own shape. The first two are the mixed one with a count pinned to zero. Every
+knob is a flag too, and one `--seed` makes a run reproducible.
+
+Two things worth knowing before picking knobs. The export already ships 256 late
+orders, so the on-time draw takes only orders that really are on time — otherwise
+the share is a lie and `--late 100` comes back as 124; every run re-measures the
+finished files and stops if one slipped in. And because eligibility is exact
+sales-model equality across 66 models, a *small* book needs `--models` (default 2)
+to pose any choice at all — the available percentage cannot fix 0.9 cars per
+model. `COMMANDS.md` has every flag and the numbers behind that.
+
+As committed, all three are **10-order books**: 8 with no car / 0 late / 2 on time,
+0 / 8 / 2, and 4 / 4 / 2. A bare run of each script reproduces exactly that.
 
 These directories ARE the pull as of 2026-08-27: `datasource.translate` reads
 them and the fabricated world that used to stand in for them is gone. Each also
@@ -173,7 +186,8 @@ a wall clock would make static files mean something new tomorrow.
 all), the data-prep flow chart, the churn-price frontier, the hard-constraint
 self-check and the finished planner report — first for a base repair, then after
 three steering turns (mark an order urgent, narrow to one model, hold changes
-down). The three scenarios are committed, so nothing needs re-carving.
+down) — and the two on-time orders visibly stay put through all four. The three
+scenarios are committed, so nothing needs re-carving.
 
 ## Run it as a Managed Agent (Anthropic-hosted)
 

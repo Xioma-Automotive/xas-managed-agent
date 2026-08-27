@@ -201,7 +201,10 @@ def _matches(order: Order, filt: dict) -> bool:
     Three dimensions: `models` (exact sales-model code), `orders` (order ids), and
     a `from_date`/`to_date` range against the PROMISED date — "just fix August" is
     about what was promised in August, not what arrives then. The `customers`
-    dimension went on 2026-08-27: the export has no customer column. Used by both
+    dimension went on 2026-08-27 and stays gone: the client's name is carried as a
+    LABEL (``Order.customer``) for display and for the agent to group by, never as
+    a filter — every lever names order ids, so a client instruction is resolved to
+    ids before it reaches here. Used by both
     halves of `may_move` that take a filter (`only` and `also`)."""
     models = filt.get("models")
     if models and order.sales_model not in models:

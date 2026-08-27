@@ -262,18 +262,27 @@ def test_the_two_payloads_carry_the_whole_pull_between_them():
 
 
 def test_the_committed_scenarios_are_all_readable_and_solvable_shaped():
-    """The three carves, and the counts each one is supposed to pose."""
+    """The three carves, and the counts each one is supposed to pose.
+
+    Every book is three classes — no car, a late car, a car that arrives on time —
+    and the third is the control group: without it a plan that moves everything
+    cannot be told apart from one that moves only what it should. So each scenario
+    is pinned on all three, not just on the disturbance it is named after.
+    """
     expected = {
-        "scenario-unallocated": {"orders": 7, "holding_no_car": 7, "late": 0},
-        "scenario-delayed": {"orders": 240, "holding_no_car": 0, "late": 124},
-        "scenario-mixed": {"orders": 290, "holding_no_car": 50, "late": 76},
+        "scenario-unallocated": {"orders": 10, "holding_no_car": 8, "late": 0, "on_time": 2},
+        "scenario-delayed": {"orders": 10, "holding_no_car": 0, "late": 8, "on_time": 2},
+        "scenario-mixed": {"orders": 10, "holding_no_car": 4, "late": 4, "on_time": 2},
     }
     assert set(datasource.scenarios()) == set(expected)
     for name, counts in expected.items():
         pull = datasource.get_source(name).pull()
+        no_car = sum(1 for o in pull["orders"] if not o["VehicleCode"])
+        late = len(pull["disruption"]["disrupted_orders"])
         assert len(pull["orders"]) == counts["orders"], name
-        assert sum(1 for o in pull["orders"] if not o["VehicleCode"]) == counts["holding_no_car"]
-        assert len(pull["disruption"]["disrupted_orders"]) == counts["late"], name
+        assert no_car == counts["holding_no_car"], name
+        assert late == counts["late"], name
+        assert len(pull["orders"]) - no_car - late == counts["on_time"], name
 
 
 def test_a_missing_column_raises_and_names_it():
@@ -310,6 +319,40 @@ def test_an_unknown_scenario_is_refused_rather_than_silently_defaulted(monkeypat
 
 def test_census_reads_the_funnel_off_any_pull():
     text = datasource.census(datasource.get_source("scenario-mixed").pull())
-    assert "orders   290 read  ->  290 usable" in text
-    assert "no_order_wants_this_model" in text
-    assert "already late: 76" in text
+    assert "orders   10 read  ->  10 usable" in text
+    assert "holding no car: 4" in text
+    assert "already late: 4" in text
+
+
+def test_the_client_name_survives_into_the_snapshot_as_a_label():
+    """`customer.name` is on every row of the export, and a planner steers by
+    client ("prioritise Delek Motors") long before they steer by id. Carried
+    end to end — pull, then flatten — so the agent can resolve a name to the
+    orders that hold it. A LABEL only: no filter, no price."""
+    pull = datasource.translate(
+        [_order_row(**{"customer.name": " Delek Motors Fleet "})], [_vehicle_row()], now=NOW
+    )
+    assert pull["orders"][0]["Customer"] == "Delek Motors Fleet"
+
+    snap = flatten({"now": pull["now"], "orders": pull["orders"]}, {"vehicles": pull["vehicles"]})
+    assert snap.order_by_key()["500001"].customer == "Delek Motors Fleet"
+
+
+def test_an_order_with_no_client_name_still_allocates():
+    """The column is optional — absent, or blank on a row — because it prices
+    nothing. Dropping such an order would lose real demand over a display field."""
+    pull = datasource.translate([_order_row()], [_vehicle_row()], now=NOW)
+    assert pull["orders"][0]["Customer"] == ""
+    snap = flatten({"now": pull["now"], "orders": pull["orders"]}, {"vehicles": pull["vehicles"]})
+    assert snap.order_by_key()["500001"].customer == ""
+
+
+def test_the_committed_scenarios_carry_client_names():
+    """Guards the real files, not a fixture: a re-carve that dropped the column
+    would leave the skill promising something the data no longer has."""
+    pull = datasource.ScenarioSource(DATA / "scenario-mixed").pull()
+    named = [o for o in pull["orders"] if o["Customer"]]
+    assert named, "the mixed scenario must carry client names"
+    # one client holding several orders is the case the agent must group, not the
+    # exception -- if this ever stops being true the grouping guidance is untested
+    assert len({o["Customer"] for o in named}) < len(named)

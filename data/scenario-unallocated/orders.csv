@@ -1,8 +1,11 @@
-OrderId,vehicleCode,modelId.name,SalesModel,vehicleColor.code,vehicleColor.name,description,,modelId.wrntyLimitationKm,etaDealer
-502642,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-10-07T00:00:00.000Z
-502721,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-09-30T00:00:00.000Z
-502753,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,,,,2026-09-12T00:00:00.000Z
-503045,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray,Phantom gray,,,,2026-09-20T00:00:00.000Z
-503515,,OMODA9 PHEV Premium,T6480J1BXLX0018,Khaki white,Khaki white,,,,2026-10-17T00:00:00.000Z
-503637,,OMODA9 PHEV Premium,T6480J1BXLX0018,Khaki white,Khaki white,,,,2026-09-27T00:00:00.000Z
-504004,,OMODA9 PHEV Premium,T6480J1BXLX0018,Khaki white,Khaki white,,,,2026-10-08T00:00:00.000Z
+OrderId,vehicleCode,modelId.name,SalesModel,vehicleColor.code,vehicleColor.name,description,,modelId.wrntyLimitationKm,etaDealer,customer.name
+502654,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,,,,2026-09-20T00:00:00.000Z,Ronen Katz
+502685,1003471,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003471 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-10-08T00:00:00.000Z,Sivan Azoulay
+502749,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,,,,2026-09-28T00:00:00.000Z,Dana Shapira
+502933,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-08-09T00:00:00.000Z,Albar Vehicle Finance
+503081,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-10-10T00:00:00.000Z,Nadav Halevi
+503337,1003459,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003459 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-09-24T00:00:00.000Z,Delek Motors Fleet
+503500,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-09-28T00:00:00.000Z,Sivan Azoulay
+503659,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black,Carbon crystal black,,,,2026-09-21T00:00:00.000Z,Noa Bar-On
+503670,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray,Phantom gray,,,,2026-09-25T00:00:00.000Z,Reut Amsalem
+503811,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,,,,2026-10-13T00:00:00.000Z,Noa Bar-On

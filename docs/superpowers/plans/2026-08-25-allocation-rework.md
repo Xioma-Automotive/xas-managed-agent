@@ -96,8 +96,9 @@ data actually uses, and the MCP path translates into it.** That translation live
 Add this one parameterised builder to `tests/test_report.py` in Task 1 and reuse it everywhere after. It is the only new helper this plan introduces.
 
 ```python
-def _book(*, orders: int, allocated: int, late: int, promise_days_out: int = 60,
-          spare_cars: int = 0) -> Snapshot:
+def _book(
+    *, orders: int, allocated: int, late: int, promise_days_out: int = 60, spare_cars: int = 0
+) -> Snapshot:
     """A book of `orders` orders, `allocated` of which hold a car, `late` of those
     on a car that lands past the promise, plus `spare_cars` free cars.
 
@@ -114,16 +115,27 @@ def _book(*, orders: int, allocated: int, late: int, promise_days_out: int = 60,
         if i < allocated:
             car = f"CAR-{i}"
             arrives = promised + timedelta(days=8) if i < late else promised - timedelta(days=7)
-            units.append(Unit(vehicle_id=car, vehicle_classification="Vehicle",
-                              sales_model="SM1", available_by=arrives,
-                              status="Dealer Order Confirmation"))
+            units.append(
+                Unit(
+                    vehicle_id=car,
+                    vehicle_classification="Vehicle",
+                    sales_model="SM1",
+                    available_by=arrives,
+                    status="Dealer Order Confirmation",
+                )
+            )
             incumbent[oid] = car
     for j in range(spare_cars):
-        units.append(Unit(vehicle_id=f"SPARE-{j}", vehicle_classification="Vehicle",
-                          sales_model="SM1", available_by=promised - timedelta(days=14),
-                          status="Available For Sale"))
-    return Snapshot(orders=book, units=units, incumbent=incumbent,
-                    disruption={}, now=NOW, meta={})
+        units.append(
+            Unit(
+                vehicle_id=f"SPARE-{j}",
+                vehicle_classification="Vehicle",
+                sales_model="SM1",
+                available_by=promised - timedelta(days=14),
+                status="Available For Sale",
+            )
+        )
+    return Snapshot(orders=book, units=units, incumbent=incumbent, disruption={}, now=NOW, meta={})
 ```
 
 `_book` above is written against the FINAL shapes (`order_id`, `eta_dealer`, `available_by`, `status`, no dealer, no priority). When you add it in Task 1, write it with **that task's** current names — `so_id=`/`line=`, `customer=`, `priority=`, `delivery_date=`, `eta_dealer=` on the unit, no `status=` — and let Tasks 5, 6 and 7 migrate it with everything else.
@@ -141,13 +153,36 @@ Where a task below writes `_snapshot(orders=20, ...)` or a named variant, read i
 Task 7's `_write`, `_order` and `_car` are new to `tests/test_read_export.py`:
 
 ```python
-ORDER_COLS = ["OrderId", "vehicleCode", "modelId.name", "SalesModel",
-              "vehicleColor.code", "vehicleColor.name", "description", "",
-              "modelId.wrntyLimitationKm", "etaDealer"]
-VEHICLE_COLS = ["_id", "vehicleCode", "vin", "modelId.code", "modelId.name", "SalesModel",
-                "inventoryStatus", "inv status label", "vehicleColor.code",
-                "vehicleColor.name", "status.code", "status.name", "description", "",
-                "availableBy", "modelId.wrntyLimitationKm"]
+ORDER_COLS = [
+    "OrderId",
+    "vehicleCode",
+    "modelId.name",
+    "SalesModel",
+    "vehicleColor.code",
+    "vehicleColor.name",
+    "description",
+    "",
+    "modelId.wrntyLimitationKm",
+    "etaDealer",
+]
+VEHICLE_COLS = [
+    "_id",
+    "vehicleCode",
+    "vin",
+    "modelId.code",
+    "modelId.name",
+    "SalesModel",
+    "inventoryStatus",
+    "inv status label",
+    "vehicleColor.code",
+    "vehicleColor.name",
+    "status.code",
+    "status.name",
+    "description",
+    "",
+    "availableBy",
+    "modelId.wrntyLimitationKm",
+]
 
 
 def _order(oid, car="", model="SM1", eta="2026-10-01"):
@@ -155,8 +190,12 @@ def _order(oid, car="", model="SM1", eta="2026-10-01"):
 
 
 def _car(code, model="SM1", status="Dealer Order Confirmation", available_by="2026-09-20"):
-    return {"vehicleCode": code, "SalesModel": model, "status.name": status,
-            "availableBy": available_by}
+    return {
+        "vehicleCode": code,
+        "SalesModel": model,
+        "status.name": status,
+        "availableBy": available_by,
+    }
 
 
 def _write(tmp_path, orders, vehicles):
@@ -167,8 +206,10 @@ def _write(tmp_path, orders, vehicles):
     cares about would not prove that.
     """
     paths = []
-    for name, cols, rows in (("orders.csv", ORDER_COLS, orders),
-                             ("vehicles.csv", VEHICLE_COLS, vehicles)):
+    for name, cols, rows in (
+        ("orders.csv", ORDER_COLS, orders),
+        ("vehicles.csv", VEHICLE_COLS, vehicles),
+    ):
         path = tmp_path / name
         with path.open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\r\n")
@@ -543,12 +584,11 @@ In `overrides_schema.json`, replace `boosts` with:
 In `session.py::_steering_summary`, replace the `boosts` branch:
 
 ```python
-    priority = override.get("priority") or []
-    if priority:
-        parts.append(
-            "raised priority on "
-            + ", ".join(f"{p.get('order')} ({p.get('step')})" for p in priority)
-        )
+priority = override.get("priority") or []
+if priority:
+    parts.append(
+        "raised priority on " + ", ".join(f"{p.get('order')} ({p.get('step')})" for p in priority)
+    )
 ```
 
 Leave the `bump` branch alone — it is still a lever.
@@ -606,7 +646,9 @@ In `session.py`: delete `_cid_to_name` and its argument through `_steering_summa
 Keep the function and its purpose. Replace the priority rank with the two things left that matter — how much the candidate's own promise would suffer, and whether the planner has already raised its priority:
 
 ```python
-def bump_candidates(snapshot: Snapshot, result: SolveResult, override: dict | None = None) -> list[dict]:
+def bump_candidates(
+    snapshot: Snapshot, result: SolveResult, override: dict | None = None
+) -> list[dict]:
     """Orders holding a car that would rescue a still-late order, so the agent can
     ask with a concrete list rather than in the abstract.
 
@@ -648,8 +690,7 @@ git commit -m "snapshot: drop the dealer; bump candidates rank by slack, not pri
 def test_an_orders_key_is_its_OrderId_verbatim():
     """The export keys an order by OrderId with no line level. A composed key like
     '502375-0' is not an id the planner can look up, and it lands in the report."""
-    order = Order(order_id="502375", sales_model="T6480J1BXLX0018",
-                  eta_dealer=date(2026, 10, 1))
+    order = Order(order_id="502375", sales_model="T6480J1BXLX0018", eta_dealer=date(2026, 10, 1))
     assert order.key == "502375"
 ```
 
@@ -733,8 +774,11 @@ def test_a_car_no_order_wants_is_pruned_and_counted(tmp_path):
     """`datasource.map_response` already prunes to the reachable sub-problem; the
     CSV reader must too, or `exclusion_note` loses the 'X of Y cars match something
     someone ordered' line. 368 of the export's 3523 cars are in this state."""
-    paths = _write(tmp_path, orders=[_order("1", model="SM1")],
-                   vehicles=[_car("C1", model="SM1"), _car("C2", model="NOBODY-WANTS")])
+    paths = _write(
+        tmp_path,
+        orders=[_order("1", model="SM1")],
+        vehicles=[_car("C1", model="SM1"), _car("C2", model="NOBODY-WANTS")],
+    )
     snap = read_export.read_pair(*paths)
     assert [u.vehicle_id for u in snap.units] == ["C1"]
     assert snap.meta["excluded"]["units_seen"] == 2
@@ -744,8 +788,9 @@ def test_a_car_no_order_wants_is_pruned_and_counted(tmp_path):
 def test_an_available_car_that_an_order_still_claims_is_reported(tmp_path):
     """G15: a car cannot be both free supply and someone's incumbent. The scenario
     scripts never emit this; the live export is not guaranteed."""
-    paths = _write(tmp_path, orders=[_order("1", car="C1")],
-                   vehicles=[_car("C1", status="Available For Sale")])
+    paths = _write(
+        tmp_path, orders=[_order("1", car="C1")], vehicles=[_car("C1", status="Available For Sale")]
+    )
     snap = read_export.read_pair(*paths)
     assert snap.incumbent == {}
     assert "C1" in str(snap.meta["conflicts"])
@@ -759,16 +804,22 @@ def test_an_order_naming_a_missing_car_loses_its_incumbent_under_the_known_bucke
 
 
 def test_lateness_is_derived_from_the_incumbent_against_the_promise(tmp_path):
-    paths = _write(tmp_path, orders=[_order("1", car="C1", eta="2026-10-01")],
-                   vehicles=[_car("C1", available_by="2026-10-09")])
+    paths = _write(
+        tmp_path,
+        orders=[_order("1", car="C1", eta="2026-10-01")],
+        vehicles=[_car("C1", available_by="2026-10-09")],
+    )
     assert read_export.read_pair(*paths).disruption["disrupted_orders"] == ["1"]
 
 
 def test_the_same_two_files_read_twice_give_an_identical_snapshot(tmp_path):
     """The invariant. A dict-ordering or set-iteration leak here breaks every
     reproducibility claim downstream."""
-    paths = _write(tmp_path, orders=[_order(str(i), car=f"C{i}") for i in range(20)],
-                   vehicles=[_car(f"C{i}") for i in range(20)])
+    paths = _write(
+        tmp_path,
+        orders=[_order(str(i), car=f"C{i}") for i in range(20)],
+        vehicles=[_car(f"C{i}") for i in range(20)],
+    )
     a = json.dumps(read_export.read_pair(*paths).as_dict(), sort_keys=True)
     b = json.dumps(read_export.read_pair(*paths).as_dict(), sort_keys=True)
     assert a == b
@@ -956,8 +1007,12 @@ def read_pair(
     if conflicts:
         meta["conflicts"] = conflicts
     return Snapshot(
-        orders=orders, units=units, incumbent=incumbent,
-        disruption=disruption, now=at, meta=meta,
+        orders=orders,
+        units=units,
+        incumbent=incumbent,
+        disruption=disruption,
+        now=at,
+        meta=meta,
     )
 ```
 
@@ -1079,15 +1134,31 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
     for oid, o in sorted(orders.items()):
         uid = snapshot.incumbent.get(oid)
         if uid is None:
-            out.append(Discrepancy(order_key=oid, sales_model=o.sales_model, vehicle_id=None,
-                                   promised=o.eta_dealer, now_arriving=None, days_late=0,
-                                   shape="no_car"))
+            out.append(
+                Discrepancy(
+                    order_key=oid,
+                    sales_model=o.sales_model,
+                    vehicle_id=None,
+                    promised=o.eta_dealer,
+                    now_arriving=None,
+                    days_late=0,
+                    shape="no_car",
+                )
+            )
             continue
         late = tardiness(o, units[uid])
         if late > 0:
-            out.append(Discrepancy(order_key=oid, sales_model=o.sales_model, vehicle_id=uid,
-                                   promised=o.eta_dealer, now_arriving=units[uid].available_by,
-                                   days_late=late, shape="late"))
+            out.append(
+                Discrepancy(
+                    order_key=oid,
+                    sales_model=o.sales_model,
+                    vehicle_id=uid,
+                    promised=o.eta_dealer,
+                    now_arriving=units[uid].available_by,
+                    days_late=late,
+                    shape="late",
+                )
+            )
     out.sort(key=lambda d: (d.shape, -d.days_late, d.order_key))
     return out
 ```

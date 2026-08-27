@@ -13,10 +13,19 @@ of it in a different way:
   ``real_mixed``        both at once; the other two are this one with a count
                         pinned to zero.
 
-Both take the same four knobs (how many orders to disturb, how many extra cars to
-free, subset size, available share) and emit the export's own CSV shape. This
-module holds what they agree on: the export's vocabulary, the CSV I/O, the pool
-composition arithmetic and the feasibility report.
+Every book has THREE classes of order and the scenarios differ only in the mix:
+unallocated, late, and allocated-and-on-time. The last is a share
+(``--on-time-pct``, 20% by default) rather than a count, because it is the
+control group: what a plan does NOT touch is only readable if some orders needed
+nothing. The book's SIZE follows from the mix — 8 disturbed orders at a 20% share
+is a 10-order book — and the car subset follows from the book, so neither is
+asked for.
+
+All three take the same knobs (how many orders to disturb, how far past the
+promise, how many extra cars to free, the on-time share, the available share) and
+emit the export's own CSV shape. This module holds what they agree on: the
+export's vocabulary, the CSV I/O, the pool composition arithmetic and the
+feasibility report.
 """
 
 from __future__ import annotations
@@ -153,40 +162,56 @@ class Export:
 # --- pool composition --------------------------------------------------------
 
 
+def on_time_share(disturbed: int, on_time_pct: float) -> int:
+    """How many orders ride in UNTOUCHED: allocated, on time, nothing done to them.
+
+    ``on_time_pct`` is their share of the WHOLE book, so 20% on 8 disturbed orders
+    is 2 untouched and a book of 10 — the book SIZE follows from the disturbance
+    counts rather than being asked for separately.
+
+    They are the scenario's control group. Without them every order in the book
+    needs something, and a plan that moves everything cannot be told apart from
+    one that moves only what it should.
+    """
+    if not 0 <= on_time_pct < 100:
+        raise SystemExit(f"{on_time_pct}% is not a share of a book (0 <= pct < 100).")
+    return round(disturbed * on_time_pct / (100 - on_time_pct))
+
+
 def pool_split(
     *,
-    subset: int,
-    available_pct: float,
+    held: int,
     freed: int,
+    available_pct: float,
     already_available: int,
-    allocated_orders: int,
 ) -> tuple[int, int]:
-    """Split the subset into (cars padded in from the already-available stock,
-    cars left allocated). ``freed`` is however many cars this scenario releases by
-    deleting an allocation — they are the FIRST cars counted toward the available
-    share, and the rest is padding."""
-    free_target = round(subset * available_pct / 100)
+    """The car side: (cars padded in from the already-available stock, cars in the
+    subset in total).
+
+    ``held`` cars belong to orders that keep them — the delayed ones plus the
+    untouched ones. ``freed`` is however many cars this scenario releases by
+    deleting an allocation; they are the FIRST cars counted toward the available
+    share, and the rest is padding. The subset SIZE is derived, not asked for: a
+    car no order in the book holds is in the subset only to be supply.
+    """
+    if not 0 <= available_pct < 100:
+        raise SystemExit(f"{available_pct}% is not a share of a subset (0 <= pct < 100).")
+    subset = round(held / (1 - available_pct / 100)) if held else freed
+    free_target = subset - held
     pad = free_target - freed
-    keep_allocated = subset - free_target
 
     if pad < 0:
         raise SystemExit(
-            f"this scenario frees {freed} cars, but {available_pct}% of {subset} is only "
-            f"{free_target}. Raise the subset size or the available percentage."
+            f"this scenario frees {freed} cars, and {available_pct}% of the {subset}-car subset "
+            f"its book implies is only {free_target}. Raise the available percentage, free "
+            f"fewer, or keep more orders."
         )
     if pad > already_available:
         raise SystemExit(
             f"reaching {available_pct}% of {subset} needs {pad} cars that are already "
             f"available, and only {already_available} exist. Lower the percentage, or free more."
         )
-    if keep_allocated < 0:
-        raise SystemExit(f"{available_pct}% is not a share of a subset.")
-    if freed + keep_allocated > allocated_orders:
-        raise SystemExit(
-            f"this scenario needs {freed + keep_allocated} allocated orders "
-            f"({freed} released + {keep_allocated} left alone), only {allocated_orders} exist."
-        )
-    return pad, keep_allocated
+    return pad, subset
 
 
 def delayable(data: Export) -> list[dict[str, str]]:
@@ -198,6 +223,14 @@ def delayable(data: Export) -> list[dict[str, str]]:
         for o in data.allocated
         if day(data.car(o)["availableBy"]) > CAPTURED and slack_days(o, data.car(o)) >= 0
     ]
+
+
+def on_time_orders(data: Export) -> list[dict[str, str]]:
+    """Allocated orders whose car lands BY the promise — the only ones the
+    untouched draw may take. The export ships 256 already-late orders, so drawing
+    the remainder at random used to fold some of them into the on-time share and
+    the reported late count came out above the one that was asked for."""
+    return [o for o in data.allocated if slack_days(o, data.car(o)) >= 0]
 
 
 def focus(data: Export, models: int) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -224,15 +257,21 @@ def carve(
     late: int,
     days_late: tuple[int, int],
     extra_free: int,
-    subset: int,
+    on_time_pct: float,
     available_pct: float,
     models: int,
     seed: int,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Cut one scenario. ``empty`` orders lose their car, ``late`` orders keep
-    theirs and have it slipped past the promise, ``extra_free`` more cars are
-    released with their orders dropped from the book. Either disturbance may be 0,
-    which is what makes the single-purpose scripts special cases of this one."""
+    theirs and have it slipped past the promise, ``on_time_pct`` of the book rides
+    in untouched, and ``extra_free`` more cars are released with their orders
+    dropped from the book. Either disturbance may be 0, which is what makes the
+    single-purpose scripts special cases of this one.
+
+    The book is three classes and nothing else — unallocated, late, on time — so
+    its size is ``empty + late`` grossed up by the on-time share, and the car
+    subset follows from that.
+    """
     rng = random.Random(seed)
     allocated, available = focus(data, models)
     if models > 0:
@@ -240,18 +279,13 @@ def carve(
             f"  narrowed to the {models} most-demanded sales models: "
             f"{len(allocated)} allocated orders, {len(available)} available cars"
         )
-    pad, keep_allocated = pool_split(
-        subset=subset,
-        available_pct=available_pct,
+    keep = on_time_share(empty + late, on_time_pct)
+    pad, subset = pool_split(
+        held=late + keep,
         freed=empty + extra_free,
+        available_pct=available_pct,
         already_available=len(available),
-        allocated_orders=len(allocated),
     )
-    if late > keep_allocated:
-        raise SystemExit(
-            f"cannot make {late} orders late: {subset} cars at {available_pct}% available leaves "
-            f"only {keep_allocated} orders allocated to slip."
-        )
     focused_ids = {o["OrderId"] for o in allocated}
     candidates = [o for o in delayable(data) if o["OrderId"] in focused_ids]
     if late > len(candidates):
@@ -260,15 +294,33 @@ def carve(
             f"that is still inbound and currently on time."
         )
 
-    # The delayed orders are drawn from the eligible candidates first; the rest of
-    # the book then fills the subset around them.
+    # The delayed orders are drawn from the eligible candidates first, then the
+    # on-time ones from what is left — and they are drawn from orders that are
+    # ACTUALLY on time, so the share means what it says. The emptied and dropped
+    # orders come from anywhere: they end up holding no car at all.
     slipped = rng.sample(candidates, late)
     slipped_ids = {o["OrderId"] for o in slipped}
-    rest = [o for o in allocated if o["OrderId"] not in slipped_ids]
-    taken = rng.sample(rest, empty + extra_free + keep_allocated - late)
+    intact = [
+        o
+        for o in on_time_orders(data)
+        if o["OrderId"] in focused_ids and o["OrderId"] not in slipped_ids
+    ]
+    if keep > len(intact):
+        raise SystemExit(
+            f"cannot keep {keep} orders on time ({on_time_pct}% of the book): only "
+            f"{len(intact)} allocated orders are on time and not already delayed here."
+        )
+    untouched = rng.sample(intact, keep)
+    spoken = slipped_ids | {o["OrderId"] for o in untouched}
+    rest = [o for o in allocated if o["OrderId"] not in spoken]
+    if empty + extra_free > len(rest):
+        raise SystemExit(
+            f"this scenario needs {empty + extra_free} more allocated orders to release "
+            f"({empty} emptied + {extra_free} dropped from the book), only {len(rest)} are left."
+        )
+    taken = rng.sample(rest, empty + extra_free)
     emptied = taken[:empty]
-    dropped = taken[empty : empty + extra_free]
-    untouched = taken[empty + extra_free :]
+    dropped = taken[empty:]
     padding = rng.sample(available, pad)
 
     slips = {
@@ -293,6 +345,10 @@ def carve(
 
     # Input order preserved on both sides, so the output diffs against the export.
     vehicles = [shape(v) for v in data.vehicles if v["vehicleCode"] in kept_codes]
+    if len(vehicles) != subset:
+        # Every car is held by one order in the book, freed by this scenario, or
+        # padding. A mismatch means two of those sets overlap.
+        raise SystemExit(f"composed {len(vehicles)} cars, the mix implies {subset}.")
     orders = [
         deallocate_order(o) if o["OrderId"] in emptied_ids else o
         for o in data.orders
@@ -305,12 +361,18 @@ def carve(
         f"({100 * available / len(vehicles):.0f}%) = {empty} freed by emptying + {extra_free} extra "
         f"+ {pad} already available"
     )
-    inherited = len(late_orders(orders, vehicles)) - late
     print(
-        f"orders   {len(orders)}  unallocated {empty}  allocated {keep_allocated} "
-        f"({late} delayed here, {inherited} already late in the export, "
-        f"{keep_allocated - late - inherited} on time)  (dropped from the book {extra_free})"
+        f"orders   {len(orders)}  unallocated {empty}  late {late}  on time {keep} "
+        f"({100 * keep / len(orders):.0f}% of the book)  (dropped from the book {extra_free})"
     )
+    inherited = len(late_orders(orders, vehicles)) - late
+    if inherited:
+        # The on-time draw is on-time-only, so this cannot happen — and if it ever
+        # does, the share above is a lie, which is worse than a crash.
+        raise SystemExit(
+            f"{inherited} orders in the book are late that this scenario did not delay; "
+            f"the on-time share is not what it says."
+        )
     return orders, vehicles
 
 
@@ -335,7 +397,8 @@ def late_orders(
 ) -> list[dict[str, str]]:
     """Orders holding a car that lands after the promise — measured on the output,
     not on what a scenario meant to do. The export ships 256 already-late orders,
-    so any subset inherits some whether the scenario delayed anything or not."""
+    and `carve` keeps them out of the on-time draw, so this is the meter that says
+    it worked: it must come back exactly the ``late`` that was asked for."""
     by_code = {v["vehicleCode"]: v for v in vehicles}
     return [
         o
@@ -386,13 +449,18 @@ def base_parser(description: str, default_out: str) -> argparse.ArgumentParser:
         type=int,
         help="further cars freed by deleting an allocation; their orders leave the book",
     )
-    parser.add_argument("--subset", type=int, help="vehicles in the subset")
+    parser.add_argument(
+        "--on-time-pct",
+        type=float,
+        help="share of the order book that rides in untouched — allocated and on time",
+    )
     parser.add_argument("--available-pct", type=float, help="available share of the subset")
     parser.add_argument(
         "--models",
         type=int,
-        help="narrow the whole subset to the N most-demanded sales models (default: all 66). "
-        "Flag only — it is not prompted, since a big subset rarely needs it.",
+        help="narrow the whole subset to the N most-demanded sales models, 0 for all 66 "
+        "(default: 2). Flag only — it is not prompted, but a ten-order book needs it: "
+        "spread over 66 models, most orders see nothing but their own car back.",
     )
     parser.add_argument("--seed", type=int, default=1)
     return parser

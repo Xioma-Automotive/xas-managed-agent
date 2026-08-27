@@ -70,6 +70,9 @@ class Discrepancy:
     promised: date
     now_arriving: date
     days_late: int
+    # The client's name — display only. Defaulted so nothing that builds a
+    # Discrepancy by hand has to know about it.
+    customer: str = ""
 
 
 def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
@@ -89,6 +92,7 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
             promised=orders[oid].delivery_date,
             now_arriving=vehicles[vid].eta_dealer,
             days_late=tardiness(orders[oid], vehicles[vid]),
+            customer=orders[oid].customer,
         )
         for oid, vid in snapshot.allocations.items()
         if tardiness(orders[oid], vehicles[vid]) > 0
@@ -184,11 +188,11 @@ def discrepancy_report(snapshot: Snapshot) -> str:
         f"**A supply delay pushed {len(discs)} order(s) past their promised date.** "
         "A re-allocation may get these back on track:\n"
     )
-    lines.append("| Order | Model | Promised | Now arriving | Late |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("| Order | Customer | Model | Promised | Now arriving | Late |")
+    lines.append("|---|---|---|---|---|---|")
     for x in discs:
         lines.append(
-            f"| {x.order_key} | {x.sales_model} "
+            f"| {x.order_key} | {x.customer or '—'} | {x.sales_model} "
             f"| {date_label(x.promised)} | {date_label(x.now_arriving)} "
             f"| {_dur(x.days_late)} |"
         )
@@ -234,6 +238,7 @@ def bump_candidates(
             if u.eta_dealer <= lo.delivery_date:
                 cands[oid] = {
                     "row": oid,
+                    "customer": o.customer,
                     "model": o.sales_model,
                     "priority": priority.get(oid, DEFAULT_STEP),
                     "vehicle": vid,
@@ -345,7 +350,7 @@ def _dur(days: int) -> str:
 
 def _who(filt: dict) -> str:
     """Whatever a may_move filter names, in the planner's own words. Order ids
-    first, then models — there is no customer dimension since 2026-08-27."""
+    first, then models — there is no customer FILTER since 2026-08-27, only the label."""
     return (
         ", ".join(filt.get("orders") or [])
         or ", ".join(filt.get("models") or [])
@@ -391,6 +396,12 @@ def _result_phrase(order: Order, vehicle) -> str:
 WHY_LATE = "no compatible car free"
 
 
+def _client(order: Order) -> str:
+    """The client's name for a table cell. A dash rather than an empty cell when
+    the order carries no name — a blank reads as a rendering fault."""
+    return order.customer or "—"
+
+
 def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | None = None) -> str:
     """The finished, jargon-free reply for the planner. No churn price, no solver
     internals — headline, what changed (with the actual supply swap), what is
@@ -433,9 +444,10 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     if changed:
         lines.append("\n**What I moved**\n")
         lines.append(
-            "| Order | Model | Was arriving | Now arrives | Promised | New allocation | Result |"
+            "| Order | Customer | Model | Was arriving | Now arrives | Promised "
+            "| New allocation | Result |"
         )
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("|---|---|---|---|---|---|---|---|")
 
         for oid in changed:
             o, was_id, u = orders[oid], allocations.get(oid), vehicles[plan[oid]]
@@ -445,7 +457,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
             alloc = f"`{plan[oid]}`" + (f" (was `{was_id}`)" if was_id else "")
             was = date_label(vehicles[was_id].eta_dealer) if was_id else "—"
             lines.append(
-                f"| {oid} | {o.sales_model} | {was} "
+                f"| {oid} | {_client(o)} | {o.sales_model} | {was} "
                 f"| **{date_label(u.eta_dealer)}** | {date_label(o.delivery_date)} "
                 f"| {alloc} | {res} |"
             )
@@ -454,14 +466,14 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
 
     if still_late or result.unfilled:
         lines.append("\n**Still needs your call**\n")
-        lines.append("| Order | Model | Arrives | Promised | Late | Why |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| Order | Customer | Model | Arrives | Promised | Late | Why |")
+        lines.append("|---|---|---|---|---|---|---|")
 
         for oid in still_late:
             o, u = orders[oid], vehicles[plan[oid]]
             label = oid + (" ↑moved" if oid in moved_and_late else "")
             lines.append(
-                f"| {label} | {o.sales_model} | {date_label(u.eta_dealer)} "
+                f"| {label} | {_client(o)} | {o.sales_model} | {date_label(u.eta_dealer)} "
                 f"| {date_label(o.delivery_date)} | {_dur(tardiness(o, u))} "
                 f"| {WHY_LATE} |"
             )
@@ -469,7 +481,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
         for oid in result.unfilled:
             o = orders[oid]
             lines.append(
-                f"| {oid} | {o.sales_model} | — | {date_label(o.delivery_date)} "
+                f"| {oid} | {_client(o)} | {o.sales_model} | — | {date_label(o.delivery_date)} "
                 "| — | no car at all |"
             )
 
@@ -539,6 +551,7 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
         rows.append(
             {
                 "order": oid,
+                "customer": o.customer,
                 "priority": priority.get(oid, DEFAULT_STEP),
                 "model": o.sales_model,
                 "promised": date_label(o.delivery_date),

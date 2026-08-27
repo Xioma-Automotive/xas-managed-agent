@@ -52,14 +52,17 @@ def date_label(d: date) -> str:
 class Order:
     """One order row — one wanted car, the demand side of the match.
 
-    Three fields, and that is the whole of the demand side. What is NOT here:
+    Three priced fields plus one label, and that is the whole of the demand side.
+    What is NOT here:
 
     * **no priority.** The record's letter was never a planner's decision and the
       export has no such column, so priority is a per-turn LEVER on the override
       (``solver._combined_priority``).
-    * **no customer.** ``orders.csv`` has no customer column, and with priority a
-      per-order lever there was nothing left for it to do (2026-08-27). Steering
-      names order ids.
+    * **no customer DIMENSION.** ``customer`` below is a LABEL: it is carried so
+      an instruction about a client can be resolved to order ids and so the plan
+      can name who each order is for. Nothing reads it — not eligibility, not
+      cost, not a filter (the ``customers`` filter dimension went on 2026-08-27
+      and stays gone). Steering names order ids.
     * **no delay history and no price.** The three escalation fields were read
       only by weight terms deleted on 2026-08-26 and were zero on every real row;
       ``price`` was display-only and the export does not carry it.
@@ -68,6 +71,9 @@ class Order:
     order_id: str  # the export's OrderId, e.g. "502377" — the whole key
     sales_model: str  # the eligibility key (SalesModel), matched by equality
     delivery_date: date  # etaDealer on the ORDER — the promise. NOT the car's date.
+    # customer.name — display and lookup only, never priced. Defaulted so a
+    # snapshot written before it existed still loads.
+    customer: str = ""
 
     @property
     def key(self) -> str:
@@ -80,6 +86,7 @@ class Order:
             "order_id": self.order_id,
             "sales_model": self.sales_model,
             "delivery_date": date_label(self.delivery_date),
+            "customer": self.customer,
         }
 
     @classmethod
@@ -88,6 +95,7 @@ class Order:
             order_id=str(d["order_id"]),
             sales_model=d["sales_model"],
             delivery_date=parse_date(d["delivery_date"]),
+            customer=str(d.get("customer") or ""),
         )
 
 

@@ -141,6 +141,11 @@ def translate(
       blank means it holds none, which is real unfilled demand.
     * ``availableBy`` -> ``EtaDealer`` -> ``Vehicle.eta_dealer``, the one field a
       delay moves.
+    * ``customer.name`` -> ``Customer`` -> ``Order.customer`` — a LABEL, never a
+      key and never priced. Carried so the planner can say "prioritise Delek
+      Motors" and the agent can resolve that to the order ids it then names;
+      steering itself stays id-shaped. Optional: blank when the column is absent,
+      which is why it is not in ``REQUIRED_ORDER_COLUMNS``.
     """
     order_drops: collections.Counter = collections.Counter()
     vehicle_drops: collections.Counter = collections.Counter()
@@ -202,6 +207,7 @@ def translate(
                 "DeliveryDate": promise,
                 "VehicleCode": _text(row.get("vehicleCode")),
                 "Label": _text(row.get("modelId.name")),
+                "Customer": _text(row.get("customer.name")),
             }
         )
 

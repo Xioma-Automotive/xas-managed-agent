@@ -28,6 +28,9 @@ Field mapping (pull → solver):
   * ``EtaDealer``    → ``Vehicle.eta_dealer`` — from the car's ``availableBy``,
     the one field a delay moves.
   * ``VehicleCode`` on an order → ``allocations[key]``, the car it holds today.
+  * ``Customer``     → ``Order.customer`` — the client's name, from the order's
+    ``customer.name``. A label: nothing in the solver reads it, and an order with
+    no name still allocates.
 
 Eligibility arcs are NOT built here — the solver computes them at solve time
 (the sparse-arc rule), never stored.
@@ -77,6 +80,7 @@ def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
             order_id=order_id,
             sales_model=str(row["SalesModel"]).strip(),
             delivery_date=parse_date(row["DeliveryDate"]),
+            customer=str(row.get("Customer") or "").strip(),
         )
         orders.append(order)
         held = str(row.get("VehicleCode") or "").strip()

@@ -72,8 +72,8 @@ def test_an_order_holding_no_car_has_no_allocation_and_is_not_late():
     unassigned, so it must not be counted as a late arrival too."""
     orders_doc, vehicles_doc = _payloads(FIXTURE)
     snap = flatten(orders_doc, vehicles_doc)
-    assert len(snap.orders) == 7
-    assert snap.allocations == {}
+    car_less = [o.key for o in snap.orders if o.key not in snap.allocations]
+    assert len(snap.orders) == 10 and len(car_less) == 8
     assert snap.disruption["disrupted_orders"] == []
 
 
@@ -168,7 +168,7 @@ def test_flatten_paths_reads_the_two_files(tmp_path):
     (tmp_path / "orders.json").write_text(json.dumps(orders_doc))
     (tmp_path / "vehicles.json").write_text(json.dumps(vehicles_doc))
     snap = flatten_paths(tmp_path / "orders.json", tmp_path / "vehicles.json")
-    assert len(snap.orders) == 7 and len(snap.vehicles) == 10
+    assert len(snap.orders) == 10 and len(snap.vehicles) == 13
     assert snap.now.isoformat() == "2026-08-25"
 
 

@@ -57,15 +57,22 @@ Each asks for its knobs, or takes them as flags. The first two are the mixed one
 with a count pinned to zero — `real_mixed --late 0` produces a byte-identical file
 to `real_unallocated`.
 
+**A book is three classes: no car, a late car, a car that arrives on time.** The
+first two are counts (`--empty`, `--late`); the third is a SHARE of the book
+(`--on-time-pct`, 20% by default), because it is the control group — what a plan
+leaves alone is only readable if some orders needed nothing. That fixes the size
+of everything else: 8 disturbed orders at a 20% share is a 10-order book, and the
+car subset follows from the book, so neither is a knob any more.
+
 | Flag | Scripts | Default | What it changes |
 | --- | --- | --- | --- |
-| `--empty` | unallocated, mixed | `100` / `50` | Orders stripped of their car. They keep `OrderId`, model, colour and `etaDealer` — the demand that needs a plan. Their cars are freed, so an emptied order can always at least get its own car back; the interesting part is whether a better one exists. |
-| `--late` | delayed, mixed | `100` / `50` | Orders whose car is delayed past its promise. Only `availableBy` moves — the allocation stands and the order row is untouched. |
+| `--empty` | unallocated, mixed | `8` / `4` | Orders stripped of their car. They keep `OrderId`, model, colour and `etaDealer` — the demand that needs a plan. Their cars are freed, so an emptied order can always at least get its own car back; the interesting part is whether a better one exists. |
+| `--late` | delayed, mixed | `8` / `4` | Orders whose car is delayed past its promise. Only `availableBy` moves — the allocation stands and the order row is untouched. |
 | `--days-late` | delayed, mixed | `1-20` | How far past the promise the car lands, drawn per order. A span or one number. `1-20` is what the export's own 114 real late orders show, median 8. |
-| `--extra-free` | all | `50` | Cars freed by deleting an allocation, their ORDERS LEAVING THE BOOK — otherwise every freed car arrives with its own claimant attached and the pool never has slack. |
-| `--subset` | all | `400` | How many cars the scenario holds in total. |
-| `--available-pct` | all | `40` | Available share of that subset. Cars the scenario frees are the FIRST counted toward it; the rest is padded with cars the export already had available, and the remainder stays allocated with its order intact. |
-| `--models` | all | `0` (all 66) | Narrow the whole subset to the N most-demanded sales models. **This, not the percentage, is what gives a small subset any choice** — see below. Flag only; it is not prompted. |
+| `--extra-free` | all | `0` / `3` / `1` | Cars freed by deleting an allocation, their ORDERS LEAVING THE BOOK — otherwise every freed car arrives with its own claimant attached and the pool never has slack. |
+| `--on-time-pct` | all | `20` | Share of the BOOK that rides in untouched: allocated, and holding a car that lands by the promise. Drawn only from orders that really are on time, so the share is exact and the reported late count is the one you asked for. This sets the book size — `--empty 4 --late 4` at 20% is 10 orders. |
+| `--available-pct` | all | `85` / `40` / `50` | Available share of the CAR subset, whose size follows from the book. Cars the scenario frees are the FIRST counted toward it; the rest is padded with cars the export already had available. A mostly-unallocated book forces this high — every emptied order's car is free by construction — and the error names the floor. |
+| `--models` | all | `2` (`0` = all 66) | Narrow the whole subset to the N most-demanded sales models. **This, not the percentage, is what gives a small subset any choice** — see below, and a ten-order book needs it. Flag only; it is not prompted. |
 | `--seed` | all | `1` | Same knobs + same seed → byte-identical output. |
 | `--out` | all | `data/scenario-{unallocated,delayed,mixed}` | Output directory. |
 | `--orders-in` / `--vehicles-in` | all | `data/orders.csv`, `data/vehicles.csv` | Source export. Refused if any order lacks `etaDealer` — an order with no promise can be neither late nor met. |
@@ -78,45 +85,52 @@ on time; `real_delayed` and `real_mixed` print that count before asking.
 **Choice per order comes from `--models`, not from `--available-pct`.** Eligibility
 is exact sales-model equality, and the export spans 66 models. A 400-car subset
 averages 6 cars per model; a 60-car subset averages **0.9**, so most orders see
-nothing but their own car back however high the free share is. Measured on 20
-unallocated orders in 60 cars at 50% available:
+nothing but their own car back however high the free share is. Measured on
+`--empty 20 --extra-free 5 --on-time-pct 60 --available-pct 50` (a 50-order book
+in 60 cars, 30 of them free):
 
-| `--models` | eligible free cars per order (min/median/max) |
-| --- | --- |
-| `0` (all 66) | 1 / **1** / 2 |
-| `12` | 2 / **3** / 6 |
-| `8` | 1 / **7** / 8 |
-| `4` | 4 / **8** / 10 |
+| `--models` | eligible free cars per order (min/median/max) | reachable by the promise |
+| --- | --- | --- |
+| `0` (all 66) | 1 / **2** / 4 | 16 of 20 |
+| `12` | 1 / **3** / 6 | 19 of 20 |
+| `8` | 1 / **5** / 6 | 19 of 20 |
+| `4` | 6 / **8** / 10 | 20 of 20 |
 
 Concentrating makes the subset less representative of the whole book. That is the
-trade; at 400+ cars it is usually unnecessary.
+trade; at 400+ cars it is usually unnecessary, which is why `--models 0` belongs
+on any big carve.
 
 Examples:
 
 ```bash
-# The three defaults, non-interactively
-uv run python -m scenario_engine.real_unallocated --empty 100 --extra-free 50 --subset 400 --available-pct 40
-uv run python -m scenario_engine.real_delayed --late 100 --days-late 1-20 --extra-free 50 --subset 400 --available-pct 40
-uv run python -m scenario_engine.real_mixed --empty 50 --late 50 --days-late 1-20 --extra-free 50 --subset 400 --available-pct 40
+# The three defaults, non-interactively — these ARE the committed 10-order books
+uv run python -m scenario_engine.real_unallocated --empty 8 --extra-free 0 --on-time-pct 20 --available-pct 85
+uv run python -m scenario_engine.real_delayed --late 8 --days-late 1-20 --extra-free 3 --on-time-pct 20 --available-pct 40
+uv run python -m scenario_engine.real_mixed --empty 4 --late 4 --days-late 1-20 --extra-free 1 --on-time-pct 20 --available-pct 50
+
+# A big book: 100 orders needing a car, 233 riding on time (70%), 388 cars
+uv run python -m scenario_engine.real_unallocated --empty 100 --extra-free 50 --on-time-pct 70 --available-pct 40 --models 0
 
 # Small and workable: 20 orders needing a car, 60 cars, half of them free
-uv run python -m scenario_engine.real_unallocated --empty 20 --extra-free 5 --subset 60 --available-pct 50 --models 8
+uv run python -m scenario_engine.real_unallocated --empty 20 --extra-free 5 --on-time-pct 60 --available-pct 50 --models 8
 
 # A hard, uniform slip with no spare cars freed for it — most late orders stay stuck
-uv run python -m scenario_engine.real_delayed --late 120 --days-late 30 --extra-free 0 --subset 400 --available-pct 15
+uv run python -m scenario_engine.real_delayed --late 120 --days-late 30 --extra-free 0 --on-time-pct 66 --available-pct 15 --models 0
 
 # The competitive case: unallocated demand and late orders chasing the same pool
-uv run python -m scenario_engine.real_mixed --empty 60 --late 60 --days-late 1-20 --extra-free 40 --subset 500 --available-pct 45
+uv run python -m scenario_engine.real_mixed --empty 60 --late 60 --days-late 1-20 --extra-free 40 --on-time-pct 50 --available-pct 45 --models 0
 ```
 
 Each run prints the resulting mix, the days-late spread, and a feasibility line per
 disturbance — how many eligible free cars each order has and how many have one that
 lands by the promise. Re-roll `--seed` if a draw comes out dull.
 
-> **The late count is measured on the output, not on the knob.** The export ships
-> 256 already-late orders, so any subset inherits some — `--late 100` typically
-> yields ~124, and every run breaks out "delayed here / already late in the export
-> / on time", including the scenarios that delay nothing.
+> **The late count is measured on the output, and it must equal the knob.** The
+> export ships 256 already-late orders, so a random draw used to fold some into
+> the untouched remainder and `--late 100` came out at ~124. The on-time draw now
+> takes only orders that are on time, and every run re-measures the finished
+> files: if one late order got in that the scenario did not delay, the carve
+> stops rather than print a share that is not true.
 
 > All three write `data/scenario-<name>/{orders,vehicles}.csv` plus a
 > `scenario.json` sidecar with the pull date, and that IS the pull — `datasource`
@@ -226,11 +240,11 @@ uv run python setup_agent.py
 
 ```bash
 # Change the data, then see the solver's behaviour locally
-uv run python -m scenario_engine.real_delayed --late 120 --days-late 30 --extra-free 0 --subset 400 --available-pct 15
+uv run python -m scenario_engine.real_delayed --late 120 --days-late 30 --extra-free 0 --on-time-pct 66 --available-pct 15 --models 0
 XAS_SCENARIO=scenario-delayed uv run python -m xas_allocation.session
 
 # Cut a fresh scenario out of the real export (no car / late car / both)
-uv run python -m scenario_engine.real_mixed --empty 50 --late 50 --days-late 1-20 --extra-free 50 --subset 400 --available-pct 40
+uv run python -m scenario_engine.real_mixed --empty 4 --late 4 --days-late 1-20 --extra-free 1 --on-time-pct 20 --available-pct 50
 
 # Change solver/skill code, then verify and redeploy
 uv run ruff format . && uv run ruff check . && uv run pytest

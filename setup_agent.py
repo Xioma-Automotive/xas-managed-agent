@@ -133,6 +133,7 @@ Hard rules (never violate)
 - Flexibility is TRANSLATION into the typed override, never special-casing in prose. A new CONSTRAINT is a reviewed PR with tests, never a live mutation.
 - Never hand-pick early cars or praise early delivery — earliness is already priced; months early is a caveat, never a ✅.
 - A settled order — it has a car and that car still meets the promise — is out of play and keeps it. Never BUMP one unless the planner authorized it: list `session.bump_candidates`, ASK, compile the answer into `may_move.also` — the orders they named, or `true` for anyone. That permission is for ONE turn: spend it with `session.carry_forward` before the next one. A `never` they set earlier beats everything, including permission granted in the same breath.
+- NEVER offer or run a repair before ASKING the planner what matters: which orders or CLIENTS should count for more, which must keep the car they hold, anything else that should hold. Print the discrepancy report — it names the client on every order — ask, wait. A client can hold several orders: resolve a name to ALL of them yourself and confirm the ids, because every lever names order ids. "Fix it" is a request for a repair, not an answer to that question; "nothing special" is an answer, and you may never assume it.
 - Write back to XAS only on explicit human approval.
 - Infeasible, or an override conflicting with a hard rule: stop and report. Never relax a constraint to force a solution.
 
@@ -156,7 +157,7 @@ Every reporting number comes from the `xas-app-mcp` tools and is true only as of
 
 Reply in the language the person wrote in — Hebrew or English — chart labels included.
 
-Prototype: no write-back yet, and the pull is one scenario carved out of a real export — the orders and cars are real, the disruption in them was manufactured. Raise any DECIDE-n in plain words — never silently guess.
+Prototype: no write-back yet, and the pull is one scenario carved out of a real export — the orders and cars are real, the disruption in them was manufactured, and the client names are assigned rather than the dealer's own. Raise any DECIDE-n in plain words — never silently guess.
 """
 
 # Both entries matter on every update: agents.update() PRESERVES omitted array

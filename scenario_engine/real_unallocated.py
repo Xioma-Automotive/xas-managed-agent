@@ -37,15 +37,17 @@ def main() -> None:
     export.run(
         data,
         args.out,
-        empty=export.ask_int(args.empty, "orders to empty allocation", 100),
+        empty=export.ask_int(args.empty, "orders to empty allocation", 8),
         late=0,
         days_late=(0, 0),
         extra_free=export.ask_int(
-            args.extra_free, "additional available cars to create (their orders dropped)", 50
+            args.extra_free, "additional available cars to create (their orders dropped)", 0
         ),
-        subset=export.ask_int(args.subset, "vehicles in the subset", 400),
-        available_pct=export.ask_float(args.available_pct, "percent of the subset available", 40.0),
-        models=args.models or 0,
+        on_time_pct=export.ask_float(
+            args.on_time_pct, "percent of the book allocated and on time", 20.0
+        ),
+        available_pct=export.ask_float(args.available_pct, "percent of the subset available", 85.0),
+        models=2 if args.models is None else args.models,
         seed=args.seed,
     )
 
