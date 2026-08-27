@@ -231,7 +231,8 @@ XAS endpoint and its credential never touch the sandbox.
   trade-off curve came back flat (193.0 weighted late-days at every price from 0
   to 100). It is now added once, in `_solve_one`, to every arc where the vehicle
   differs from the incumbent, beside the break cost. The fabricated book now
-  sweeps 18 changes/99 late-days at 0 → 4 changes/237 at 100.
+  sweeps 25 changes/0 weighted late-days at price 0 → 8 changes/233 at 100, and
+  `run_cycle` presents the middle price, 25 (16 changes/63).
 - **Priority is a planner LEVER, not a column.** Every order starts at the
   config's `default_priority_step` and only what the override names moves off it;
   named steps (`normal`/`high`/`urgent`) resolve to weights in the config. An
