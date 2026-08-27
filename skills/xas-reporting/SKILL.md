@@ -100,6 +100,11 @@ Other recipes:
    enums), so filter those on `code`. A status `id` does not identify a
    classification — `…5b6764` ("Closed") appears under Parts, ServiceCall, VPO,
    Service and more — so always send the classification with it.
+   The tools offer a shortcut here and it only covers half the job: a status that
+   came BACK carries its own display name, so read that rather than looking it up.
+   But which classification the question is about is not on any response — it is
+   what you resolve here, before the first call. A label you read off a row can
+   never supply it.
 5. **A lifecycle word IS a status — take it literally.** "open" means the status
    named `Open`, not "everything unfinished". Each such word is exactly one `id`
    spanning every classification that has it — `Open` covers eight of them — so it
