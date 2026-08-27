@@ -2,6 +2,21 @@
 
 How to authenticate to the deployed app MCP and call its tools directly (no agent).
 
+## The easy path: `appmcp.py`
+
+```bash
+uv run python -m appmcp --list                     # every tool, params summarised
+uv run python -m appmcp --list get_job_list        # one tool, full input schema
+uv run python -m appmcp get_job_list '{"paging": {"count": 1}}'
+uv run python -m appmcp get_job_list '{...}' --raw # keep the states block too
+```
+
+It mints through `appmcp_auth` (so `.env` is the only setup) and trims the `states`
+block, which rides on every job-card response and never says anything. Use it to
+CHECK this file rather than trusting it — the surface has changed under us twice.
+
+Everything below is the manual route, for when you need to mint a bearer yourself.
+
 ## Endpoint
 `POST https://dev-appmcp.app.automotivecloud.net/mcp` (JSON-RPC 2.0, streamable HTTP)
 
