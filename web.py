@@ -68,7 +68,7 @@ DEFAULT_MODEL = "opus48"
 
 # Hard ceiling on one session's spend, priced at Anthropic's LIST rates (model
 # tokens + web search + $0.08/hour of session runtime), in cents as an integer
-# string. $10 sits well above a full repair cycle — the heaviest single turn
+# string. $5 sits well above a full repair cycle — the heaviest single turn
 # observed was 87c — so it is a runaway backstop, not a working limit.
 #
 # CREATE-ONLY, and that is the whole reason it is here: a session started
@@ -76,7 +76,7 @@ DEFAULT_MODEL = "opus48"
 # `stop_reason: budget_reached` (the SSE relay already forwards that) and keeps
 # its container and history; only raising or removing the budget resumes it, and
 # removal is one-way.
-SESSION_BUDGET = {"type": "limit", "max_list_cost": {"amount": "1000", "currency": "USD"}}
+SESSION_BUDGET = {"type": "limit", "max_list_cost": {"amount": "500", "currency": "USD"}}
 
 app = FastAPI(title="XAS Allocation Agent")
 client = AsyncAnthropic()
@@ -96,18 +96,15 @@ _lock = asyncio.Lock()
 _pull_by_session: dict[str, dict] = {}
 MOUNTED_PULL_FILENAME = "pull.json"
 
-# The reporting lane's mount. Namespaced under /workspace/reports/ on purpose:
-# the system prompt's hard rule keys on the path, so an allocation claim sourced
-# from this file is visibly wrong rather than merely wrong. (The tenant taxonomy
-# is NOT here — it ships inside the xas-qa skill bundle; see DECIDE-16.)
-MOUNTED_RECORDS_FILENAME = "jobcards.json"
-REPORTS_MOUNT_DIR = "/workspace/reports"
-RECORDS_MOUNT_PATH = f"{REPORTS_MOUNT_DIR}/{MOUNTED_RECORDS_FILENAME}"
-
+# The pull is the ONLY mount. The reporting lane used to get a second one — a
+# fabricated jobcards.json under /workspace/reports/ — and the prompt's hard rule
+# forbade that path. Reporting now reads the live system through `xas-app-mcp`
+# instead, so the fence is toolset-shaped and there is no records file to mount.
+#
 # Mounted inputs come back from files.list(scope_id=...) alongside whatever the
 # agent wrote, so both the listing and the download filter them out — otherwise a
 # planner asking for "the outputs" gets their own inputs handed back.
-MOUNTED_INPUT_FILENAMES = frozenset({MOUNTED_PULL_FILENAME, MOUNTED_RECORDS_FILENAME})
+MOUNTED_INPUT_FILENAMES = frozenset({MOUNTED_PULL_FILENAME})
 
 
 class NewSession(BaseModel):
@@ -149,8 +146,7 @@ def _digest(call) -> str:
 
 
 async def _upload(filename: str, blob: bytes, media_type: str):
-    """Upload one file for mounting. Two of these run per session start, so they
-    go out concurrently rather than serially."""
+    """Upload the pull for mounting into a session's sandbox."""
     return await client.beta.files.upload(
         file=(filename, blob, media_type), betas=[MANAGED_AGENTS_BETA]
     )
@@ -386,9 +382,8 @@ async def new_session(body: NewSession) -> dict:
         # finds the rows waiting as a file the flatten command reads. One pull
         # backs the whole repair cycle — the invariant "same snapshot every turn".
         rich = datasource.get_source().pull()
-        pull_meta, records_meta = await asyncio.gather(
-            _upload(MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"),
-            _upload(MOUNTED_RECORDS_FILENAME, datasource.get_records(), "application/json"),
+        pull_meta = await _upload(
+            MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"
         )
         # Mint the app-MCP bearer into its vault before the session exists, so
         # the agent's first reporting call cannot land on a stale one. Failing
@@ -408,7 +403,6 @@ async def new_session(body: NewSession) -> dict:
             extra_body={"budget": SESSION_BUDGET},
             resources=[
                 {"type": "file", "file_id": pull_meta.id, "mount_path": alloc_tools.MOUNT_PATH},
-                {"type": "file", "file_id": records_meta.id, "mount_path": RECORDS_MOUNT_PATH},
             ],
             # Create-only: `vault_ids` is rejected on session update, so a vault
             # not attached here can never be attached to this session.

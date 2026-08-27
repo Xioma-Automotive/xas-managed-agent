@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-INDEX = REPO_ROOT / "skills" / "xas-qa" / "index.md"
+INDEX = REPO_ROOT / "skills" / "xas-reporting" / "index.md"
 
 _spec = importlib.util.spec_from_file_location(
-    "phrasebook", REPO_ROOT / "skills" / "xas-qa" / "phrasebook.py"
+    "phrasebook", REPO_ROOT / "skills" / "xas-reporting" / "phrasebook.py"
 )
 phrasebook = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(phrasebook)
@@ -99,6 +99,27 @@ def test_status_rows_carry_the_id_filtering_needs(rows):
     ]
     assert closed and closed[0]["id"] == "6530d9a89c098a05a65b6764"
     assert closed[0]["state"] == "Closed"
+
+
+def test_branch_resolves_to_the_id_a_filter_takes(rows):
+    """A branch has no code: `{"Branch": ["Main"]}` returns 0 with no error, so
+    the ObjectId in `id` is the only thing a Branch filter can be built from."""
+    main = [_cols(r) for r in rows if _cols(r)["kind"] == "branch" and r[0] == "main"]
+    assert main and main[0]["id"] == "69f07fdaf930e4ee6d524dc1"
+    assert main[0]["code"] == ""
+
+
+def test_every_branch_is_one_row(rows):
+    branches = {_cols(r)["name"]: _cols(r)["id"] for r in rows if _cols(r)["kind"] == "branch"}
+    assert len(branches) == 7
+    assert branches["Service Branch"] == "69f209400e50752cea08ce26"
+
+
+def test_a_branch_name_can_collide_with_a_classification(rows):
+    """ "Potain" is a branch AND the display name of the Warranty classification.
+    Both rows must come back so the agent reads `kind` instead of taking the first."""
+    kinds = sorted(_cols(r)["kind"] for r in rows if r[0] == "potain")
+    assert kinds == ["branch", "classification"]
 
 
 def test_build_is_deterministic():

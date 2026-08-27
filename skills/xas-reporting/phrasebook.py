@@ -39,7 +39,7 @@ def default_index() -> Path | None:
 
 # Only real records; the header legend documents the format with the same
 # `key=<placeholder>` syntax and must not be parsed as data.
-RECORD = re.compile(r"^(ENTITY|CLASSIFICATION|STATUS)\s+(.*)$")
+RECORD = re.compile(r"^(ENTITY|CLASSIFICATION|STATUS|BRANCH)\s+(.*)$")
 
 # Strings are quoted, booleans and counts are not — match both forms.
 FIELD = re.compile(r'(\w+)=(?:"([^"]*)"|(\S+))')
@@ -86,6 +86,8 @@ def surfaces(kind: str, fields: dict[str, str]) -> list[tuple[str, str]]:
         found.append((fields.get("entity", ""), "entity"))
         found.append((fields.get("businessType", ""), "businessType"))
     else:
+        # A BRANCH has only a name — no code, no aliases — because the value a
+        # Branch filter takes is its ObjectId, which rides in the `id` column.
         found.append((fields.get("code", ""), "code"))
         found.append((fields.get("name", ""), "name"))
         for alias in fields.get("aliases", "").split("|"):
