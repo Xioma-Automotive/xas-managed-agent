@@ -59,9 +59,10 @@ normalized  surface  role  kind  entity  classification  code  id  name  state  
 ```
 
 `role` is where the string came from (`code` / `name` / `alias` / `businessType`),
-`kind` is `entity` / `classification` / `status` / `branch`. `code` is what you
-filter on; `name` is what you display. A `branch` row has no `code` — its `id` is
-the filter value (rule 8).
+`kind` is `entity` / `classification` / `status` / `state` / `branch`. `code` is
+what you filter on; `name` is what you display. A `branch` row has no `code` — its
+`id` is the filter value (rule 8). The same surface can appear under two kinds —
+`Closed` is both a status and a state — so read `kind` before acting on a row.
 
 **Build it whether or not the question has a term in it.** A question can need no
 resolution going IN — "job cards opened last week" names nothing to look up — and
@@ -221,7 +222,10 @@ owner's whole contact list — so name the columns you want. A count needs none.
 **4. Translate every code before you print it.** The records answer in codes —
 `VRV`, `VSO`, `Service` — and the planner reads names, so reverse-look up each one
 you are about to show: `grep '<code>' /workspace/phrasebook.tsv`, then take the
-`name`. This is not polish. A bare code in the reply is the same class of defect as
+`name`. Two fields on a card need this and they differ: `JobStatus` arrives as
+`{ID, Code, Label}` and already carries its own label, but `JobState` arrives as a
+BARE ObjectId — grep it the same way and print the `kind=state` row's `name`. An
+ObjectId in a reply is the worst version of this defect. This is not polish. A bare code in the reply is the same class of defect as
 a wrong number, because the planner cannot tell `VRV` from a typo and has no way to
 look it up. A code that will not resolve is NAMED as unresolved — "a card type I
 could not identify" — never printed bare as though it were a name. On 2026-08-27

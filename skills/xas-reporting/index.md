@@ -11,6 +11,7 @@ How to read a line:
   CLASSIFICATION  entity=<owning entity> code=<system value to query> name=<what users call it> aliases=<other names users say>
   STATUS          entity=<owning entity> classification=<owning classification code> id=<JobStatus ObjectId> code=<system/human term> state=<lifecycle bucket> closed=<close flag>
   BRANCH          id=<ObjectId, the only value that NAMES a branch — see the -2 note below> name=<what users call it> cards=<job cards there, counted live>
+  STATE           id=<the ObjectId a card's JobState holds> code=<1-5> name=<what to print>
 
 A classification belongs to exactly one entity — always read `entity=` with the code,
 because codes are unique per entity, not globally: code "Model" exists under both the
@@ -99,6 +100,28 @@ BRANCH          id="69f07fdaf930e474935edfd1"  name="Potain"  cards=71
 BRANCH          id="69f07fdaf930e474921bc021"  name="Workshop"  cards=40
 BRANCH          id="69f2fbbc0e50752cea0d512e"  name="Test123"  cards=1
 BRANCH          id="69f07fdaf930e4748722ced1"  name="TestBranch"  cards=0
+
+A job card carries TWO status-ish fields and they are not the same thing. `JobStatus`
+arrives as {ID, Code, Label} and is self-describing. `JobState` arrives as a BARE
+ObjectId, which is what these five rows are for: they are the id -> label dictionary,
+so a state can be printed as a name instead of an ObjectId.
+
+They are a dictionary and nothing more. A card's state does NOT follow from its
+status: sampled 2026-08-27, Service/`Open` cards came back 47 In Process to 3 New,
+and VRV/`Closed` split three ways. The `state=` on a STATUS line below is the
+TYPICAL state for that status and disagreed with the live card on 10 of ~215
+sampled — so read a card's state off the card, never off its status. Filtering on
+state is `{"JobState": ["<id>"]}`, array-only: a bare string 500s.
+
+`dump_taxonomy` does not emit these rows — they are hand-maintained, like the BRANCH
+lines, and a regeneration drops them. The same dictionary rides on every job-card
+response in its `states` block if they ever go missing.
+
+STATE           id="6530d9a89c098a33be3e0c78"  code="1"  name="New"
+STATE           id="6530d9a89c098a05a65b6766"  code="2"  name="Pending"
+STATE           id="6530d9a89c098a37eb4562db"  code="3"  name="In Process"
+STATE           id="6530d9a89c098a37e96ff5c8"  code="4"  name="Has Alert"
+STATE           id="6530d9a89c098a15dc784be6"  code="5"  name="Closed"
 
 ENTITY          entity="Account"  businessType="accounts"  classifications=3  statuses=0
 CLASSIFICATION  entity="Account"  code="supplier"  name="Accounts- Suppliers"  fields=29  statuses=0  aliases=""

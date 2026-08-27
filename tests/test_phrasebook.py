@@ -164,3 +164,29 @@ def test_suggest_returns_one_row_per_candidate_wording(rows):
     candidates, and a user asked to choose needs distinct options."""
     normalized = [r[0] for r in phrasebook.suggest("srvice", rows)]
     assert len(normalized) == len(set(normalized))
+
+
+def test_state_ids_resolve_to_printable_names(rows):
+    """A card carries `JobState` as a bare ObjectId — no Code, no Label, unlike
+    `JobStatus` — so without these rows the only way to print it was the `states`
+    block riding on each response. Added 2026-08-27 as an id -> name dictionary.
+
+    A dictionary is ALL it is: state does not follow from status. Sampled the same
+    day, Service/`Open` cards came back 47 In Process to 3 New, so the `state=`
+    attribute on a STATUS row is the typical value, not the card's."""
+    states = {c["id"]: c["name"] for c in map(_cols, rows) if c["kind"] == "state"}
+    assert states == {
+        "6530d9a89c098a33be3e0c78": "New",
+        "6530d9a89c098a05a65b6766": "Pending",
+        "6530d9a89c098a37eb4562db": "In Process",
+        "6530d9a89c098a37e96ff5c8": "Has Alert",
+        "6530d9a89c098a15dc784be6": "Closed",
+    }
+
+
+def test_a_shared_surface_is_split_by_kind(rows):
+    """`Closed` is a status name AND a state name; `1` is a status code AND a state
+    code. Both are legitimate, so the phrasebook keeps them and `kind` is what tells
+    them apart — the skill says to read it before acting on a row."""
+    kinds = {c["kind"] for c in map(_cols, rows) if c["normalized"] == "closed"}
+    assert kinds == {"status", "state"}
