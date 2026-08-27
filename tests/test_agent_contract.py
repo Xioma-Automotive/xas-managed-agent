@@ -808,3 +808,15 @@ def test_render_drops_a_marked_span_that_failed():
     from xas_allocation.planner_channel import show
 
     assert web._render(_ToolResult(show("half a table"), is_error=True)) is None
+
+
+def test_the_skill_tells_the_agent_to_wrap_planner_prints():
+    body = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "show(S." in body, "the skill must show the agent how to reach the planner"
+
+
+def test_the_skill_forbids_retyping_a_table_the_planner_has_seen():
+    """The double-copy rule. Prose is the whole mechanism, so pin the prose."""
+    lowered = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "already seen" in lowered
+    assert "do not repeat the table" in lowered
