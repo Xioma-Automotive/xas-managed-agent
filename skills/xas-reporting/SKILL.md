@@ -14,8 +14,10 @@ description: >-
 # XAS terminology resolution
 
 `index.md`, beside `phrasebook.py` in this skill's directory, is the **only**
-authority for turning what a user says into what the records store. Never guess a
-code, an ObjectId or a status name from memory — resolve it here.
+authority for this tenant's vocabulary, and it works in BOTH directions: what the
+user SAYS becomes what the records store, and what the records RETURN becomes what
+the planner reads. Never guess a code, an ObjectId or a status name from memory in
+either direction — resolve it here.
 
 The records themselves are NOT here and NOT mounted: they come from the
 `xas-app-mcp` read tools, against the live system. Nothing on disk holds job
@@ -37,7 +39,7 @@ are two calls deep, something looks off, and explaining the next step feels like
 thinking rather than talking. It is talking. **Presenting the answer** below is the
 only text you ever produce.
 
-## Step 0 — build the phrasebook (once per session)
+## Step 0 — build the phrasebook (every session, before anything else)
 
 ```bash
 python phrasebook.py            # index.md beside it -> /workspace/phrasebook.tsv
@@ -60,6 +62,11 @@ normalized  surface  role  kind  entity  classification  code  id  name  state  
 `kind` is `entity` / `classification` / `status` / `branch`. `code` is what you
 filter on; `name` is what you display. A `branch` row has no `code` — its `id` is
 the filter value (rule 8).
+
+**Build it whether or not the question has a term in it.** A question can need no
+resolution going IN — "job cards opened last week" names nothing to look up — and
+still come back full of codes that must be translated going OUT (step 4). There is
+no reporting turn that does not need this file.
 
 ## Resolving a term
 
@@ -152,8 +159,9 @@ Other recipes:
 
 ## Getting the number
 
-Every question runs the same three steps, in this order. Skipping step 1 is what
-cost five calls and three rounds on 2026-08-27 for a question worth three.
+Every question runs the same four steps, in this order. Skipping step 1 cost five
+calls and three rounds on 2026-08-27; skipping step 4 the same day put three raw
+codes in front of the planner.
 
 **1. Pin down what the question is about, and take its id.** Resolve every business
 term through the phrasebook first (above). A person or a company is an ACCOUNT: if
@@ -199,6 +207,16 @@ afterwards which one killed it costs more calls than doing it in order.
   field list has bought nothing. (A tool result big enough to be offloaded to a file
   is a symptom: you asked for cards you did not need, and the tokens are spent by
   the time you read the file.)
+
+**4. Translate every code before you print it.** The records answer in codes —
+`VRV`, `VSO`, `Service` — and the planner reads names, so reverse-look up each one
+you are about to show: `grep '<code>' /workspace/phrasebook.tsv`, then take the
+`name`. This is not polish. A bare code in the reply is the same class of defect as
+a wrong number, because the planner cannot tell `VRV` from a typo and has no way to
+look it up. A code that will not resolve is NAMED as unresolved — "a card type I
+could not identify" — never printed bare as though it were a name. On 2026-08-27
+three codes reached the planner untranslated, because step 0 had been skipped and
+there was nothing to look them up in.
 
 **Never walk pages to compute an aggregate.** Paging and adding up costs roughly
 forty times as much: every card you pull stays in this conversation and is re-read

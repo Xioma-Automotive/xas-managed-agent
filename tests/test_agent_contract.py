@@ -638,8 +638,10 @@ def test_reporting_skill_establishes_before_it_narrows():
     The ordering is steps 1-2 of one numbered procedure rather than its own heading,
     so nothing has to say how the two compose."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    steps = [line for line in skill.splitlines() if line.startswith(("**1. ", "**2. ", "**3. "))]
-    assert len(steps) == 3, f"the procedure must stay three ordered steps, saw {steps}"
+    steps = [
+        line for line in skill.splitlines() if line.startswith(("**1. ", "**2. ", "**3. ", "**4. "))
+    ]
+    assert len(steps) == 4, f"the procedure must stay four ordered steps, saw {steps}"
     assert "Pin down what the question is about" in skill
     assert "carries NO information" in skill
     assert "ONE control call" in skill
@@ -657,3 +659,18 @@ def test_reporting_skill_does_not_demand_a_classification_with_a_status():
     assert "always send the classification with it" not in skill
     assert "an id and its name are 1:1" in skill
     assert "classification only when the planner asked for one" in skill
+
+
+def test_reporting_skill_translates_codes_on_the_way_out():
+    """Observed 2026-08-27: a card table reached the planner reading VRV / VSO /
+    Service. The agent had never run phrasebook.py — neither question needed a term
+    resolved going IN, and the skill framed the taxonomy as an input tool only, so
+    step 0 had no trigger and the procedure ended at fetching rows. The taxonomy is
+    now stated as bidirectional, step 0 is unconditional, and translation is step 4:
+    a code that will not resolve is named as unresolved, never printed bare."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "in BOTH directions" in skill
+    assert "Build it whether or not the question has a term in it" in skill
+    assert "Translate every code before you print it" in skill
+    assert "NAMED as unresolved" in skill
+    assert "once per session" not in skill, "step 0 must not read as conditional"
