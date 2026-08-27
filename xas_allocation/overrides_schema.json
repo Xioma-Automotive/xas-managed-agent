@@ -1,61 +1,109 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "XAS allocation steering override",
-  "description": "The typed object a planner's natural language compiles to (§6). THREE keys, and nothing else steers the solver — that is what makes a turn reproducible. The agent edits this one object in place and carries it forward each turn. The prompt moves priority and who may move; it NEVER edits solver code or the config. Same snapshot + same override => byte-identical plan. All dates are ISO 'YYYY-MM-DD'. Retired 2026-08-26: `pins` (a deferral is a NEW PROMISED DATE on the order, which the lateness and earliness terms already price — it was never steering), `boosts` (superseded by `priority`), `forbid`/`scope`/`bump` (merged into `may_move`), `time_scale` (nobody asked for it) and `break_cost` (a constant somebody exposed per session — it lives in solver_config.yaml). Retired 2026-08-27: the `customers` filter dimension — the order export has no customer column, and with priority a per-order lever there was nothing left for it to do.",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "priority": {
-      "description": "Who matters more, in named steps. Every order starts at the config's default step ('normal'); only the orders named here move off it, and a heavier order's lateness costs proportionally more. Priority is a LEVER, not a column — nothing on the record says an order matters more, and the letter this replaced was never a planner's decision.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["order", "step"],
-        "properties": {
-          "order": { "type": "string", "description": "The order's id, as the pull names it — e.g. '502377'. One row is one order for one car, so there is one level and no line suffix." },
-          "step": { "type": "string", "enum": ["normal", "high", "urgent"], "description": "The named step. Its weight comes from solver_config.yaml (normal 1, high 2, urgent 4) — an unknown name is an error, never a silent fall back to normal." }
-        }
-      }
-    },
-    "may_move": {
-      "description": "Who is in play this turn. The DEFAULT, with this key absent, is the orders that need help: late, or with no car at all. A settled, on-time order is not in it — that, and nothing else, is what protects it. PRECEDENCE IS PART OF THE CONTRACT: never beats only beats also. 'never' is absolute even against a permission granted in the same breath, and 'only' bounds the whole turn including anything 'also' authorised.",
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "properties": {
-        "only": {
-          "description": "NARROW the set: nothing outside this filter moves, however else the turn was steered. This is 'just fix August' / 'only the OMODA9s'. It narrows the default rather than replacing it, so it can never free a settled order nobody authorised.",
-          "type": ["object", "null"],
-          "additionalProperties": false,
-          "properties": {
-            "models": { "type": "array", "items": { "type": "string" }, "description": "sales_models to include, matched exactly (e.g. ['T6480J1BXLX0018'])." },
-            "orders": { "type": "array", "items": { "type": "string" }, "description": "explicit order ids, e.g. ['502377']." },
-            "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest promised date in play, inclusive." },
-            "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Latest promised date in play, inclusive." }
-          }
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "XAS allocation steering override",
+    "description": "The typed object a planner's natural language compiles to (§6). THREE keys, and nothing else steers the solver — that is what makes a turn reproducible. The agent edits this one object in place and carries it forward each turn. The prompt moves priority and who may move; it NEVER edits solver code or the config. Same snapshot + same override => byte-identical plan. All dates are ISO 'YYYY-MM-DD'. Retired 2026-08-26: `pins` (a deferral is a NEW PROMISED DATE on the order, which the lateness and earliness terms already price — it was never steering), `boosts` (superseded by `priority`), `forbid`/`scope`/`bump` (merged into `may_move`), `time_scale` (nobody asked for it) and `break_cost` (a constant somebody exposed per session — it lives in solver_config.yaml). Retired 2026-08-27: the `customers` filter dimension — the order export has no customer column, and with priority a per-order lever there was nothing left for it to do.",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "priority": {
+            "description": "Who matters more, in named steps. Every order starts at the config's default step ('normal'); only the orders named here move off it, and a heavier order's lateness costs proportionally more. Priority is a LEVER, not a column — nothing on the record says an order matters more, and the letter this replaced was never a planner's decision.",
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["order", "step"],
+                "properties": {
+                    "order": {
+                        "type": "string",
+                        "description": "The order's id, as the pull names it — e.g. '502377'. One row is one order for one car, so there is one level and no line suffix.",
+                    },
+                    "step": {
+                        "type": "string",
+                        "enum": ["normal", "high", "urgent"],
+                        "description": "The named step. Its weight comes from solver_config.yaml (normal 1, high 2, urgent 4) — an unknown name is an error, never a silent fall back to normal.",
+                    },
+                },
+            },
         },
-        "also": {
-          "description": "WIDEN the set (inside 'only'): untouched orders the planner has EXPLICITLY authorized the solver to displace to rescue someone late (DECIDE-13). This is the ONE place permission to displace is granted — ASK before setting it. The solver moves one of these only when it lowers total cost, and pays break_cost for disturbing a kept promise. Absent = nobody may be bumped, which is the default.",
-          "type": ["object", "null"],
-          "additionalProperties": false,
-          "properties": {
-            "models": { "type": "array", "items": { "type": "string" } },
-            "orders": { "type": "array", "items": { "type": "string" } },
-            "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-            "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
-          }
+        "may_move": {
+            "description": "Who is in play this turn. The DEFAULT, with this key absent, is the orders that need help: late, or with no car at all. A settled, on-time order is not in it — that, and nothing else, is what protects it. PRECEDENCE IS PART OF THE CONTRACT: never beats only beats also. 'never' is absolute even against a permission granted in the same breath, and 'only' bounds the whole turn including anything 'also' authorised.",
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+                "only": {
+                    "description": "NARROW the set: nothing outside this filter moves, however else the turn was steered. This is 'just fix August' / 'only the OMODA9s'. It narrows the default rather than replacing it, so it can never free a settled order nobody authorised.",
+                    "type": ["object", "null"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "models": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "sales_models to include, matched exactly (e.g. ['T6480J1BXLX0018']).",
+                        },
+                        "orders": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "explicit order ids, e.g. ['502377'].",
+                        },
+                        "from_date": {
+                            "type": "string",
+                            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                            "description": "Earliest promised date in play, inclusive.",
+                        },
+                        "to_date": {
+                            "type": "string",
+                            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                            "description": "Latest promised date in play, inclusive.",
+                        },
+                    },
+                },
+                "also": {
+                    "description": "WIDEN the set (inside 'only'): settled orders the planner has EXPLICITLY authorized the solver to displace to rescue someone late (DECIDE-13). Two forms — `true` means ANYONE still settled, a filter names who. This is the ONE place permission to displace is granted: ASK before setting it. It lasts ONE TURN — drop it once the plan is solved (`session.carry_forward`) — and it is permission, not an instruction: the solver displaces someone only when it lowers total cost, paying break_cost for the promise it disturbs. Absent = nobody may be bumped, which is the default. `{}` also means nobody: an empty filter never widens.",
+                    "oneOf": [
+                        {
+                            "const": true,
+                            "description": "The fleet-wide form: every settled order is in play for this turn.",
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "models": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "sales_models whose orders may be displaced.",
+                                },
+                                "orders": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "explicit order ids, e.g. ['502377'].",
+                                },
+                                "from_date": {
+                                    "type": "string",
+                                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                                    "description": "Earliest promised date in play, inclusive.",
+                                },
+                                "to_date": {
+                                    "type": "string",
+                                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                                    "description": "Latest promised date in play, inclusive.",
+                                },
+                            },
+                        },
+                        {"type": "null"},
+                    ],
+                },
+                "never": {
+                    "description": "REMOVE from the set, absolutely — 'I already called that customer, leave it.' Beats everything, including an 'also' naming the same order. It is the only way to protect an order that IS in trouble, since such an order is in the default set. Order ids.",
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
         },
-        "never": {
-          "description": "REMOVE from the set, absolutely — 'I already called that customer, leave it.' Beats everything, including an 'also' naming the same order. It is the only way to protect an order that IS in trouble, since such an order is in the default set. Order ids.",
-          "type": "array",
-          "items": { "type": "string" }
-        }
-      }
+        "churn_price": {
+            "description": "What one changed allocation costs, for this solve. Charged once for every order that ends up on a different car than it had — the dial behind 'change as little as possible'. If null/absent the solver sweeps the config's prices and presents the middle one.",
+            "type": ["integer", "null"],
+            "minimum": 0,
+        },
     },
-    "churn_price": {
-      "description": "What one changed allocation costs, for this solve. Charged once for every order that ends up on a different car than it had — the dial behind 'change as little as possible'. If null/absent the solver sweeps the config's prices and presents the middle one.",
-      "type": ["integer", "null"],
-      "minimum": 0
-    }
-  }
 }

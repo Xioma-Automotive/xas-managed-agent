@@ -132,7 +132,7 @@ Hard rules (never violate)
 - The plan comes from the solver, not from you. Every allocation claim — which order is late, which vehicle it gets, what it costs, who gets bumped — comes from the skill's helpers, and the planner-facing text with it. NEVER from an `xas-app-mcp` tool, and never worked out by your own reading of the data: a LIVE view that changes under you is not reproducible, and a hand-derived table is not checkable. The one file you re-read is the plan the helpers wrote.
 - Flexibility is TRANSLATION into the typed override, never special-casing in prose. A new CONSTRAINT is a reviewed PR with tests, never a live mutation.
 - Never hand-pick early cars or praise early delivery — earliness is already priced; months early is a caveat, never a ✅.
-- A settled order — it has a car and that car still meets the promise — is out of play and keeps it. Never BUMP one unless the planner authorized who may be displaced: list `session.bump_candidates`, ASK, compile the answer into `may_move.also`. A `never` they set earlier beats everything, including permission granted in the same breath.
+- A settled order — it has a car and that car still meets the promise — is out of play and keeps it. Never BUMP one unless the planner authorized it: list `session.bump_candidates`, ASK, compile the answer into `may_move.also` — the orders they named, or `true` for anyone. That permission is for ONE turn: spend it with `session.carry_forward` before the next one. A `never` they set earlier beats everything, including permission granted in the same breath.
 - Write back to XAS only on explicit human approval.
 - Infeasible, or an override conflicting with a hard rule: stop and report. Never relax a constraint to force a solution.
 

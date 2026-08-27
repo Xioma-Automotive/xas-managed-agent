@@ -16,7 +16,7 @@ from datetime import date
 
 import pytest
 
-from xas_allocation.session import bump_candidates
+from xas_allocation.session import bump_candidates, carry_forward
 from xas_allocation.snapshot import Order, Snapshot, Vehicle
 from xas_allocation.solver import CFG, solve, tardiness
 
@@ -141,3 +141,64 @@ def test_break_cost_can_block_an_authorized_bump(monkeypatch):
     assert (
         tardiness(snap.order_by_key()[ORDER_HI], snap.vehicle_by_id()[blocked.plan[ORDER_HI]]) > 0
     )
+
+
+ANYONE = {**URGENT_HI, "may_move": {"also": True}}
+
+
+def test_also_true_rescues_the_same_order_a_named_authorisation_would():
+    """The fleet-wide form is a wider permission, not a stronger one: on a book
+    with one possible displacement it produces exactly what naming that order
+    produces."""
+    snap = _snapshot()
+    assert solve(snap, ANYONE, churn_price=0).plan[ORDER_HI] == "VEH-LO-GOOD"
+    assert solve(snap, AUTH, churn_price=0).plan[ORDER_HI] == "VEH-LO-GOOD"
+
+
+def test_also_true_declines_a_bump_that_buys_nothing():
+    """Opening the whole book moves nothing on its own. Both orders weigh the
+    same, so shifting 30 days of lateness from one to the other is a wash — and
+    it costs a break. Permission is not an instruction."""
+    snap = _snapshot()
+    result = solve(snap, {"may_move": {"also": True}}, churn_price=0)
+    assert result.plan[ORDER_LO] == "VEH-LO-GOOD"
+    # The strongest form of "moves nothing on its own": the whole book comes out
+    # exactly as it does with no authorisation at all. (Not `n_changes == 0` —
+    # this book has one change either way: HI is late, so it is in the free set
+    # by default and swaps one equally-late car for another, which is free at
+    # churn_price=0. That change is the repair, not a bump.)
+    assert result.plan == solve(snap, {}, churn_price=0).plan
+
+
+def test_carry_forward_spends_the_bump_authorisation():
+    """`may_move.also` is permission for ONE solve. Both forms are dropped."""
+    assert carry_forward({"may_move": {"also": True}}) == {}
+    assert carry_forward({"may_move": {"also": {"orders": [ORDER_LO]}}}) == {}
+
+
+def test_carry_forward_keeps_every_standing_instruction():
+    """Priority, the slice, an absolute hold and the churn price are standing
+    instructions until the planner changes them — only the authorisation expires."""
+    override = {
+        "priority": [{"order": ORDER_HI, "step": "urgent"}],
+        "churn_price": 25,
+        "may_move": {"only": {"models": ["SM1"]}, "never": [ORDER_LO], "also": True},
+    }
+    assert carry_forward(override) == {
+        "priority": [{"order": ORDER_HI, "step": "urgent"}],
+        "churn_price": 25,
+        "may_move": {"only": {"models": ["SM1"]}, "never": [ORDER_LO]},
+    }
+
+
+def test_carry_forward_does_not_mutate_the_override_that_was_solved():
+    """The solved object is stamped into plan.json, which is what makes the turn
+    reproducible. Editing it in place would rewrite history."""
+    override = {"may_move": {"also": True, "never": [ORDER_LO]}}
+    carry_forward(override)
+    assert override == {"may_move": {"also": True, "never": [ORDER_LO]}}
+
+
+def test_carry_forward_handles_an_empty_or_missing_override():
+    assert carry_forward(None) == {}
+    assert carry_forward({}) == {}

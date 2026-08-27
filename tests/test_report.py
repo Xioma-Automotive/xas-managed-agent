@@ -306,3 +306,19 @@ def test_bump_candidates_are_offered_lightest_first():
     rows = [c["row"] for c in bump_candidates(snap, cyc.chosen, steer)]
     if "KEPT" in rows and len(rows) > 1:
         assert rows[-1] == "KEPT", "the order the planner called urgent is offered last"
+
+
+def test_the_fleet_wide_authorisation_is_said_in_plain_words():
+    """`_who` takes a filter; handed `True` it raises and the whole report dies.
+    So the boolean form must be phrased BEFORE `_who` is ever reached. The
+    planner also has to see that this permission is for one turn, since it is the
+    only key that expires."""
+    snap = _snapshot()
+    steer = {"may_move": {"also": True}}
+    cyc = run_cycle(snap, steer)
+    report = planner_report(snap, cyc.chosen, steer)
+    assert "anyone still settled" in report
+    assert "this turn" in report
+    low = report.lower()
+    leaked = [t for t in JARGON if t.lower() in low]
+    assert not leaked, f"solver jargon leaked into planner reply: {leaked}"

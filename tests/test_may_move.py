@@ -21,7 +21,7 @@ never had, so the slices here are by MODEL — two orders, two models.
 from datetime import date
 
 from xas_allocation.snapshot import Order, Snapshot, Vehicle
-from xas_allocation.solver import solve
+from xas_allocation.solver import partition, solve
 
 NOW = date(2026, 8, 3)
 PROMISED = date(2026, 9, 14)
@@ -163,3 +163,33 @@ def test_an_order_is_named_by_its_whole_id_and_nothing_less():
     result = solve(snap, {"may_move": {"never": ["50000"]}}, churn_price=0)
     assert result.plan[ORDER_A] != "VEH-LATE-A"
     assert result.plan[ORDER_B] != "VEH-LATE-B"
+
+
+def test_also_true_puts_every_settled_order_in_play():
+    """The fleet-wide form. A filter can only name orders, models or a date range,
+    so "yes, you may bump anyone" had to be faked as a filter matching everything
+    — which reads as a date instruction nobody gave."""
+    snap = _settled_snapshot()
+    assert partition(snap, {}).free_orders == [], "the default protects a settled book"
+    assert partition(snap, {"may_move": {"also": True}}).free_orders == [ORDER_A, ORDER_B]
+
+
+def test_an_empty_also_filter_still_means_nobody():
+    """`{}` must never widen. A half-built override — the key present, the filter
+    not filled in yet — would otherwise open the whole book."""
+    snap = _settled_snapshot()
+    assert partition(snap, {"may_move": {"also": {}}}).free_orders == []
+
+
+def test_never_beats_also_true():
+    """Precedence is unchanged by the new form: an absolute hold still wins."""
+    snap = _settled_snapshot()
+    steer = {"may_move": {"also": True, "never": [ORDER_A]}}
+    assert partition(snap, steer).free_orders == [ORDER_B]
+
+
+def test_only_bounds_also_true():
+    """`only` bounds the whole turn, the fleet-wide permission included."""
+    snap = _settled_snapshot()
+    steer = {"may_move": {"also": True, "only": {"orders": [ORDER_B]}}}
+    assert partition(snap, steer).free_orders == [ORDER_B]

@@ -206,7 +206,7 @@ There are **three keys and no others**:
 | Lever | What it does |
 | --- | --- |
 | `priority` | `[{"order": "502377", "step": "normal\|high\|urgent"}]` — who matters more. Every order starts at `normal`; only what they name moves. An unknown step is an error, so use exactly those three words. |
-| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{models, orders, from_date, to_date}`; `never` takes a list of order ids. |
+| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{models, orders, from_date, to_date}`; `also` can instead be `true`, meaning anyone still settled; `never` takes a list of order ids. |
 | `churn_price` | one number: how much a changed allocation costs. Omit it and the solver sweeps several and presents the middle one. |
 
 `may_move` is one sentence said three ways — *who is in play this turn* — and the
@@ -218,6 +218,11 @@ precedence is **never beats only beats also**:
 - **`also` WIDENS, inside `only`.** The orders the planner has authorised you to
   displace to rescue someone late. **This is the only way anyone gets bumped, and
   you ASK first** — `bump_candidates` gives you the concrete list to ask with.
+  Their answer compiles to a filter if they named who, or to `true` if they said
+  "whoever it takes". **It lasts this turn only:** run
+  `session.carry_forward(override)` after the plan is out and carry the result
+  into the next turn, so a permission given once is not still open three turns
+  later. Say so when you confirm it.
 - **`never` REMOVES, absolutely.** "Leave that one alone", even against an `also`
   naming the same order in the same breath. It is the only way to protect an
   order that is itself late, since such an order is in play by default.
@@ -253,7 +258,8 @@ fine. Never do that uninvited:
 1. Solve the plain repair first.
 2. If an order they care about is still late, call `session.bump_candidates(...)`
    and show the planner who could be displaced, lightest first.
-3. Compile their answer into `may_move.also`. The solver then displaces one only
+3. Compile their answer into `may_move.also` — the named orders, or `true` if
+   they authorised anyone. The solver then displaces one only
    when it genuinely lowers the total cost — an authorisation is permission, not
    an instruction, so a bump that buys nothing simply does not happen. Say that
    plainly rather than reporting a failure.
@@ -268,6 +274,10 @@ against fresh data.
 There is no history to replay and no order to get wrong. It is the only thing that
 must survive: if your sandbox is reclaimed, recover it from the last version you
 showed the planner.
+
+One key is the exception: `may_move.also` is permission for a single solve, so
+`session.carry_forward(override)` returns the object to carry into the next turn
+with that permission spent. Everything else stands until they change it.
 
 ## Running it locally
 

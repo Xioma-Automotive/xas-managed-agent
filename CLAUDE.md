@@ -234,7 +234,12 @@ XAS endpoint and its credential never touch the sandbox.
   touch. `also` is the one place permission to displace is granted, and it is
   permission, not an instruction: the solver still declines a bump that buys
   nothing. `never` is absolute, and it is the only way to hold an order that is
-  itself late. `tests/test_may_move.py` pins all three.
+  itself late. `also` takes a filter or the fleet-wide `true`, and it is the ONE
+  key that EXPIRES: `session.carry_forward` drops it after the solve, because a
+  permission that persisted would bump a settled order on the strength of a
+  sentence said three turns ago. `{}` is not `true` — an empty filter widens
+  nothing, so a half-built override cannot open the book.
+  `tests/test_may_move.py` pins all three, and `tests/test_bump.py` the expiry.
 - **The churn price charges for a CHANGED CAR, not a missed promise.** It used to
   be charged whenever the car's date differed from the promised date — true of
   98.9% of eligible pairings — and only inside the fence's 15–42d band, so the

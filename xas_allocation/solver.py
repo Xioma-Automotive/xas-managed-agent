@@ -255,9 +255,10 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
       authorised — the hole the old ``scope`` key had.
     * ``also`` WIDENS, inside ``only``: untouched orders the planner has
       EXPLICITLY authorised the solver to displace to rescue someone late
-      (DECIDE-13). The solver moves one only if it lowers total cost, and pays
-      ``break_cost`` to do it. This is the one place permission to displace is
-      given; nothing is ever bumped without it.
+      (DECIDE-13). A filter names them; ``True`` means ANYONE still settled, for
+      this turn only (see ``session.carry_forward``). The solver moves one only
+      if it lowers total cost, and pays ``break_cost`` to do it. This is the one
+      place permission to displace is given; nothing is ever bumped without it.
     * ``never`` REMOVES, absolutely. "I already called that customer, leave it."
       It is the only way to protect an order that IS in trouble, and it beats an
       explicit permission granted in the same breath.
@@ -269,17 +270,24 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
 
     may_move = override.get("may_move") or {}
     only = may_move.get("only") or {}
-    also = may_move.get("also") or {}
+    # `also: true` is the FLEET-WIDE form: every settled order is in play this
+    # turn. A filter stays the scoped form, and `{}` still means NOBODY — an
+    # empty filter must never widen, or an override half-built by the agent
+    # opens the whole book. That is why the sentinel is a distinct value rather
+    # than "an empty filter matches everything".
+    raw_also = may_move.get("also")
+    bump_anyone = raw_also is True
+    also = raw_also if isinstance(raw_also, dict) else {}
     never = set(may_move.get("never") or [])
     narrowed = _filter_active(only)
-    widened = _filter_active(also)
+    widened = bump_anyone or _filter_active(also)
 
     free_orders: list[str] = []
     for oid, o in orders.items():
         if names_order(o, never):
             continue
         needs_help = (oid in disrupted) or (allocations.get(oid) is None)
-        if not (needs_help or (widened and _matches(o, also))):
+        if not (needs_help or (widened and (bump_anyone or _matches(o, also)))):
             continue
         if narrowed and not _matches(o, only):
             continue

@@ -716,3 +716,14 @@ def test_skill_separates_the_promise_from_the_arrival():
     # and the MCP field names must be gone with the MCP
     for gone in ("DueDateTime", "AvailableBy", "ModelId.Code", "JobKey", "LineNum"):
         assert gone not in skill, f"{gone} is app-MCP vocabulary; the pull is CSV now"
+
+
+def test_prompt_says_a_bump_authorisation_lasts_one_turn():
+    """`may_move.also` is the only key that expires. If the prompt does not say
+    so, the agent carries the permission forward like everything else and a later
+    turn displaces a settled order on the strength of one old sentence."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "`may_move.also`" in prompt
+    assert "`true` for anyone" in prompt
+    assert "permission is for ONE turn" in prompt
+    assert "session.carry_forward" in prompt

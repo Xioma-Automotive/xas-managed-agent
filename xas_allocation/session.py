@@ -308,6 +308,27 @@ def run_cycle(snapshot: Snapshot, override: dict | None = None) -> CycleResult:
     return CycleResult(override, sweep, results, price, results[price])
 
 
+def carry_forward(override: dict | None) -> dict:
+    """The override for the NEXT turn: this turn's bump authorisation is spent.
+
+    ``may_move.also`` is permission for ONE solve (decided 2026-08-27). Every
+    other key is a standing instruction that holds until the planner changes it,
+    which is why this drops exactly one thing. A permission that quietly persisted
+    would mean a later turn displacing a settled order on the strength of a
+    sentence said three turns ago.
+
+    Returns a NEW object: the override that was solved is stamped into
+    ``plan.json`` by ``save_plan``, and that record is what makes the turn
+    reproducible, so it must not be edited in place.
+    """
+    out = {key: value for key, value in (override or {}).items() if key != "may_move"}
+    may_move = override.get("may_move") if override else None
+    kept = {key: value for key, value in (may_move or {}).items() if key != "also" and value}
+    if kept:
+        out["may_move"] = kept
+    return out
+
+
 # --- Planner-facing report (the finished reply) ------------------------------
 
 # The solver PRICES all earliness (DECIDE-15); the report only *mentions* it when
@@ -342,7 +363,11 @@ def _steering_summary(override: dict) -> str:
     may_move = override.get("may_move") or {}
     if may_move.get("only"):
         parts.append(f"working only {_who(may_move['only'])}")
-    if may_move.get("also"):
+    # `is True` FIRST: `_who` reads filter keys off a dict, so handed the
+    # fleet-wide sentinel it raises and takes the whole report with it.
+    if may_move.get("also") is True:
+        parts.append("allowed bumping anyone still settled, this turn")
+    elif may_move.get("also"):
         parts.append(f"allowed bumping {_who(may_move['also'])}")
     if may_move.get("never"):
         parts.append("leaving " + ", ".join(may_move["never"]) + " alone")
