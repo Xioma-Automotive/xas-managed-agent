@@ -109,14 +109,13 @@ Other recipes:
    before acting on them.
 4. **Statuses filter the way the index says.** JobCard statuses filter on the
    status `id` from the phrasebook; Vehicle statuses have no `id` (they are core
-   enums), so filter those on `code`. A status `id` does not identify a
-   classification — `…5b6764` ("Closed") appears under Parts, ServiceCall, VPO,
-   Service and more — so always send the classification with it.
-   The tools offer a shortcut here and it only covers half the job: a status that
-   came BACK carries its own display name, so read that rather than looking it up.
-   But which classification the question is about is not on any response — it is
-   what you resolve here, before the first call. A label you read off a row can
-   never supply it.
+   enums), so filter those on `code`. In this tenant an id and its name are 1:1, so
+   an id needs no classification to be read — and a status that came BACK carries
+   its own display name, so read that rather than looking it up. But one id SPANS
+   every classification that has it (`…5b6764`, "Closed", covers Parts, ServiceCall,
+   VPO, Service and more), so a count on it is every card type at once. Send a
+   classification only when the planner asked for one, and say in the answer what
+   the count covered.
 5. **A lifecycle word IS a status — take it literally.** "open" means the status
    named `Open`, not "everything unfinished". Each such word is exactly one `id`
    spanning every classification that has it — `Open` covers eight of them — so it
@@ -151,41 +150,60 @@ Other recipes:
     you may ask for are listed on the tool itself; which ones actually come back
     is learned from one record. Never from the index, and never from memory.
 
-## Getting the number — a count, or the cards
+## Getting the number
 
-**Probe once, then answer.** Send the filter with `paging: {"count": 1}` and, in
-`fields`, the columns you are CONSIDERING. One cheap row answers two things you
-cannot know in advance: `totalCount` — how many MATCHED the filter, not how many
-came back in the page — and which of those columns this data actually carries,
-since a field the tool does not return is dropped in silence. Both shape the real
-call, so probe before you shape it. (A field you did not ask for tells you nothing:
-the probe reveals only the columns it named.)
+Every question runs the same three steps, in this order. Skipping step 1 is what
+cost five calls and three rounds on 2026-08-27 for a question worth three.
 
-A pure count question needs no columns at all — ask for the key alone.
+**1. Pin down what the question is about, and take its id.** Resolve every business
+term through the phrasebook first (above). A person or a company is an ACCOUNT: if
+the name is already in this conversation it IS that account, so use the id you hold;
+if the planner introduces a name you have not seen, look it up with
+`get_account_list`, the only call that knows how MANY accounts carry it — "Daniil"
+matches two here.
 
-Then, with the count in hand:
+Never search cards for a person's name in place of that. `searchAllFields` matches
+the string anywhere on a card, so a hit is not proof of ownership and a miss is not
+proof of absence: the same account came back as 18 cards by name search and 336 by
+owner id.
 
-- **A count question is already answered.** `totalCount` IS the number. Stop.
+**2. Probe — ONE call, `paging: {"count": 1}`, naming the columns you are
+CONSIDERING.** One cheap row answers two things you cannot know in advance:
+`totalCount`, how many MATCHED the filter rather than how many came back in the
+page; and which of those columns this data actually carries, since a field the tool
+does not return is dropped in silence. The probe reveals only the columns it named,
+so a field you did not ask for tells you nothing. A pure count needs no columns —
+ask for the key alone.
+
+Add ONE narrowing clause at a time. Never send two clauses you have not proven: a 0
+from `A AND B` where neither is established carries NO information, and working out
+afterwards which one killed it costs more calls than doing it in order.
+
+**3. Answer, or ask for the rows.**
+
+- **A count is already answered** — `totalCount` IS the number. Stop.
+- **A 0 buys exactly ONE control call.** Re-send with only the clause you GUESSED
+  at — a dotted path you inferred, not a code the phrasebook handed you. Rows on its
+  own means the 0 is real. Never a second control call, and never one that pulls
+  rows: a control reads `totalCount`, so it is always `count: 1`.
 - **Up to 5 buckets** — one filtered count call each. Five integers, no cards.
 - **More than 5** — one call for the cards, tallied yourself. A split by
   classification is a call per classification the other way, and the phrasebook
-  lists far more than five of them. Ask for at most 50 rows on that call, and
-  check `totalCount` against what came back: more than you were given means the
-  set is too big to tally, so loop the buckets after all.
+  lists far more than five of them. Ask for at most 50 rows, and check `totalCount`
+  against what came back: more than you were given means the set is too big to
+  tally, so loop the buckets after all.
+- **"Show me the cards that …"** — ids, statuses, customers, dates, the cards behind
+  a chart need the records themselves. Ask once, `paging.count` bounded, only the
+  columns you will print, and name the ones you show. What the probe already told
+  you does not need asking again: a call repeating the first filter AND the first
+  field list has bought nothing. (A tool result big enough to be offloaded to a file
+  is a symptom: you asked for cards you did not need, and the tokens are spent by
+  the time you read the file.)
 
 **Never walk pages to compute an aggregate.** Paging and adding up costs roughly
 forty times as much: every card you pull stays in this conversation and is re-read
 on every later turn. And a card arrives padded — eleven account-role objects, the
-owner's whole contact list — so name the fields you want (below). A count needs
-none of them.
-
-**"Show me the cards that …" — ask for the rows.** Ids, statuses, customers,
-dates, the cards behind a chart: that needs the records themselves. Ask for them
-once, with `paging.count` bounded and only the fields you will print, and name the
-ones you show. What the probe already told you does not need asking again: a second
-call that repeats the first filter AND the first field list has bought nothing. (A
-tool result big enough to be offloaded to a file is a symptom: you asked for cards
-you did not need, and the tokens are spent by the time you read the file.)
+owner's whole contact list — so name the columns you want. A count needs none.
 
 ### The calls
 
@@ -202,30 +220,6 @@ Every row sends `fields`. See below for why, and what to put in it.
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification (rule 5) |
 | Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 | The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/phrasebook.tsv \| sort -u` |
-
-### Establish before you narrow
-
-Never send a filter carrying two or more clauses you have not proven. A 0 from
-`A AND B`, where neither A nor B is established, carries NO information — and
-working out which clause killed it afterwards costs more calls than doing it in
-order. On 2026-08-27 that debt cost five calls and three rounds to answer one
-question.
-
-1. **Pin the thing down first, and take its id.** A person or a company is an
-   ACCOUNT. If the name is already in this conversation, it is that account — use
-   the id you have. If the planner introduces a name you have not seen, look it up
-   with `get_account_list`: it is the only call that knows how MANY accounts carry
-   that name, and "Daniil" matches two here.
-2. **Then add ONE narrowing clause** and read `totalCount`.
-3. **A 0 buys exactly ONE control call.** Re-send with only the clause you
-   GUESSED at — a dotted path you inferred, not a code the phrasebook handed you.
-   Rows on its own means the 0 is real. Never a second control call, and never one
-   that pulls rows: a control reads `totalCount`, so it is always `count: 1`.
-
-Do not search cards for a person's name in place of this. `searchAllFields` matches
-the string anywhere on a card, so a hit is not proof of ownership and a miss is not
-proof of absence: the same account came back as 18 cards by name search and 336 by
-owner id.
 
 ### Ask for the fields you need
 

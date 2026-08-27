@@ -396,9 +396,12 @@ def test_reporting_skill_probes_once_before_shaping_the_real_call():
     shows the agent probing anyway, against the rule.
 
     What survives is the narrow version: a second call repeating BOTH the first
-    filter and the first field list has bought nothing."""
+    filter and the first field list has bought nothing.
+
+    Merged 2026-08-27 into the three-step procedure: the probe is step 2, so it can
+    no longer be read as licence to send clauses step 1 has not established."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Probe once, then answer" in skill
+    assert "**2. Probe" in skill
     assert "same query twice" not in skill, "the contradicting prohibition must be gone"
     assert "has bought nothing" in skill, "but a pure duplicate is still waste"
     assert '"Show me the cards that' in skill, "the rows case must have its own heading"
@@ -630,9 +633,27 @@ def test_reporting_skill_establishes_before_it_narrows():
     """Observed 2026-08-27: "find all service leads of Daniil" cost five calls and
     three rounds. Two unproven clauses went out together, both returned 0, and the
     rest of the turn worked out which clause was responsible — two control calls
-    pulling 50 rows each to read a number off totalCount."""
+    pulling 50 rows each to read a number off totalCount.
+
+    The ordering is steps 1-2 of one numbered procedure rather than its own heading,
+    so nothing has to say how the two compose."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "### Establish before you narrow" in skill
+    steps = [line for line in skill.splitlines() if line.startswith(("**1. ", "**2. ", "**3. "))]
+    assert len(steps) == 3, f"the procedure must stay three ordered steps, saw {steps}"
+    assert "Pin down what the question is about" in skill
     assert "carries NO information" in skill
     assert "ONE control call" in skill
     assert "get_account_list" in skill, "a fresh name resolves as an account"
+
+
+def test_reporting_skill_does_not_demand_a_classification_with_a_status():
+    """Checked against all 109 STATUS entries on 2026-08-27: no id carries more than
+    one name and no name maps to more than one id, so a status id is unambiguous on
+    its own. Rule 4 used to say "always send the classification with it", which
+    contradicted rule 5 ("never a call per classification") and would have turned one
+    call for "how many open cards" into eight. What is true is that one id SPANS
+    classifications, so the count covers every card type and the answer must say so."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "always send the classification with it" not in skill
+    assert "an id and its name are 1:1" in skill
+    assert "classification only when the planner asked for one" in skill
