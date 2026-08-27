@@ -77,7 +77,7 @@ path left to forbid), `tests/test_agent_contract.py` pins the rule,
 and `docs/evals/routing.md` is the hand-run behavioural check.
 
 **Reporting vocabulary.** Dealerships rename things — in the shipped tenant the
-code `Service` displays as `Distinct_name`. `xas-reporting` flattens the taxonomy into a
+code `Evaluation` displays as `Service Lead`. `xas-reporting` flattens the taxonomy into a
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
 exact-first, then loosely, then through other wordings it proposes and the grep

@@ -99,8 +99,8 @@ Other recipes:
 1. **Carry `entity` with `code`; filter on `code`, display `name`.** Codes are
    unique per entity, not globally — `code="Model"` exists under both the `Model`
    and `VehicleModels` entities, so a bare code is ambiguous. And tenants rename
-   things locally, so the two diverge routinely — `code="Service"` carries
-   `name="Distinct_name"`. Never infer one from the other.
+   things locally, so the two diverge routinely — `code="Evaluation"` carries
+   `name="Service Lead"`. Never infer one from the other.
 2. **Two or more genuine candidates → ask one short question.** `קריאת שירות`
    resolves to both `ServiceCall` and `Service`. Name them in the user's own
    words and let them pick; do not silently take the first row.
@@ -320,9 +320,9 @@ Say:
   not-closed span (rule 5). Live numbers get a short "from the live system" — the
   planner cannot tell that from the number.
 - **`name`, never `code`, `id`, or an internal field name.** Where the user
-  supplied their own wording (an alias, or a term whose `name` is a local
-  placeholder like `Distinct_name`), echo **their** wording — it is what they will
-  recognise. Chart axis labels and legends follow the same rule. A column headed
+  supplied their own wording — an alias rather than the stored name, say
+  `קריאת שירות` for what the taxonomy calls `Vehicle Service Order` — echo
+  **their** wording; it is what they will recognise. Chart axis labels and legends follow the same rule. A column headed
   "Code" breaks this as surely as a sentence does.
 - **A stored name is ONE string — print it whole.** An account is its
   `AccountName` exactly as written: `Daniil123` is the name. Not "Daniil", not

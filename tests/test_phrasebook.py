@@ -75,12 +75,15 @@ def test_every_alias_becomes_its_own_row(rows):
 
 
 def test_code_and_name_diverge_and_both_resolve(rows):
-    """code="Service" is named "Distinct_name" — the trap the agent must not infer around."""
+    """code="Evaluation" is named "Service Lead" — the trap the agent must not infer
+    around. `Service` used to be the example, named "Distinct_name" until 2026-08-27,
+    when that turned out to be dev junk rather than a tenant rename."""
     by_surface = {
         _cols(r)["surface"]: _cols(r) for r in rows if _cols(r)["kind"] == "classification"
     }
-    assert by_surface["Service"]["name"] == "Distinct_name"
-    assert by_surface["Distinct_name"]["code"] == "Service"
+    assert by_surface["Evaluation"]["name"] == "Service Lead"
+    assert by_surface["Service Lead"]["code"] == "Evaluation"
+    assert by_surface["Service"]["name"] == "Vehicle Service Order"
 
 
 def test_ambiguous_alias_yields_both_candidates(rows):

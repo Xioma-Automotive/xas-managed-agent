@@ -199,7 +199,7 @@ STATUS          entity="JobCard"  classification="Invoice"  id="6530d9a89c098a33
 CLASSIFICATION  entity="JobCard"  code="VSR"  name="Vehicle Stock Transfer Request"  fields=59  statuses=0  aliases=""
 CLASSIFICATION  entity="JobCard"  code="VDN"  name="Vehicle Delivery Note"  fields=0  statuses=0  aliases=""
 CLASSIFICATION  entity="JobCard"  code="VRS"  name="Vehicle Reservation (VRS)"  fields=108  statuses=0  aliases=""
-CLASSIFICATION  entity="JobCard"  code="Service"  name="Distinct_name"  fields=649  statuses=16  aliases="External Vehicle Service Order | קריאת שירות | Vehicle Service Order | כרטיס עבודה | Jobkarte"
+CLASSIFICATION  entity="JobCard"  code="Service"  name="Vehicle Service Order"  fields=649  statuses=16  aliases="External Vehicle Service Order | קריאת שירות | כרטיס עבודה | Jobkarte"
 STATUS          entity="JobCard"  classification="Service"  id="6530d9a89c098a37e96ff5c6"  code="20"  name="Draft"  state="In Process"  closed=false
 STATUS          entity="JobCard"  classification="Service"  id="6530d9a89c098a33be3e0c70"  code="03"  name="In Process"  state="In Process"  closed=false
 STATUS          entity="JobCard"  classification="Service"  id="6530d9a89c098a33be3e0c73"  code="1"  name="Open"  state="In Process"  closed=false
