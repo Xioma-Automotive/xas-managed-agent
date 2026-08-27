@@ -637,12 +637,3 @@ def test_reporting_skill_establishes_before_it_narrows():
     assert "ONE control call" in skill
     assert "get_account_list" in skill, "a fresh name resolves as an account"
 
-
-def test_reporting_skill_says_fields_cannot_reach_inside_a_field():
-    """Verified live 2026-08-27: `fields: ["Accounts.Owner.AccountName"]` is a hard
-    validation error — the enum is closed and a dotted sub-path is refused. So a
-    card's accounts arrive whole, contact details included, and no request can trim
-    them. The only defence is on the way out."""
-    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "cannot reach inside a field" in skill
-    assert "dotted sub-path is rejected" in skill

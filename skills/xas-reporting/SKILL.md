@@ -240,11 +240,6 @@ Two things to know before you trust a response:
 - **`fields` narrows; it cannot widen.** It picks from what the tool already
   returns. A name it does not return is dropped in silence — no error, no empty
   value, no mention.
-- **And it cannot reach inside a field.** Only the names the tool lists are
-  accepted; a dotted sub-path is rejected outright. So asking for the accounts on a
-  card hands you ALL of it — every party role, each with its code, phone and email —
-  and there is no way to ask for less. Nothing on the way in protects the reply:
-  print the one column that answers the question and leave the rest unread.
 - **So an absent field is not an empty value.** A missing date means "not
   returned here", never "this card has no date", and it is NEVER a business fact
   to report. If a field you need never arrives on any row, say the live system
