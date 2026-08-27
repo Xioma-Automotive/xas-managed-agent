@@ -478,9 +478,13 @@ def test_between_tool_calls_the_agent_says_nothing():
     """Observed 2026-08-23: the reply was clean, but the turn still shipped
     "Let me check the timeframe first", "28 Service cards — small", and "all 16
     buckets sum to 28 — the split is clean". Every line between tool calls reaches
-    the planner, so the rule has to cover the whole turn, not just the answer."""
+    the planner, so the rule has to cover the whole turn, not just the answer.
+
+    Moved 2026-08-27 into its own `## The channel` block ahead of the work, after
+    the same rule was broken twice more from under the "Presenting the answer"
+    heading — see test_reporting_skill_states_the_channel_before_the_output_contract."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Everything you type is the reply." in skill
+    assert "Every character you emit reaches the planner" in skill
     prompt = setup_agent.SYSTEM_PROMPT
     assert "there is no working-notes channel" in prompt
     for banned in ("running totals", "point at your own output"):
@@ -596,3 +600,49 @@ def test_reporting_skill_says_an_absent_field_is_not_an_empty_value():
     assert "narrows; it cannot widen" in skill
     assert "an absent field is not an empty value" in skill.lower()
     assert "NEVER a business fact" in skill
+
+
+def test_reporting_skill_states_the_channel_before_the_output_contract():
+    """Observed 2026-08-27: two mid-turn messages reached the planner — "Let me find
+    those tied to Daniil" and "Let me confirm the account filter actually works" —
+    naming an internal code and a filter. The rule existed, filed under "Presenting
+    the answer", which is not what the agent believes it is doing two calls deep. It
+    is now a standing fact about the channel, stated before any of the work."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "## The channel" in skill
+    head = skill.split("## Getting the number", 1)[0]
+    assert "## The channel" in head, "it must come before the work, not after it"
+    assert "It is talking" in skill
+
+
+def test_reporting_skill_keeps_a_stored_name_whole():
+    """Observed 2026-08-27: the account `Daniil123` was reported as "Daniil (account
+    123)" — a name nobody stored beside a code the planner may not see. It started a
+    turn earlier with a table column of account codes, which is the same rule broken
+    as a column rather than a sentence."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "A stored name is ONE string" in skill
+    assert "Daniil123" in skill, "name the observed failure, not the abstraction"
+    assert 'A column headed\n  "Code" breaks this' in skill
+
+
+def test_reporting_skill_establishes_before_it_narrows():
+    """Observed 2026-08-27: "find all service leads of Daniil" cost five calls and
+    three rounds. Two unproven clauses went out together, both returned 0, and the
+    rest of the turn worked out which clause was responsible — two control calls
+    pulling 50 rows each to read a number off totalCount."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "### Establish before you narrow" in skill
+    assert "carries NO information" in skill
+    assert "ONE control call" in skill
+    assert "get_account_list" in skill, "a fresh name resolves as an account"
+
+
+def test_reporting_skill_says_fields_cannot_reach_inside_a_field():
+    """Verified live 2026-08-27: `fields: ["Accounts.Owner.AccountName"]` is a hard
+    validation error — the enum is closed and a dotted sub-path is refused. So a
+    card's accounts arrive whole, contact details included, and no request can trim
+    them. The only defence is on the way out."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "cannot reach inside a field" in skill
+    assert "dotted sub-path is rejected" in skill

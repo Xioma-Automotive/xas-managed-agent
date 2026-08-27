@@ -25,6 +25,18 @@ a tool call is a number you do not have.
 **Never read `index.md` or the phrasebook whole.** This tenant's index is small;
 production tenants run to megabytes.
 
+## The channel
+
+Every character you emit reaches the planner, including the lines between tool
+calls. There is no working-notes channel and no scratchpad: a sentence saying what
+you are about to do IS a message, delivered to them before they have an answer. So
+work in SILENCE and answer ONCE, at the end.
+
+This is broken mid-turn, when it does not yet feel like presenting anything — you
+are two calls deep, something looks off, and explaining the next step feels like
+thinking rather than talking. It is talking. **Presenting the answer** below is the
+only text you ever produce.
+
 ## Step 0 — build the phrasebook (once per session)
 
 ```bash
@@ -187,6 +199,30 @@ Every row sends `fields`. See below for why, and what to put in it.
 | Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 | The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/phrasebook.tsv \| sort -u` |
 
+### Establish before you narrow
+
+Never send a filter carrying two or more clauses you have not proven. A 0 from
+`A AND B`, where neither A nor B is established, carries NO information — and
+working out which clause killed it afterwards costs more calls than doing it in
+order. On 2026-08-27 that debt cost five calls and three rounds to answer one
+question.
+
+1. **Pin the thing down first, and take its id.** A person or a company is an
+   ACCOUNT. If the name is already in this conversation, it is that account — use
+   the id you have. If the planner introduces a name you have not seen, look it up
+   with `get_account_list`: it is the only call that knows how MANY accounts carry
+   that name, and "Daniil" matches two here.
+2. **Then add ONE narrowing clause** and read `totalCount`.
+3. **A 0 buys exactly ONE control call.** Re-send with only the clause you
+   GUESSED at — a dotted path you inferred, not a code the phrasebook handed you.
+   Rows on its own means the 0 is real. Never a second control call, and never one
+   that pulls rows: a control reads `totalCount`, so it is always `count: 1`.
+
+Do not search cards for a person's name in place of this. `searchAllFields` matches
+the string anywhere on a card, so a hit is not proof of ownership and a miss is not
+proof of absence: the same account came back as 18 cards by name search and 336 by
+owner id.
+
 ### Ask for the fields you need
 
 A card comes back with its salient fields whether you use them or not, and every
@@ -204,6 +240,11 @@ Two things to know before you trust a response:
 - **`fields` narrows; it cannot widen.** It picks from what the tool already
   returns. A name it does not return is dropped in silence — no error, no empty
   value, no mention.
+- **And it cannot reach inside a field.** Only the names the tool lists are
+  accepted; a dotted sub-path is rejected outright. So asking for the accounts on a
+  card hands you ALL of it — every party role, each with its code, phone and email —
+  and there is no way to ask for less. Nothing on the way in protects the reply:
+  print the one column that answers the question and leave the rest unread.
 - **So an absent field is not an empty value.** A missing date means "not
   returned here", never "this card has no date", and it is NEVER a business fact
   to report. If a field you need never arrives on any row, say the live system
@@ -270,10 +311,8 @@ phrasebook, the lookups, the filters, the tool calls — is HOW you got the answ
 and none of it belongs in the reply. Give the business answer: the figure, what
 it covers, and anything that changes how they read it.
 
-**Everything you type is the reply.** There is no working-notes channel: the
-planner reads every line, including the ones between tool calls. So work in
-silence and answer ONCE, at the end. Nothing like *"Let me check the timeframe
-first"* / *"Now I'll get the per-status split"* (announcing a step, or narrating
+**What that silence rules out** (see **The channel** above). Nothing like *"Let
+me check the timeframe first"* / *"Now I'll get the per-status split"* (announcing a step, or narrating
 one you just took); *"28 cards — small"* / *"all 16 buckets sum to 28, so the
 split is clean"* (a running total, or a cross-check that came out fine — a check
 that FAILS is worth a sentence, one that passed is not news); *"the chart above
@@ -290,7 +329,17 @@ Say:
 - **`name`, never `code`, `id`, or an internal field name.** Where the user
   supplied their own wording (an alias, or a term whose `name` is a local
   placeholder like `Distinct_name`), echo **their** wording — it is what they will
-  recognise. Chart axis labels and legends follow the same rule.
+  recognise. Chart axis labels and legends follow the same rule. A column headed
+  "Code" breaks this as surely as a sentence does.
+- **A stored name is ONE string — print it whole.** An account is its
+  `AccountName` exactly as written: `Daniil123` is the name. Not "Daniil", not
+  "Daniil (account 123)". Splitting it invents two things — a name nobody stored,
+  and a code the planner should not see. Observed 2026-08-27, and it began one turn
+  earlier with a table column of account codes: put a code on screen and it becomes
+  the handle you refer to the customer by.
+- **Never widen a finding past what you filtered.** A count for one account is
+  about that account. "His name appears nowhere in the dealership" is a different
+  query, and if you did not run it, do not write it.
 - **Anything that changes the reading**: which term you took their word to mean, a
   bucket that is an unknown status, a count that came back empty, the one question
   you would need answered to go further.
