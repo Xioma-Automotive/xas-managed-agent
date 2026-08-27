@@ -7,7 +7,7 @@ Two things this guards:
      and already LATE is repaired like any other: the promise is broken either
      way, so refusing to try just leaves a better free car unused.
   2. the reply carries NO solver internals (churn price, objective, Pareto,
-     incumbent, min-cost) — the jargon the planner should never see.
+     min-cost, arcs) — the jargon the planner should never see.
 """
 
 import json
@@ -38,37 +38,20 @@ JARGON = ["λ", "lambda", "objective", "pareto", "allocations", "min-cost", "arc
 
 
 def _order(oid: str, model: str, promised: date) -> Order:
-    # `oid` is the full order key: VSO + car line.
-    so_id, line = oid.rsplit("-", 1)
-    return Order(
-        so_id=so_id,
-        line=int(line),
-        customer={"MOV": "Colmobil", "NEAR": "Delek", "KEPT": "Talcar", "UT": "Carasso"}.get(
-            oid.split("-")[0], oid
-        ),
-        customer_id=oid,
-        sales_model=model,
-        delivery_date=promised,
-        price=40000,
-    )
+    return Order(order_id=oid, sales_model=model, delivery_date=promised)
 
 
 def _vehicle(vid: str, model: str, planned: date) -> Vehicle:
-    return Vehicle(
-        vehicle_id=vid,
-        vehicle_classification="Vehicle",
-        sales_model=model,
-        eta_dealer=planned,
-    )
+    return Vehicle(vehicle_id=vid, sales_model=model, eta_dealer=planned)
 
 
 def _snapshot() -> Snapshot:
     return Snapshot(
         orders=[
-            _order("MOV-1", "SM1", MOV_PROMISED),  # late, far from delivery
-            _order("NEAR-1", "SM2", NEAR_PROMISED),  # late AND days from delivery
-            _order("KEPT-1", "SM4", KEPT_PROMISED),  # settled and on time -> untouched
-            _order("UT-1", "SM3", UT_PROMISED),  # settled and on time -> untouched
+            _order("MOV", "SM1", MOV_PROMISED),  # late, far from delivery
+            _order("NEAR", "SM2", NEAR_PROMISED),  # late AND days from delivery
+            _order("KEPT", "SM4", KEPT_PROMISED),  # settled and on time -> untouched
+            _order("UT", "SM3", UT_PROMISED),  # settled and on time -> untouched
         ],
         vehicles=[
             _vehicle("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # the late car MOV holds
@@ -78,16 +61,14 @@ def _snapshot() -> Snapshot:
             _vehicle("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
         ],
         allocations={
-            "MOV-1": "VEH-MOV-LATE",
-            "NEAR-1": "VEH-NEAR-LATE",
-            "KEPT-1": "VEH-KEPT-OK",
-            "UT-1": "VEH-UT-GOOD",
+            "MOV": "VEH-MOV-LATE",
+            "NEAR": "VEH-NEAR-LATE",
+            "KEPT": "VEH-KEPT-OK",
+            "UT": "VEH-UT-GOOD",
         },
-        disruption={
-            "delay_days": 30,
-            "delayed_vehicles": ["VEH-MOV-LATE", "VEH-NEAR-LATE"],
-            "disrupted_orders": ["MOV-1", "NEAR-1"],
-        },
+        # Derived, not declared: the manifest ("30 days on 2 vehicles") went with
+        # the fabricated source on 2026-08-27 — nothing records one.
+        disruption={"disrupted_orders": ["MOV", "NEAR"]},
         now=NOW,
     )
 
@@ -98,8 +79,8 @@ def test_a_settled_order_keeps_its_car_and_its_car_stays_out_of_the_pool():
     it off; it is simply not in the free set."""
     snap = _snapshot()
     cyc = run_cycle(snap)
-    assert cyc.chosen.plan["KEPT-1"] == "VEH-KEPT-OK"
-    assert cyc.chosen.plan["UT-1"] == "VEH-UT-GOOD"
+    assert cyc.chosen.plan["KEPT"] == "VEH-KEPT-OK"
+    assert cyc.chosen.plan["UT"] == "VEH-UT-GOOD"
 
 
 def test_discrepancy_report_offers_every_late_order_including_one_near_delivery():
@@ -108,7 +89,7 @@ def test_discrepancy_report_offers_every_late_order_including_one_near_delivery(
     trying."""
     report = discrepancy_report(_snapshot())
     assert "may get these back on track" in report
-    assert "NEAR-1" in report
+    assert "NEAR" in report
     assert "locked in" not in report.lower()
 
 
@@ -120,7 +101,7 @@ def test_planner_report_fixes_what_it_can():
     assert "VEH-GOOD" in report
     assert "1 of 2 delayed orders now on time" in report
     # ...and the near-delivery late one is still named, with a real reason
-    assert "NEAR-1" in report
+    assert "NEAR" in report
 
 
 def test_a_steered_churn_price_is_honoured_even_at_zero():
@@ -141,12 +122,11 @@ def test_report_is_jargon_free():
     assert not leaked, f"solver jargon leaked into planner reply: {leaked}"
 
 
-def test_a_late_order_on_a_real_car_is_moved_not_walled_off():
-    """DECIDE-3: a broken order riding a REAL (hard) vehicle is expensive to move,
-    never impossible — and its promise is already broken, so here it is free."""
+def test_a_late_order_is_moved_not_walled_off():
+    """DECIDE-3: taking a car off an order is priced, never forbidden — and this
+    order's promise is already broken, so here it is free."""
     snap = _snapshot()
-    assert snap.vehicle_by_id()["VEH-MOV-LATE"].is_hard
-    assert run_cycle(snap).chosen.plan["MOV-1"] == "VEH-GOOD"
+    assert run_cycle(snap).chosen.plan["MOV"] == "VEH-GOOD"
 
 
 # --------------------------------------------------------------------------
@@ -160,17 +140,13 @@ def test_a_late_order_on_a_real_car_is_moved_not_walled_off():
 def _moved_but_late_snapshot() -> Snapshot:
     """One disrupted order whose best free car is an improvement and still late."""
     return Snapshot(
-        orders=[_order("MOV-1", "SM1", date(2026, 9, 1))],
+        orders=[_order("MOV", "SM1", date(2026, 9, 1))],
         vehicles=[
             _vehicle("VEH-VERY-LATE", "SM1", date(2026, 10, 20)),
             _vehicle("VEH-LESS-LATE", "SM1", date(2026, 9, 20)),
         ],
-        allocations={"MOV-1": "VEH-VERY-LATE"},
-        disruption={
-            "delay_days": 30,
-            "delayed_vehicles": ["VEH-VERY-LATE"],
-            "disrupted_orders": ["MOV-1"],
-        },
+        allocations={"MOV": "VEH-VERY-LATE"},
+        disruption={"disrupted_orders": ["MOV"]},
         now=NOW,
     )
 
@@ -179,7 +155,7 @@ def test_moved_but_still_late_is_in_both_tables_and_marked():
     report = repair_and_report(_moved_but_late_snapshot())
     moved, call_list = report.split("**Still needs your call**")
     assert "VEH-LESS-LATE" in moved, "the swap must show in what-I-moved"
-    assert "MOV-1 ↑moved" in call_list, "and the row must stay on the call list, marked"
+    assert "MOV ↑moved" in call_list, "and the row must stay on the call list, marked"
     assert "not a second count" in call_list, "the marker needs its one-line legend"
 
 
@@ -202,33 +178,21 @@ EXCLUDED_META = {
     "excluded": {
         "orders_seen": 25,
         "orders_kept": 1,
-        "order_drops": {"no_model_on_the_order": 23, "no_promised_date": 1},
+        "order_drops": {"no_model": 23, "no_promised_date": 1},
         "vehicles_seen": 432,
         "vehicles_kept": 10,
         "vehicle_drops": {"no_arrival_date": 21},
-        "orders_with_no_eligible_car": ["502391-1"],
+        "orders_with_no_eligible_car": ["502391"],
     },
     "conflicts": [{"vehicle": "10831", "orders": ["502323", "502324", "502325"]}],
 }
 
 
 def _snapshot_with(meta: dict) -> Snapshot:
-    """A snapshot with nothing late, so only the exclusion note can show up."""
-    order = Order(
-        so_id="502361",
-        line=1,
-        customer="Colmobil",
-        customer_id="CUST-001",
-        sales_model="T5040UECLMQ0009",
-        delivery_date=MOV_PROMISED,
-        price=0.0,
-    )
-    vehicle = Vehicle(
-        vehicle_id="930103",
-        vehicle_classification="Vehicle",
-        sales_model="T5040UECLMQ0009",
-        eta_dealer=MOV_PROMISED,
-    )
+    """A snapshot with nothing late and every order holding a car, so only the
+    exclusion note can show up."""
+    order = Order(order_id="502361", sales_model="T6480J1BXLX0018", delivery_date=MOV_PROMISED)
+    vehicle = Vehicle(vehicle_id="930103", sales_model="T6480J1BXLX0018", eta_dealer=MOV_PROMISED)
     return Snapshot(
         orders=[order],
         vehicles=[vehicle],
@@ -241,11 +205,11 @@ def _snapshot_with(meta: dict) -> Snapshot:
 
 def test_the_excluded_orders_are_reported_in_plain_words():
     note = exclusion_note(_snapshot_with(EXCLUDED_META))
-    assert "24 of 25 sales orders are not in this plan" in note
+    assert "24 of 25 orders are not in this plan" in note
     assert "no model on the order" in note
     assert "no promised date" in note
     # a reason CODE must never reach the planner
-    assert "no_model_on_the_order" not in note
+    assert "no_model" not in note
     assert "order_drops" not in note
 
 
@@ -265,37 +229,34 @@ def test_the_note_leads_the_turn_one_report():
     """It has to come BEFORE the discrepancy map — a planner who reads the plan
     first has already formed the wrong picture of how much it covers."""
     report = discrepancy_report(_snapshot_with(EXCLUDED_META))
-    assert report.startswith("**24 of 25 sales orders are not in this plan")
+    assert report.startswith("**24 of 25 orders are not in this plan")
 
 
 def test_a_pull_that_filtered_nothing_says_nothing():
-    """The fabricated dataset excludes nothing, so the note must be silent rather
-    than printing a row of zeroes."""
+    """A clean book excludes nothing and leaves nobody without a car, so the note
+    must be silent rather than printing a row of zeroes."""
     assert exclusion_note(_snapshot_with({})) == ""
     assert discrepancy_report(_snapshot_with({})).startswith("No orders are late")
 
 
-def test_a_projection_gap_is_not_blamed_on_the_orders():
-    """A field the MCP does not return cannot be fixed by completing an order, so
-    the note must not send the planner into the app looking for it."""
-    note = exclusion_note(
-        _snapshot_with({**EXCLUDED_META, "projection_gaps": {"get_vehicles": ["SalesModel"]}})
-    )
-    assert "not returning some of the fields" in note
-    assert "SalesModel" in note
-    assert "not something you can correct on the orders themselves" in note
-    # and it comes first — it explains every count under it
-    assert note.index("not returning") < note.index("not in this plan")
-    # the drop counts must NOT then be blamed on incomplete orders: with a gap,
-    # every order looks incomplete because the field never arrived
-    assert "these counts mean nothing until the system returns them" in note
-    assert "need completing in the system" not in note
+def test_an_order_holding_no_car_is_named_even_when_nothing_is_late():
+    """The pure-unallocated book: every order needs a car and none is late, so
+    "No orders are late" on its own would read as "nothing to do"."""
+    snap = _snapshot_with({})
+    snap.allocations = {}
+    note = exclusion_note(snap)
+    assert "1 of 1 orders hold no car yet" in note
+    assert "502361" in note
+    assert "they need allocating, not repairing" in note
 
 
-def test_without_a_projection_gap_the_drops_ARE_the_orders():
+def test_the_drops_are_the_orders_and_say_what_to_do_about_them():
+    """There is no "the system is not returning this field" case any more: a CSV
+    column either is in the header — checked at read time, `datasource.read_rows`
+    raises naming it — or every row has it. So a drop IS an incomplete order."""
     note = exclusion_note(_snapshot_with(EXCLUDED_META))
     assert "need completing in the system" in note
-    assert "counts mean nothing" not in note
+    assert "not returning" not in note
 
 
 def test_the_plan_is_written_to_a_file_not_just_reported(tmp_path):
@@ -317,7 +278,7 @@ def test_the_plan_is_written_to_a_file_not_just_reported(tmp_path):
         r["order"]: r["now_car"] for r in saved["allocations"] if r["now_car"]
     } == cyc.chosen.plan
     # the settled order is recorded keeping its car, and nothing reads as bumped
-    kept = next(r for r in saved["allocations"] if r["order"] == "KEPT-1")
+    kept = next(r for r in saved["allocations"] if r["order"] == "KEPT")
     assert kept["now_car"] == "VEH-KEPT-OK" and kept["bumped"] is False
     # and the config that priced it is named, so the plan can be traced to it
     assert saved["solver_version"]
@@ -341,7 +302,7 @@ def test_bump_candidates_are_offered_lightest_first():
     everyone equally and so is simply key order."""
     snap = _snapshot()
     cyc = run_cycle(snap, {})
-    steer = {"priority": [{"order": "KEPT-1", "step": "urgent"}]}
+    steer = {"priority": [{"order": "KEPT", "step": "urgent"}]}
     rows = [c["row"] for c in bump_candidates(snap, cyc.chosen, steer)]
-    if "KEPT-1" in rows and len(rows) > 1:
-        assert rows[-1] == "KEPT-1", "the order the planner called urgent is offered last"
+    if "KEPT" in rows and len(rows) > 1:
+        assert rows[-1] == "KEPT", "the order the planner called urgent is offered last"

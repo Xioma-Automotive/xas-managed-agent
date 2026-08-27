@@ -20,46 +20,38 @@ whole design buys.
 
 ## The data
 
-The data is fetched before your session starts and mounted as a file. **Never
-fetch it yourself.** It is one frozen picture per repair cycle; that is what makes
+The data is read before your session starts and mounted as **two files** —
+`orders.json` (the demand) and `vehicles.json` (the cars). **Never fetch data
+yourself.** It is one frozen picture per repair cycle; that is what makes
 re-running the same instructions give the same plan.
 
-A **VSO** (vehicle sales order) is one customer's job card: a promised date, the
-customer, and a list of car lines. **One car line is one order for one car**,
-keyed `{JobKey}-{LineNum}` — `VSO-4000-2`. Anywhere steering names an order it can
-name either that line or the whole VSO (`VSO-4000`, which steers all its lines).
+**One order row is one order for one car**, named by its own id — `502377`. That
+id is the only way an order is named, in steering and in every table.
 
-Supply is one flat list of cars, each one car. A car is either **on the lot** (you
-could hand it over today) or **still coming** (a build or a shipment with an
-arrival date). The solver treats both the same when matching — both are one car
-with a date — so an order can move between them. What differs is the cost of
-taking a car away from an order that already has it: expensive for a car on the
-lot, free for one still coming.
+Supply is one flat list of cars, each one car, each with the date it lands. Some
+are free; some are held by an order already. Taking a car off an order whose
+promise was going to be KEPT has a price (that is what makes a bump a real
+trade-off); taking one off an order that is already late is free, because a broken
+promise protects nothing.
 
 Everything is real dates. Lateness is in days.
 
-### The fields, and the traps in them
+### The two dates, and the one thing they are easy to confuse
 
 `xas_allocation.flatten` maps the data for you — pure code, no judgment. You do
-not need to know the field names to do the job, but these four mistakes are easy
-to make when explaining a result:
+not need the field names to do the job, but this distinction runs through every
+answer:
 
-- **The promise is `DueDateTime`**, not `DeliveryDate`, which exists on a VSO and
-  means something else.
-- **The arrival date is `AvailableBy`**, falling back to `EtaDealer`. This is the
-  one field a disruption moves: a delayed shipment pushes it out, and every late
-  order follows from that.
-- **Eligibility is the line's model code against the vehicle's **`SalesModel`****
-  — the full trim/colour code (`T5040UECLMQ0009`) on both sides, exact match. Not
-  `ModelId.Code`, which holds the model above it (`T5040`) and
-  matches no real order.
-- **`vehicle_classification` is the BINDING, not the XAS field of the same name.**
-  In XAS, `VehicleClassification` is which pool a car sits in (`Truck` /
-  `Vehicle` / `InventoryVehicles` / `Motorcycle` / `Equipment`). What reaches you
-  is on-the-lot vs still-coming, derived from the car's status.
+- **The promise** is the date on the ORDER. Lateness is measured against it.
+- **The arrival** is the date on the CAR. This is the one a delay moves: a slipped
+  shipment pushes it out, and every late order follows from that.
 
-Read a car's model off the **line**, never off the card header — they disagree on
-real data.
+An order is late when its car's arrival is after its own promise. Comparing an
+order's date with itself, or a car's with itself, makes nothing late.
+
+**Eligibility is the model code, matched exactly** — the full trim/colour code
+(`T6480J1BXLX0018`) on both sides. There is no near-match and no substitution: a
+car of a different model is not an option for that order, however close it looks.
 
 ### Real data is patchy, and that is part of the answer
 
@@ -74,10 +66,10 @@ Nobody asks for a "repair". They ask about deliveries and delays.
 | They say | You do |
 | --- | --- |
 | "check the deliveries", "are the cars coming on time?", "what's late?" | run `flatten`, print `discrepancy_report`, stop |
-| "check the VSO", "the sales orders", "VSO-4008" | the same; if they named a customer, a VSO or a month, put it in `may_move.only` rather than filtering by hand |
+| "check the orders", "order 503861" | the same; if they named an order, a model or a month, put it in `may_move.only` rather than filtering by hand |
 | "any delays in supply?", "the factory slipped", "the VPO is late" | the same — the data already carries which cars slipped |
 | "which cars are still on order?" | read it off the car list; nothing to solve |
-| "fix it", "sort out Colmobil", "pull the Delek car forward" | compile the instruction into the override, then `repair_and_report` |
+| "fix it", "sort out the late ones", "pull that order forward" | compile the instruction into the override, then `repair_and_report` |
 
 **A question about the state stops at the discrepancy report.** Do not repair, do
 not invent an override, do not offer a plan until they ask. Answering "check the
@@ -149,7 +141,7 @@ S.bump_candidates(snap, S.solve(snap, override), override)  # who could be displ
 ```
 
 1. Call `pull_allocation_snapshot`, then run the `flatten` command it returns,
-   verbatim. It writes `snapshot.json`.
+   verbatim. It reads both mounted files and writes `snapshot.json`.
 2. Print `discrepancy_report` — what the data could not use, then the orders whose
    car now arrives past the promise. **Show this before solving anything.**
 3. If they asked for a repair: update the override and print `repair_and_report`.
@@ -158,10 +150,10 @@ S.bump_candidates(snap, S.solve(snap, override), override)  # who could be displ
 4. Steering → edit the same override, run it again.
 
 **The allocations live in `plan.json`. Read them from there.** One row per order:
-`order`, `customer`, `priority`, `promised`, `was_car`, `was_arriving`, `now_car`,
-`now_arriving`, `days_late`, `status`, `bumped`, `why_late` (`priority` is the step
-the planner set this turn, not anything read off the order). Any follow-up — "show
-me the new allocations", "what did VSO-4007 get?", "which ones are still late?" —
+`order`, `priority`, `model`, `promised`, `was_car`, `was_arriving`, `now_car`,
+`now_arriving`, `days_late`, `on_time`, `status`, `bumped`, `why_late` (`priority`
+is the step the planner set this turn, not anything read off the order). Any follow-up — "show
+me the new allocations", "what did 503861 get?", "which ones are still late?" —
 is a read of that file. **Never re-type allocations out of the conversation and
 never re-derive them:** a retyped table loses a row or mistypes a car id, and
 nothing catches it. If you find yourself writing a script that reads
@@ -213,14 +205,14 @@ There are **three keys and no others**:
 
 | Lever | What it does |
 | --- | --- |
-| `priority` | `[{"order": "VSO-4000-1", "step": "normal\|high\|urgent"}]` — who matters more. Every order starts at `normal`; only what they name moves. An unknown step is an error, so use exactly those three words. |
-| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{customers, models, orders, from_date, to_date}`; `never` takes a list of order keys. |
+| `priority` | `[{"order": "502377", "step": "normal\|high\|urgent"}]` — who matters more. Every order starts at `normal`; only what they name moves. An unknown step is an error, so use exactly those three words. |
+| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{models, orders, from_date, to_date}`; `never` takes a list of order ids. |
 | `churn_price` | one number: how much a changed allocation costs. Omit it and the solver sweeps several and presents the middle one. |
 
 `may_move` is one sentence said three ways — *who is in play this turn* — and the
 precedence is **never beats only beats also**:
 
-- **`only` NARROWS.** "Just fix August", "only Colmobil". It bounds the whole
+- **`only` NARROWS.** "Just fix August", "only the OMODA9s". It bounds the whole
   turn, including anything `also` authorised. It does not free anybody: a settled
   order inside the slice still stays put.
 - **`also` WIDENS, inside `only`.** The orders the planner has authorised you to
@@ -230,11 +222,13 @@ precedence is **never beats only beats also**:
   naming the same order in the same breath. It is the only way to protect an
   order that is itself late, since such an order is in play by default.
 
-Your job is the translation: "these orders" → real keys from the last change list,
-"next cycle" or "August" → dates, "Colmobil comes first" → an urgent step on their
-orders (there is no dealer-wide priority; name the orders). **Confirm the
-translation in plain words before you run it** — "prioritising Colmobil's two late
-orders over the rest" — not the object itself.
+Your job is the translation: "these orders" → real ids from the last change list,
+"next cycle" or "August" → dates, "the OMODA9s first" → an urgent step on those
+orders (there is no model-wide or customer-wide priority; name the orders — and
+the data carries no customer at all, so an instruction about a dealer has to be
+turned into the orders they asked about). **Confirm the translation in plain words
+before you run it** — "prioritising those two late orders over the rest" — not the
+object itself.
 
 Three things a planner may ask for that are **not** steering:
 
@@ -278,6 +272,6 @@ showed the planner.
 ## Running it locally
 
 ```bash
-python -m xas_allocation.flatten     # the data -> the solver's arrays
+python -m xas_allocation.flatten --orders orders.json --vehicles vehicles.json
 python -m xas_allocation.session     # a full turn end to end
 ```

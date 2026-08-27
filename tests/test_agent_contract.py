@@ -224,7 +224,7 @@ def test_prompt_names_no_records_mount():
 
 def test_prompt_names_every_mount():
     prompt = setup_agent.SYSTEM_PROMPT
-    for path in (alloc_tools.MOUNT_PATH,):
+    for path in alloc_tools.MOUNT_PATHS:
         assert path in prompt, f"{path} is mounted but never explained to the agent"
 
 
@@ -306,18 +306,19 @@ def test_no_session_dataset_is_bundled(bundle):
 
 
 def test_the_pull_is_the_only_mount():
-    """Reporting used to get a second mount under /workspace/reports/. It reads
-    the live MCP now, so a session that mounts anything else is a session whose
+    """TWO files since 2026-08-27 — the export's two row streams — and nothing
+    else. Reporting used to get a third under /workspace/reports/; it reads the
+    live MCP now, so a session that mounts anything more is a session whose
     reporting numbers came from somewhere this design does not control."""
-    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.MOUNTED_PULL_FILENAME})
+    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.ORDERS_FILENAME, web.VEHICLES_FILENAME})
     source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
-    assert source.count('"type": "file"') == 1, "one resource, or the fence moved"
+    assert source.count('"type": "file"') == 2, "two resources, or the fence moved"
 
 
 def test_every_mounted_input_is_filtered_from_outputs():
     """files.list(scope_id=...) returns the inputs too; handing a planner their
     own pull back as an 'output' is noise, and downloading it is worse."""
-    mounted = {Path(alloc_tools.MOUNT_PATH).name}
+    mounted = {Path(p).name for p in alloc_tools.MOUNT_PATHS}
     assert mounted == set(web.MOUNTED_INPUT_FILENAMES)
 
 
@@ -350,15 +351,19 @@ def test_host_no_longer_serves_a_taxonomy():
 
 
 def test_pull_is_resolved_not_assumed():
-    candidates = alloc_tools.mount_candidates()
-    assert alloc_tools.MOUNT_PATH in candidates
-    assert f"{alloc_tools.UPLOAD_PREFIX}{alloc_tools.MOUNT_PATH}" in candidates
+    """Both mounts, and the /mnt/session/uploads prefix the platform was actually
+    observed to materialize them under."""
+    for path in alloc_tools.MOUNT_PATHS:
+        candidates = alloc_tools.mount_candidates(path)
+        assert path in candidates
+        assert f"{alloc_tools.UPLOAD_PREFIX}{path}" in candidates
 
 
 def test_flatten_command_tries_every_candidate():
     command = alloc_tools.flatten_command()
-    for candidate in alloc_tools.mount_candidates():
-        assert candidate in command, f"{candidate} unreachable by the flatten command"
+    for path in alloc_tools.MOUNT_PATHS:
+        for candidate in alloc_tools.mount_candidates(path):
+            assert candidate in command, f"{candidate} unreachable by the flatten command"
 
 
 def test_flatten_command_never_searches_from_root():
@@ -694,16 +699,20 @@ def test_skill_requires_the_exclusion_census_on_turn_one():
     assert "must always be reported" in skill
 
 
-def test_skill_names_the_real_eligibility_key():
-    """`ModelId.Code` is the model (T5040); an order names the trim/colour code.
-    Documenting the wrong one backorders every order on real data."""
+def test_skill_names_the_eligibility_rule_and_its_hardness():
+    """Eligibility is exact model equality. A skill that suggests a near match is
+    a skill that invites the agent to offer a car nobody can have."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "vehicle's **`SalesModel`**" in skill
-    assert "matches no real order" in skill
+    assert "matched exactly" in skill
+    assert "no near-match and no substitution" in skill
 
 
-def test_skill_warns_that_VehicleClassification_collides():
-    """The solver's binding and the XAS field share a name AND one value."""
+def test_skill_separates_the_promise_from_the_arrival():
+    """The one confusion that makes nothing ever late: the promise is the ORDER's
+    date, the arrival is the CAR's."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "is the BINDING, not the XAS field of the same name" in skill
-    assert "InventoryVehicles" in skill
+    assert "**The promise** is the date on the ORDER" in skill
+    assert "**The arrival** is the date on the CAR" in skill
+    # and the MCP field names must be gone with the MCP
+    for gone in ("DueDateTime", "AvailableBy", "ModelId.Code", "JobKey", "LineNum"):
+        assert gone not in skill, f"{gone} is app-MCP vocabulary; the pull is CSV now"

@@ -10,16 +10,15 @@ answers parks the session on a ``requires_action`` idle, which never times out.
 **Cloud sandbox.** The tool runs on *our* host; the agent runs in Anthropic's.
 Everything this returns crosses into the agent's context.
 
-**Pull ships a file, not the rows.** The rich pull comes from a callable data
-source (``datasource.get_source()`` — the scenario-engine fake, or the real XAS
-endpoint), resolved HOST-SIDE. ``web.py`` fetches it at session start and mounts
-it into the sandbox as a file at ``MOUNT_PATH``; this tool returns only a summary
-plus a self-locating ``flatten`` command that reads that mounted file. The agent
-runs the command to flatten the rich data into ``snapshot.json``. The rows travel
-as a mounted file, never through the context window.
+**Pull ships files, not rows.** The pull is a scenario directory's two CSVs
+(``datasource.get_source()``), translated HOST-SIDE into two JSON payloads.
+``web.py`` mounts them into the sandbox at ``ORDERS_MOUNT_PATH`` and
+``VEHICLES_MOUNT_PATH``; this tool returns only a summary plus a self-locating
+``flatten`` command that reads those two files and writes ``snapshot.json``. The
+rows travel as mounted files, never through the context window.
 
-DECIDE-7: the source of the rows (bundled file → callable endpoint) is the only
-thing that changed; the summary + flatten contract is unchanged.
+DECIDE-7: the source of the rows (bundled file → app MCP → the export's CSVs) is
+the only thing that has ever changed here; the summary + flatten contract is not.
 """
 
 from __future__ import annotations
@@ -27,18 +26,29 @@ from __future__ import annotations
 import inspect
 import json
 from collections.abc import Awaitable, Callable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from anthropic.lib.tools import beta_async_tool
 
+
+def parse_date(value: str) -> date:
+    """'2026-09-20' -> date. Local to this module so the summary needs no import
+    from the solver package, which lives on the other side of the mount."""
+    return date.fromisoformat(str(value)[:10])
+
+
 REPO_ROOT = Path(__file__).resolve().parent
 
 SNAPSHOT_FILENAME = "snapshot.json"
 
-# Where web.py mounts the live pull inside the sandbox. The flatten command reads
-# the rich data from here; web.py mounts the uploaded pull at the same path.
-MOUNT_PATH = "/workspace/pull.json"
+# Where web.py mounts the pull inside the sandbox — two files, because the export
+# has two row streams and translating them into one nested document would only
+# make `flatten` take it apart again. The flatten command reads both from here.
+ORDERS_MOUNT_PATH = "/workspace/orders.json"
+VEHICLES_MOUNT_PATH = "/workspace/vehicles.json"
+MOUNT_PATHS = (ORDERS_MOUNT_PATH, VEHICLES_MOUNT_PATH)
 
 # Where the platform ACTUALLY materializes a mounted resource. Observed
 # 2026-08-18: a resource requested at /workspace/pull.json appeared at
@@ -50,7 +60,7 @@ MOUNT_PATH = "/workspace/pull.json"
 UPLOAD_PREFIX = "/mnt/session/uploads"
 
 
-def mount_candidates(mount_path: str = MOUNT_PATH) -> list[str]:
+def mount_candidates(mount_path: str) -> list[str]:
     """Every place a resource mounted at ``mount_path`` might really be, in order."""
     return [mount_path, f"{UPLOAD_PREFIX}{mount_path}"]
 
@@ -89,24 +99,25 @@ PULL_TOOL: dict[str, Any] = {
 }
 
 
-def flatten_command(pull_path: str = MOUNT_PATH) -> str:
-    """The one-liner that flattens the mounted pull inside the sandbox.
+def flatten_command(
+    orders_path: str = ORDERS_MOUNT_PATH, vehicles_path: str = VEHICLES_MOUNT_PATH
+) -> str:
+    """The one-liner that flattens the two mounted files inside the sandbox.
 
-    Two locations, both handled explicitly:
+    Two kinds of location, both handled explicitly:
       * the **solver package** ships in the skill bundle, landing wherever the
         platform materializes skills — so we self-locate ``xas_allocation/
         flatten.py``. Search bases are **explicit and never** ``/`` (an unbounded
         ``rglob`` from ``/`` once swept the whole container and killed the shell).
-      * the **rich pull** is mounted by the host at ``pull_path`` (a path WE
-        choose) — but the platform may materialize it under
-        ``/mnt/session/uploads``, so we try each candidate from
-        ``mount_candidates`` rather than assuming one. Still no searching: the
-        list is short, explicit, and bounded.
+      * the **two payloads** are mounted by the host at paths WE choose — but the
+        platform may materialize them under ``/mnt/session/uploads``, so each is
+        resolved against ``mount_candidates`` rather than assumed. Still no
+        searching: the lists are short, explicit and bounded.
 
-    The command fails fast with a message if either is missing — a silent miss
-    would let the sandbox solve against the wrong (or no) data. ``snapshot.json``
-    is written in the working directory; single line, single quoting for a clean
-    paste.
+    The command fails fast, naming the file it could not find — a silent miss
+    would let the sandbox solve against half the data, which is worse than not
+    solving. ``snapshot.json`` is written in the working directory; single line,
+    single quoting for a clean paste.
     """
     return (
         'python -c "'
@@ -117,85 +128,65 @@ def flatten_command(pull_path: str = MOUNT_PATH) -> str:
         "hit = next((h for b in bases for h in b.rglob('xas_allocation/flatten.py')), None); "
         "sys.exit('xas_allocation not found under ' + str(bases)) if hit is None else None; "
         "sys.path.insert(0, str(hit.parent.parent)); "
-        "from xas_allocation.flatten import flatten_path; "
-        f"cands = [pathlib.Path(p) for p in {mount_candidates(pull_path)!r}]; "
-        "src = next((c for c in cands if c.is_file()), None); "
-        "sys.exit('pull data not found in ' + str([str(c) for c in cands])) if src is None else None; "
+        "from xas_allocation.flatten import flatten_paths; "
+        # `next(gen, sys.exit(...))` would NOT work: a default argument is
+        # evaluated eagerly, so the exit fires before the lookup runs. Pick, then
+        # check — and name which of the two files is missing.
+        "pick = lambda names: next((n for n in names if pathlib.Path(n).is_file()), ''); "
+        f"cands = ({mount_candidates(orders_path)!r}, {mount_candidates(vehicles_path)!r}); "
+        "orders, vehicles = pick(cands[0]), pick(cands[1]); "
+        "missing = [c[0] for c, got in zip(cands, (orders, vehicles)) if not got]; "
+        "sys.exit('pull data not mounted at ' + str(missing)) if missing else None; "
         f"out = pathlib.Path.cwd() / '{SNAPSHOT_FILENAME}'; "
-        "json.dump(flatten_path(src).as_dict(), open(out,'w'), indent=2, sort_keys=True); "
+        "json.dump(flatten_paths(orders, vehicles).as_dict(), open(out,'w'), "
+        "indent=2, sort_keys=True); "
         "print('wrote ' + str(out))"
         '"'
     )
 
 
-def _allocated_count(item: dict) -> int:
-    """How many of a jobitem's cars have a vehicle: 1 if it is allocated, else 0.
+def summarize(pull: dict) -> dict[str, Any]:
+    """The part of the pull that crosses into the agent's context.
 
-    In CARS, to match what `flatten` builds. A line resolves to one vehicle code
-    and one car cannot serve two orders, so an `AllocQty` above 1 does not add
-    allocations here — those committed cars are unidentifiable from this pull, and
-    `flatten` counts them rather than inventing them."""
-    linked = (item.get("VehicleId") or {}).get("Code") or item.get("AllocatedVehicleCode")
-    return 1 if linked else 0
+    Counts, provenance and the flatten command — never rows. What the source
+    filtered OUT is in here on purpose: the turn-1 reply has to account for the
+    orders that are not in the plan, and a plan over 1 of 25 that doesn't say so
+    reads as the whole book.
+    """
+    meta = pull.get("meta", {})
+    orders = pull.get("orders", [])
+    vehicles = pull.get("vehicles", [])
+    late = list((pull.get("disruption") or {}).get("disrupted_orders") or [])
 
-
-def summarize(rich: dict) -> dict[str, Any]:
-    """The part of the pull that crosses into the agent's context."""
-    meta = rich.get("meta", {})
-    vehicles = rich.get("vehicles", [])
-    vsos = rich.get("vsos", [])
-    disruption = rich.get("disruption", {}) or {}
-
-    rows = [item for vso in vsos for item in vso.get("JobItems", [])]
-    # One CAR is one order. A line's `Quantity` is expanded by `flatten`, so
-    # counting rows here would tell the agent it has fewer orders than the
-    # snapshot it is about to solve — and the two numbers are compared.
-    cars = sum(int(item.get("Quantity") or 1) for item in rows)
-    by_class: dict[str, int] = {}
-    for v in vehicles:
-        c = v.get("VehicleClassification", "Vehicle")
-        by_class[c] = by_class.get(c, 0) + 1
-
-    # §6 steering contract: resolve a dealer name in the planner's instruction to
-    # the customer_id `may_move` carries. Built from the VSOs in play. No priority
-    # here any more — priority is a step the planner names per order, never
-    # something read off a dealer or a record.
-    customers: dict[str, dict] = {}
-    for vso in vsos:
-        owner = (vso.get("Accounts") or {}).get("Owner") or {}
-        name = owner.get("AccountName", "")
-        cid = owner.get("AccountUUID", "")
-        if name:
-            customers.setdefault(name, {"customer_id": cid})
+    held = {o["VehicleCode"] for o in orders if o.get("VehicleCode")}
+    eta_of = {v["VehicleCode"]: v["EtaDealer"] for v in vehicles}
+    # The spread of how late things are. This REPLACED the fake's delay manifest
+    # ("30 days on 25 vehicles"): the export records no such thing, so the only
+    # honest summary of a disruption is what the dates now say.
+    gaps = sorted(
+        (parse_date(eta_of[o["VehicleCode"]]) - parse_date(o["DeliveryDate"])).days
+        for o in orders
+        if o["OrderId"] in set(late) and o.get("VehicleCode") in eta_of
+    )
 
     return {
         "flatten": flatten_command(),
         "snapshot_path": SNAPSHOT_FILENAME,
         "now": meta.get("now"),
-        # What the source collected and then filtered OUT, by reason, plus any
-        # vehicle two orders both claim. This crosses into the agent's context on
-        # purpose: the turn-1 reply has to account for the sales orders that are
-        # not in the plan. A plan over 1 of 25 that doesn't say so reads as the
-        # whole book. Empty dicts for a pull that filtered nothing (the fake).
+        "scenario": meta.get("source"),
         "excluded": meta.get("excluded", {}),
         "conflicts": meta.get("conflicts", []),
-        "sales_orders": len(vsos),
-        "car_lines": len(rows),  # VSO jobitems that are cars
-        "orders": cars,  # one wanted CAR — the allocatable grain (Σ Quantity)
-        "supply": len(vehicles),  # the vehicle pool: real ∪ future
-        "supply_by_classification": dict(sorted(by_class.items())),
-        "existing_allocations": sum(_allocated_count(r) for r in rows),
+        "orders": len(orders),  # one order row is one wanted CAR
+        "orders_holding_a_car": len(held),
+        "orders_holding_no_car": sum(1 for o in orders if not o.get("VehicleCode")),
+        "supply": len(vehicles),  # the car pool: free ∪ currently allocated
+        "free_supply": sum(1 for v in vehicles if v["VehicleCode"] not in held),
         "sales_models": meta.get("sales_models", []),
-        "disruption": {
-            "delay_days": disruption.get("delay_days"),
-            "delay_tiers": {
-                days: len(codes) for days, codes in (disruption.get("delay_tiers") or {}).items()
-            },
-            "delayed_vehicles": len(disruption.get("delayed_vehicles", [])),
-        },
-        "disrupted_orders": len(disruption.get("disrupted_orders", [])),
-        "disrupted_order_ids": disruption.get("disrupted_orders", []),
-        "customers": dict(sorted(customers.items())),
+        "late_orders": len(late),
+        "late_order_ids": late,
+        "days_late": (
+            {"min": gaps[0], "median": gaps[len(gaps) // 2], "max": gaps[-1]} if gaps else {}
+        ),
     }
 
 
@@ -229,9 +220,9 @@ def make_pull_tool(get_rich: RichProvider):
 
 
 def _default_rich() -> dict:
-    """Host-side default provider: the configured data source (the scenario-engine
-    fake unless XAS_DATA_SOURCE=xas). Used by the module-level tool for tests and
-    local runs; web.py builds per-session tools via ``make_pull_tool``."""
+    """Host-side default provider: the default scenario directory. Used by the
+    module-level tool for tests and local runs; web.py builds per-session tools
+    over the scenario the planner picked, via ``make_pull_tool``."""
     import datasource
 
     return datasource.get_source().pull()

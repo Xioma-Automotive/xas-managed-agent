@@ -124,17 +124,18 @@ def arc_cost_float(order: Order, vehicle: Vehicle, priority: dict[str, str]) -> 
 
 
 def break_cost_of(order: Order, allocated_vehicle: Vehicle | None) -> float:
-    """Cost to move ``order`` OFF its current binding.
+    """Cost to take ``order``'s car away from it.
 
-    Zero when it has no binding, OR when that binding is already LATE — a broken
-    promise protects nothing, so re-allocating an order that is already in
-    trouble is free. Only displacing an ON-TIME binding costs: ``hard`` for a
-    real vehicle, ``soft`` for a future one. This is what makes "bump someone for
-    the sake of another" price the *victim* (whose kept promise is disturbed),
-    not the order being rescued."""
+    Zero when it holds no car, OR when the car it holds is already LATE — a
+    broken promise protects nothing, so re-allocating an order that is already in
+    trouble is free. Only disturbing a promise that was going to be KEPT costs,
+    and it costs the same whatever kind of car it is: the hard/soft split went on
+    2026-08-27 with the classification it read (DECIDE-3). This is what makes
+    "bump someone for the sake of another" price the *victim* (whose kept promise
+    is disturbed), not the order being rescued."""
     if allocated_vehicle is None or tardiness(order, allocated_vehicle) > 0:
         return 0.0
-    return CFG["break_cost"]["hard" if allocated_vehicle.is_hard else "soft"]
+    return CFG["break_cost"]
 
 
 def eligible(order: Order, vehicle: Vehicle) -> bool:
@@ -161,7 +162,7 @@ class RepairPlan:
     churn_default: int | None  # override-supplied churn price (sweep still explores all)
 
 
-_FILTER_DIMS = ("customers", "models", "orders", "from_date", "to_date")
+_FILTER_DIMS = ("models", "orders", "from_date", "to_date")
 
 
 def _filter_active(filt: dict) -> bool:
@@ -170,28 +171,26 @@ def _filter_active(filt: dict) -> bool:
 
 
 def names_order(order: Order, names: set[str] | dict | list) -> bool:
-    """Whether a set of order NAMES refers to this order, at either key level:
-    the car line itself, or its whole VSO.
+    """Whether a set of order NAMES refers to this order.
 
-    Every place an order is named by a string has to go through this. A priority
-    step, a `never`, or the disruption manifest naming the whole VSO (`VSO-4000`)
-    would otherwise never match a line key (`VSO-4000-1`) and the instruction
-    would silently do nothing."""
-    return bool(names) and bool({order.key, order.so_id} & set(names))
+    One key level since 2026-08-27: an order row IS the order, so its `OrderId` is
+    the only name it has. Kept as a function because every place an order is named
+    by a string goes through it — a priority step, a `never`, a `may_move.orders`
+    filter — and that is the seam where a second level would have to be added back
+    if the data ever grows one."""
+    return bool(names) and order.key in set(names)
 
 
 def disrupted_order_keys(snapshot: Snapshot) -> set[str]:
     """The disruption manifest resolved to real order keys.
 
-    What slips is a VEHICLE: a VPO/VGR shipment runs late, so the cars on it do,
-    and an order is affected only through the vehicle allocated to it. The manifest
-    is derived at order grain (`xas_allocation.flatten`) and normally needs no
-    resolving at all.
+    What slips is a CAR: a shipment runs late, so the cars on it do, and an order
+    is affected only through the car allocated to it. The set is derived at order
+    grain (`xas_allocation.flatten`), so this normally resolves one-to-one.
 
-    This exists for a manifest named more coarsely — a whole VSO, as a hand-written
-    override or an older snapshot may carry. Comparing such names raw against order
-    keys is the silent version of the bug: nothing matches, nothing is freed, and
-    the report reads "0 of 0 delayed orders" over a broken book."""
+    It stays a resolution step rather than a raw read because comparing names to
+    keys blind is the silent version of the bug: nothing matches, nothing is
+    freed, and the report reads "0 of 0 delayed orders" over a broken book."""
     names = set(snapshot.disruption.get("disrupted_orders", []))
     return {o.key for o in snapshot.orders if names_order(o, names)}
 
@@ -199,13 +198,11 @@ def disrupted_order_keys(snapshot: Snapshot) -> set[str]:
 def _matches(order: Order, filt: dict) -> bool:
     """AND across whichever filter dimensions are set. Empty dimension = no filter.
 
-    Customers match by id OR display name; `orders` matches at either level a key
-    has — the car line (`{so_id}-{line}`) or the bare `so_id` (the whole VSO). A
-    date range is against delivery_date. Used by both halves of `may_move` that
-    take a filter (`only` and `also`)."""
-    customers = filt.get("customers")
-    if customers and order.customer_id not in customers and order.customer not in customers:
-        return False
+    Three dimensions: `models` (exact sales-model code), `orders` (order ids), and
+    a `from_date`/`to_date` range against the PROMISED date — "just fix August" is
+    about what was promised in August, not what arrives then. The `customers`
+    dimension went on 2026-08-27: the export has no customer column. Used by both
+    halves of `may_move` that take a filter (`only` and `also`)."""
     models = filt.get("models")
     if models and order.sales_model not in models:
         return False
@@ -222,8 +219,7 @@ def _combined_priority(snapshot: Snapshot, override: dict) -> dict[str, str]:
 
     Priority is a LEVER, not a column: nothing on the record says an order
     matters more, so every order starts at the config's default step and only
-    what the planner named this turn moves off it. A step naming a whole VSO
-    applies to all of its lines (`names_order`); the last entry naming an order
+    what the planner named this turn moves off it. The last entry naming an order
     wins, so restating one replaces it rather than compounding.
 
     Steps are resolved to a weight HERE, once, purely to reject an unknown name
@@ -294,9 +290,9 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     # Pinned = everyone else keeps the vehicle they already hold (if any).
     pinned = {oid: vid for oid, vid in allocations.items() if oid not in free_set}
 
-    # Free vehicles: any not consumed by a pinned assignment. A real (hard)
-    # vehicle is NOT walled off — freeing its order (above) frees it here too, so
-    # it can be reassigned at break_cost['hard'].
+    # Free vehicles: any not consumed by a pinned assignment. A car an order
+    # already holds is NOT walled off — freeing its order (above) frees it here
+    # too, so it can be reassigned at `break_cost`.
     consumed = set(pinned.values())
     free_vehicles = sorted(vid for vid in vehicles if vid not in consumed)  # §4 fixed key
 
@@ -414,32 +410,46 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, churn_price: int) -> SolveRes
         n_changes=n_changes,
         weighted_late_days=round(weighted_late, 4),
         objective_micro=smcf.optimal_cost(),
-        self_check=_self_check(snapshot, plan, unfilled),
+        self_check=_self_check(snapshot, plan, unfilled, rp.free_orders),
     )
 
 
-def _self_check(snapshot: Snapshot, plan: dict, unfilled: list) -> dict:
+def _self_check(snapshot: Snapshot, plan: dict, unfilled: list, free_orders: list[str]) -> dict:
     """§8.5 hard-constraint self-check. Returns findings; never silently relaxes."""
     orders = snapshot.order_by_key()
     vehicles = snapshot.vehicle_by_id()
+    in_play = set(free_orders)
     violations: list[str] = []
 
     # No sales_model violation on any assignment.
     for oid, vid in plan.items():
         if not eligible(orders[oid], vehicles[vid]):
             violations.append(f"order {oid} assigned incompatible vehicle {vid}")
-    # Every order has exactly one vehicle (or is a surfaced no-car order).
-    every_order_placed = all((oid in plan) or (oid in unfilled) for oid in orders)
     # No vehicle double-booked.
     used = list(plan.values())
     if len(used) != len(set(used)):
         violations.append("a vehicle is assigned to more than one order")
+
+    # Every order ends up somewhere: with a car, surfaced as having none, or
+    # deliberately out of play. That third case needs naming rather than
+    # counting as a fault: it means the order holds no car AND steering kept it
+    # out of this turn (`may_move.only` narrowing around it, or a `never`). It
+    # cannot happen by itself — the default free set contains every unallocated
+    # order — so treating it as a violation would make an honoured instruction
+    # look like a solver bug. Held out is REPORTED, not swallowed.
+    held_out = sorted(
+        oid for oid in orders if oid not in plan and oid not in unfilled and oid not in in_play
+    )
+    every_order_placed = all(
+        (oid in plan) or (oid in unfilled) or (oid in held_out) for oid in orders
+    )
 
     return {
         "ok": not violations and every_order_placed,
         "violations": violations,
         "unfilled_count": len(unfilled),
         "every_order_placed": every_order_placed,
+        "held_out_without_a_car": held_out,
     }
 
 

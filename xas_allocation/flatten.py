@@ -1,38 +1,33 @@
-"""Flatten the rich XAS pull into the solver snapshot — pure, cheap code.
+"""Flatten the mounted pull into the solver snapshot — pure, cheap code.
 
-This is the "flatten + freeze at pull time" step. The invariant
-(`plan = pure_function(data_snapshot, …)`) REQUIRES it to be deterministic code,
-not model reasoning: if the agent re-derived this mapping each turn, that is the
-exact state-leak the whole design guards against. So it lives here, is O(n), and
-makes zero model calls — the old fuzzy spec-match residual is gone.
+This runs IN THE SANDBOX, over the two files the host mounted: ``orders.json``
+and ``vehicles.json``, written by ``datasource.translate`` out of the export's
+``orders.csv`` + ``vehicles.csv``. It is the "flatten + freeze at pull time" step.
 
-Input: the rich XAS-shaped pull ``{meta, vsos, vehicles, disruption}`` the data
-source returns (VSO jobcards + a flat vehicle pool + a disruption manifest).
-Output: an ``xas_allocation.snapshot.Snapshot`` — the ``orders[] / vehicles[] /
-allocations[]`` arrays the solver reads, in one shared vocabulary with the API.
+The invariant (``plan = pure_function(data_snapshot, …)``) REQUIRES it to be
+deterministic code, not model reasoning: if the agent re-derived this mapping each
+turn, that is the exact state-leak the whole design guards against. So it lives
+here, is O(n), and makes zero model calls.
 
-Field mapping (real XAS → solver):
-  * order = one car line, ONE CAR; key = ``{JobKey}-{LineNum}``. A jobitem's
-    ``Quantity`` is not read — one car per line is the current assumption, since
-    a line resolves to at most one vehicle code (see the module docstring in
-    ``snapshot.py``).
-  * ``DeliveryDate`` (VSO header) → ``Order.delivery_date`` (the promise).
-  * ``JobPriority`` is NOT read. Priority is a per-turn planner lever now
-    (``solver._combined_priority``), not a letter on the record — see the
-    ``Order`` docstring in ``snapshot.py``.
-  * ``AvailableBy``, else ``EtaDealer`` (vehicle) → ``Vehicle.eta_dealer`` (the
-    mutable delivery date).
-  * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Vehicle.vehicle_classification``.
-  * eligibility: jobitem ``SalesModelCode`` == vehicle ``SalesModel`` — the full
-    trim/colour code (``T5040UECLMQ0009``), NOT ``ModelId.Code`` (``T5040``),
-    which is the model and matches no order. ``ModelId.Code`` is kept only as a
-    fallback for a vehicle that has no ``SalesModel``.
-  * allocations (the car each line holds today): HARD via jobitem ``VehicleId.Code`` ↔
-    ``VehicleCode``; SOFT via the jobitem's Alloc link to a Future vehicle (in the
-    mock, resolved straight to that vehicle's code — see ``_allocated_vehicle_of``). It
-    covers ONE car of the line: a line resolves to a single vehicle code, and one
-    car cannot serve two orders. A line claiming ``AllocQty > 1`` therefore has
-    committed cars this pull cannot identify — counted, never invented.
+Input — the two mounted payloads::
+
+    orders.json    {"now": "2026-08-25", "meta": {...}, "orders": [...]}
+    vehicles.json  {"vehicles": [...]}
+
+Output — an ``xas_allocation.snapshot.Snapshot``: the ``orders[] / vehicles[] /
+allocations{}`` arrays the solver reads.
+
+Field mapping (pull → solver):
+
+  * ``OrderId``      → ``Order.order_id``; one row is one order for ONE car, so
+    the id IS the key. No cards, no lines, no ``Quantity``.
+  * ``DeliveryDate`` → ``Order.delivery_date`` — the promise, from the ORDER's own
+    ``etaDealer`` column. The car's date is a different field entirely.
+  * ``SalesModel``   → ``Order.sales_model`` / ``Vehicle.sales_model``;
+    eligibility is exact equality between the two.
+  * ``EtaDealer``    → ``Vehicle.eta_dealer`` — from the car's ``availableBy``,
+    the one field a delay moves.
+  * ``VehicleCode`` on an order → ``allocations[key]``, the car it holds today.
 
 Eligibility arcs are NOT built here — the solver computes them at solve time
 (the sparse-arc rule), never stored.
@@ -46,51 +41,16 @@ from pathlib import Path
 
 from .snapshot import Order, Snapshot, Vehicle, parse_date
 
-# The bundled dataset. Relative to this file so it resolves both in the repo
-# (repo/data/pull.json) and in the skill bundle (<skill>/data/pull.json).
-DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "pull.json"
 
+def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
+    """The two mounted payloads -> a flattened Snapshot. Pure, deterministic.
 
-def _allocated_vehicle_of(item: dict) -> str | None:
-    """The vehicle a VSO jobitem is currently allocated to, or None.
-
-    HARD side: ``VehicleId.Code`` points at a concrete vehicle
-    (``VehicleId.Code`` ↔ ``VehicleCode``); present iff the row is hard-allocated.
-    SOFT side: the Alloc block points at a future vehicle. The real API resolves
-    that through ``AllocSource*``; the mock links straight to the Future vehicle it
-    stands for via ``AllocatedVehicleCode``."""
-    vehicle_id = item.get("VehicleId") or {}
-    if vehicle_id.get("Code"):
-        return str(vehicle_id["Code"])
-    if item.get("AllocatedVehicleCode"):
-        return str(item["AllocatedVehicleCode"])
-    return None
-
-
-def _vehicle_model(vehicle: dict) -> str:
-    """A vehicle's eligibility key: ``SalesModel``, else ``ModelId.Code``.
-
-    An order names a full trim/colour code, which is what ``SalesModel`` holds;
-    ``ModelId.Code`` is the model above it and matches no real order. The
-    fallback exists only so a model-coded order can still find a car — it is the
-    same hard equality either way, never a fuzzy match."""
-    sales_model = vehicle.get("SalesModel") or ""
-    return str(sales_model).strip() or str((vehicle.get("ModelId") or {}).get("Code") or "").strip()
-
-
-def flatten(rich: dict) -> Snapshot:
-    """Rich XAS pull -> flattened Snapshot. Pure, deterministic.
-
-    Explodes each VSO into its jobitem car lines (the allocatable orders) and
-    reads the flat vehicle pool into ``vehicles``. The allocations come from each
-    jobitem's current allocation link (hard ``VehicleId`` or soft Alloc).
-
-    A row missing the field that makes it solvable — a VSO with no promised date,
-    a vehicle with no eligibility key or no arrival date — is SKIPPED and counted,
-    never defaulted: a fabricated date would silently move the plan. The real
-    source filters these out host-side already (``datasource.map_response``), so
-    the counts here are a backstop, and they land in ``snapshot.meta`` beside the
-    source's own so the reply can account for every row.
+    A row missing the field that makes it solvable — an order with no promised
+    date, a car with no eligibility key or no arrival date — is SKIPPED and
+    counted, never defaulted: a fabricated date would silently move the plan.
+    ``datasource.translate`` filters these host-side already, so the counts here
+    are a backstop, and they land in ``snapshot.meta`` beside the source's own so
+    the reply can account for every row.
     """
     skips: Counter[str] = Counter()
 
@@ -102,79 +62,66 @@ def flatten(rich: dict) -> Snapshot:
 
     orders: list[Order] = []
     allocations: dict[str, str] = {}
-    for vso in rich["vsos"]:
-        so_id = str(vso.get("JobKey") or vso.get("DMSJCEntry"))
-        owner = (vso.get("Accounts") or {}).get("Owner") or {}
-        customer = owner.get("AccountName", "")
-        customer_id = owner.get("AccountUUID", "")
-        if not vso.get("DeliveryDate"):
+    for row in orders_doc["orders"]:
+        order_id = str(row.get("OrderId") or "").strip()
+        if not order_id:
+            skip("order_without_an_id")
+            continue
+        if not str(row.get("SalesModel") or "").strip():
+            skip("order_without_a_model")
+            continue
+        if not row.get("DeliveryDate"):
             skip("order_without_a_promised_date")
             continue
-        delivery_date = parse_date(vso["DeliveryDate"])
-        for item in vso.get("JobItems", []):
-            if not str(item.get("SalesModelCode") or "").strip():
-                skip("order_line_without_a_model")
-                continue
-            line = int(item["LineNum"])
-            # ONE CAR PER LINE. The jobitem's `Quantity` is NOT read: a line
-            # resolves to at most one vehicle code, so a car beyond the first
-            # could never be linked to anything anyway. Assumed 2026-08-25,
-            # pending a response-shape decision (one cap per line, or per-car
-            # fields) — see `docs/mcp-response-schema.md`.
-            price = sum(float(p.get("GrossTotal", 0.0)) for p in item.get("Prices", []))
-            order = Order(
-                so_id=so_id,
-                line=line,
-                customer=customer,
-                customer_id=customer_id,
-                sales_model=item["SalesModelCode"],
-                delivery_date=delivery_date,
-                price=price,
-            )
-            orders.append(order)
-            inc = _allocated_vehicle_of(item)
-            if inc:
-                allocations[order.key] = inc
+        order = Order(
+            order_id=order_id,
+            sales_model=str(row["SalesModel"]).strip(),
+            delivery_date=parse_date(row["DeliveryDate"]),
+        )
+        orders.append(order)
+        held = str(row.get("VehicleCode") or "").strip()
+        if held:
+            allocations[order.key] = held
 
     vehicles: list[Vehicle] = []
-    for v in rich["vehicles"]:
-        model = _vehicle_model(v)
-        if not model:
+    for row in vehicles_doc["vehicles"]:
+        if not str(row.get("SalesModel") or "").strip():
             skip("vehicle_without_a_model")
             continue
-        if not v.get("EtaDealer"):
+        if not row.get("EtaDealer"):
             skip("vehicle_without_an_arrival_date")
             continue
         vehicles.append(
             Vehicle(
-                vehicle_id=str(v["VehicleCode"]),
-                vehicle_classification=v["VehicleClassification"],
-                sales_model=model,
-                eta_dealer=parse_date(v["EtaDealer"]),
+                vehicle_id=str(row["VehicleCode"]),
+                sales_model=str(row["SalesModel"]).strip(),
+                eta_dealer=parse_date(row["EtaDealer"]),
             )
         )
 
-    # An allocation pointing at a vehicle that did not survive is no allocation.
+    # An allocation pointing at a car that did not survive is no allocation.
     vehicle_ids = {u.vehicle_id for u in vehicles}
     for key in [k for k, vid in allocations.items() if vid not in vehicle_ids]:
         del allocations[key]
         skip("allocation_to_a_dropped_vehicle")
 
     # --- the disruption is DERIVED, and it has to be --------------------------
-    # What actually slips is a VEHICLE: a shipment (VPO/VGR) runs late, so its
-    # cars arrive late. An order is only affected THROUGH the vehicle allocated to
-    # it, and XAS records no "this shipment slipped" manifest, so it is derived
-    # here rather than read. The rich pull carries a preview of the same thing;
-    # this is the authoritative version and replaces it, so the solver's free set
-    # is exactly the orders whose own vehicle is late.
+    # What actually slips is a CAR: a shipment runs late, so its cars arrive late.
+    # An order is only affected THROUGH the car allocated to it, and the export
+    # records no "this shipment slipped" manifest — the carve scripts bake the
+    # slip into `availableBy` — so it is derived here rather than read. The pull
+    # carries a copy of the same thing for the tool summary; this is the
+    # authoritative version and replaces it, so the solver's free set is exactly
+    # the orders whose own car is late.
     eta_of = {u.vehicle_id: u.eta_dealer for u in vehicles}
     promise_of = {o.key: o.delivery_date for o in orders}
-    disruption = dict(rich.get("disruption") or {})
-    disruption["disrupted_orders"] = sorted(
-        key for key, vid in allocations.items() if eta_of[vid] > promise_of[key]
-    )
+    disruption = {
+        "disrupted_orders": sorted(
+            key for key, vid in allocations.items() if eta_of[vid] > promise_of[key]
+        )
+    }
 
-    meta = dict(rich.get("meta") or {})
+    meta = dict(orders_doc.get("meta") or {})
     if skips:
         excluded = dict(meta.get("excluded") or {})
         excluded["flatten_skips"] = dict(sorted(skips.items()))
@@ -185,32 +132,41 @@ def flatten(rich: dict) -> Snapshot:
         vehicles=vehicles,
         allocations=allocations,
         disruption=disruption,
-        now=parse_date(rich["meta"]["now"]),
+        now=parse_date(orders_doc["now"]),
         meta=meta,
     )
 
 
-def flatten_path(src: str | Path) -> Snapshot:
-    """Flatten the rich pull at ``src`` — the path the host mounts the live pull
-    into the sandbox at (see ``alloc_tools.flatten_command`` / ``MOUNT_PATH``)."""
-    return flatten(json.loads(Path(src).read_text()))
+def flatten_paths(orders_path: str | Path, vehicles_path: str | Path) -> Snapshot:
+    """Flatten the two mounted files. These are the paths the host mounted the
+    pull at — see ``alloc_tools.ORDERS_MOUNT_PATH`` / ``VEHICLES_MOUNT_PATH``."""
+    return flatten(
+        json.loads(Path(orders_path).read_text()),
+        json.loads(Path(vehicles_path).read_text()),
+    )
 
 
-def flatten_default() -> Snapshot:
-    """Flatten the repo dataset — host-side dev/tests only. The live pull comes
-    through ``flatten_path`` instead."""
-    return flatten_path(DATA_PATH)
+def main() -> None:
+    """``python -m xas_allocation.flatten --orders … --vehicles …`` — flatten the
+    mounted pull and write ``snapshot.json``. This is what the pull tool's command
+    runs; it takes explicit paths because the platform decides where a mounted
+    file lands (see ``alloc_tools.mount_candidates``)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Mounted pull -> snapshot.json")
+    parser.add_argument("--orders", required=True, help="path to the mounted orders.json")
+    parser.add_argument("--vehicles", required=True, help="path to the mounted vehicles.json")
+    parser.add_argument("--out", default="snapshot.json")
+    args = parser.parse_args()
+
+    snap = flatten_paths(args.orders, args.vehicles)
+    Path(args.out).write_text(json.dumps(snap.as_dict(), indent=2, sort_keys=True))
+    print(
+        f"wrote {args.out}: {len(snap.orders)} orders, {len(snap.vehicles)} vehicles, "
+        f"{len(snap.allocations)} allocations; now={snap.now}"
+    )
+    print(f"to repair: {len(snap.disruption.get('disrupted_orders', []))} orders arrive late")
 
 
 if __name__ == "__main__":
-    snap = flatten_default()
-    print(
-        f"flattened: {len(snap.orders)} orders, {len(snap.vehicles)} vehicles, "
-        f"{len(snap.allocations)} allocations; now={snap.now}"
-    )
-    d = snap.disruption
-    print(
-        f"disruption: {d.get('delay_label') or str(d.get('delay_days')) + ' days'} on "
-        f"{len(d.get('delayed_vehicles', []))} vehicles, "
-        f"{len(d.get('disrupted_orders', []))} orders to repair"
-    )
+    main()

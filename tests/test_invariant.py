@@ -4,12 +4,12 @@
 
 Steering is a single combined **override** object the agent carries forward —
 there is no ledger, no append-only log, no replay, no TTL. These tests prove:
-  1. the fabricated pull regenerates byte-identically (engine seed + flatten);
+  1. the pull re-reads byte-identically (scenario CSVs -> translate -> flatten);
   2. a solve is deterministic given (snapshot, override);
-  3. the headline invariant: DISCARD the sandbox (all in-memory state), re-pull
-     the dataset from disk, re-flatten, re-apply the SAME override -> the SAME
-     plan, byte-for-byte. The override is the only state that crosses the
-     discard; there is nothing else to remember.
+  3. the headline invariant: DISCARD the sandbox (all in-memory state), re-read
+     the mounted payloads from disk, re-flatten, re-apply the SAME override ->
+     the SAME plan, byte-for-byte. The override is the only state that crosses
+     the discard; there is nothing else to remember.
 
 Eligibility is a hard `sales_model` equality — there is no LLM residual left to
 cache, so the old residual-cache leak test is gone with it. Durable, cross-
@@ -32,27 +32,43 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import datasource
-from scenario_engine.generate import generate
-from xas_allocation.flatten import flatten
+from xas_allocation.flatten import flatten, flatten_paths
 from xas_allocation.session import run_cycle
 from xas_allocation.solver import solve
 
-SEED = 20
+# The scenario every case here runs over: both disturbances at once, so the plan
+# has unallocated demand AND late arrivals to weigh against each other.
+SCENARIO = "scenario-mixed"
 
-# A representative steering override — all three keys. Just a dict; the whole
-# point is that the agent carries this object, not a log of how it was built.
+# A representative steering override — all three keys, naming real rows of that
+# scenario. Just a dict; the whole point is that the agent carries this object,
+# not a log of how it was built.
 STEER = {
-    "priority": [{"order": "VSO-4000-1", "step": "urgent"}],
-    "may_move": {"only": {"customers": ["CUST-001"]}, "never": ["VSO-4001-1"]},
+    "priority": [{"order": "502387", "step": "urgent"}],
+    "may_move": {"only": {"models": ["T71506JGVMH0009"]}, "never": ["503756"]},
     "churn_price": 25,
 }
 
 
-def _pull_from_disk(path: Path) -> dict:
-    """Fabricate the dataset to disk, then read it back — the pull the agent sees."""
-    rich = datasource.map_world(generate(seed=SEED)["pull"])
-    path.write_text(json.dumps(rich, sort_keys=True))
-    return json.loads(path.read_text())
+def _pull() -> dict:
+    """The pull as the host produces it: read the scenario's CSVs, translate."""
+    return datasource.get_source(SCENARIO).pull()
+
+
+def _snapshot() -> object:
+    """Translate + flatten, in memory — the two halves of the data path."""
+    pull = _pull()
+    return flatten(datasource.orders_payload(pull), datasource.vehicles_payload(pull))
+
+
+def _mount(directory: Path) -> tuple[Path, Path]:
+    """Write the two payloads the host mounts, then hand back their paths — the
+    files the sandbox actually reads."""
+    pull = _pull()
+    orders, vehicles = directory / "orders.json", directory / "vehicles.json"
+    orders.write_text(json.dumps(datasource.orders_payload(pull), sort_keys=True))
+    vehicles.write_text(json.dumps(datasource.vehicles_payload(pull), sort_keys=True))
+    return orders, vehicles
 
 
 def _plan_json(plan: dict[str, str]) -> str:
@@ -61,13 +77,12 @@ def _plan_json(plan: dict[str, str]) -> str:
 
 
 def test_snapshot_reproducible() -> None:
-    a = flatten(datasource.map_world(generate(seed=SEED)["pull"])).as_dict()
-    b = flatten(datasource.map_world(generate(seed=SEED)["pull"])).as_dict()
+    a, b = _snapshot().as_dict(), _snapshot().as_dict()
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def test_solve_deterministic() -> None:
-    snap = flatten(datasource.map_world(generate(seed=SEED)["pull"]))
+    snap = _snapshot()
     r1 = solve(snap, STEER, churn_price=25)
     r2 = solve(snap, STEER, churn_price=25)
     assert _plan_json(r1.plan) == _plan_json(r2.plan)
@@ -78,23 +93,23 @@ def test_override_invariant_across_sandbox_discard() -> None:
     """The headline invariant, ledger-free: the ONLY state that survives a sandbox
     discard is the override dict. Re-pull, re-flatten, re-apply it -> same plan."""
     with tempfile.TemporaryDirectory() as d:
-        data_path = Path(d) / "pull.json"
+        orders_path, vehicles_path = _mount(Path(d))
 
         def frontier(cyc) -> list[tuple]:
             return [
                 (p.churn_price, p.n_changes, p.weighted_late_days, p.unfilled) for p in cyc.sweep
             ]
 
-        # --- Run A: pull+flatten from disk, solve under the override. ---
-        snapA = flatten(_pull_from_disk(data_path))
+        # --- Run A: read the mounted payloads, flatten, solve under the override. ---
+        snapA = flatten_paths(orders_path, vehicles_path)
         cycA = run_cycle(snapA, STEER)
         planA, frontierA = _plan_json(cycA.chosen.plan), frontier(cycA)
 
-        # --- DISCARD the sandbox: drop every in-memory object. Re-pull the dataset
-        #     from disk, re-flatten, re-apply the SAME override (carried, not
+        # --- DISCARD the sandbox: drop every in-memory object. Re-read the same
+        #     mounted files, re-flatten, re-apply the SAME override (carried, not
         #     remembered — it's just the dict we already had). ---
         del snapA, cycA
-        snapB = flatten(_pull_from_disk(data_path))  # re-pulled, not remembered
+        snapB = flatten_paths(orders_path, vehicles_path)  # re-read, not remembered
         cycB = run_cycle(snapB, STEER)
         planB, frontierB = _plan_json(cycB.chosen.plan), frontier(cycB)
 
@@ -107,16 +122,16 @@ def test_override_is_order_independent() -> None:
     same instructions in a different arrangement produce the same plan. (What the
     ledger's replay order used to guarantee, now trivially true — there is no
     order to get wrong.)"""
-    snap = flatten(datasource.map_world(generate(seed=SEED)["pull"]))
+    snap = _snapshot()
     a = {
-        "priority": [{"order": "VSO-4000-1", "step": "urgent"}],
-        "may_move": {"never": ["VSO-4001-1"], "only": {"customers": ["CUST-001"]}},
+        "priority": [{"order": "502387", "step": "urgent"}],
+        "may_move": {"never": ["503756"], "only": {"models": ["T71506JGVMH0009"]}},
         "churn_price": 25,
     }
     b = {
         "churn_price": 25,
-        "may_move": {"only": {"customers": ["CUST-001"]}, "never": ["VSO-4001-1"]},
-        "priority": [{"order": "VSO-4000-1", "step": "urgent"}],
+        "may_move": {"only": {"models": ["T71506JGVMH0009"]}, "never": ["503756"]},
+        "priority": [{"order": "502387", "step": "urgent"}],
     }
     assert _plan_json(solve(snap, a, churn_price=25).plan) == _plan_json(
         solve(snap, b, churn_price=25).plan

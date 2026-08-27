@@ -105,6 +105,7 @@
   <h1>XAS Allocation</h1>
   <div class="controls">
     <select id="model"></select>
+    <select id="scenario" title="Which order book this session is about"></select>
     <button id="new" class="primary">New session</button>
     <button id="end" class="danger" disabled>End session</button>
   </div>
@@ -399,7 +400,10 @@ async function selectSession(s) {
 async function newSession() {
   $("new").disabled = true;
   try {
-    const res = await api("/session", { method: "POST", body: JSON.stringify({ model: $("model").value }) });
+    const res = await api("/session", {
+      method: "POST",
+      body: JSON.stringify({ model: $("model").value, scenario: $("scenario").value }),
+    });
     active = res.id;
     viewing = res.id;
     follow(res.id);
@@ -443,6 +447,14 @@ $("input").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preven
   $("model").replaceChildren(...Object.entries(models).map(([key, m]) => {
     const opt = new Option(m.label, key);
     opt.selected = key === def;
+    return opt;
+  }));
+  // The order book is chosen per session, because the pull is read once at
+  // create time — the same steering against a different book is a different turn.
+  const { scenarios, default: defScenario } = await api("/scenarios");
+  $("scenario").replaceChildren(...scenarios.map((name) => {
+    const opt = new Option(name.replace(/^scenario-/, ""), name);
+    opt.selected = name === defScenario;
     return opt;
   }));
   const { active: current } = await api("/sessions");

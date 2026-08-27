@@ -10,6 +10,8 @@ of it in a different way:
   ``real_unallocated``  deletes allocations — orders that need a car at all.
   ``real_delayed``      keeps allocations and delays the cars — orders whose car
                         now lands past its promise, which the solver may repair.
+  ``real_mixed``        both at once; the other two are this one with a count
+                        pinned to zero.
 
 Both take the same four knobs (how many orders to disturb, how many extra cars to
 free, subset size, available share) and emit the export's own CSV shape. This
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import random
 from collections import Counter
 from datetime import date, timedelta
@@ -137,7 +140,14 @@ class Export:
     def emit(self, out: Path, orders: list[dict[str, str]], vehicles: list[dict[str, str]]) -> None:
         write_csv(out / "orders.csv", self.order_fields, orders)
         write_csv(out / "vehicles.csv", self.vehicle_fields, vehicles)
-        print(f"\nwrote {out / 'orders.csv'} and {out / 'vehicles.csv'}")
+        # The pull date has no column, and it cannot be the clock: these are
+        # static files, so "today" would make the same rows mean something
+        # different tomorrow — an order late by 3 days becomes late by 4 with
+        # nothing having changed. `datasource.scenario_now` reads this.
+        (out / "scenario.json").write_text(
+            json.dumps({"now": CAPTURED.isoformat()}, indent=2) + "\n"
+        )
+        print(f"\nwrote {out / 'orders.csv'}, {out / 'vehicles.csv'} and scenario.json")
 
 
 # --- pool composition --------------------------------------------------------

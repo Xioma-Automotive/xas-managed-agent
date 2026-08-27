@@ -21,37 +21,24 @@ PROMISED = date(2026, 11, 1)  # far enough out that nothing else is in play
 
 
 def _order() -> Order:
-    return Order(
-        so_id="SO-1",
-        line=1,
-        customer="Dealer 1",
-        customer_id="CUST-001",
-        sales_model="SM1",
-        delivery_date=PROMISED,
-        price=40000,
-    )
+    return Order(order_id="500001", sales_model="SM1", delivery_date=PROMISED)
 
 
 def _vehicle(vid: str, planned: date) -> Vehicle:
-    return Vehicle(
-        vehicle_id=vid,
-        vehicle_classification="Vehicle",
-        sales_model="SM1",
-        eta_dealer=planned,
-    )
+    return Vehicle(vehicle_id=vid, sales_model="SM1", eta_dealer=planned)
 
 
 def _snap(vehicles: list[Vehicle]) -> Snapshot:
     # The disrupted order's ORIGINAL car slipped badly (VEH-INC, far late), so its
-    # binding is already broken -> free to leave (break cost 0, DECIDE-3). Both
+    # promise is already broken -> free to leave (break cost 0, DECIDE-3). Both
     # cars under test are replacements, so the break cost cancels and the pure
     # earliness/lateness cost model decides — which is what these tests exercise.
     inc = _vehicle("VEH-INC", date(2027, 3, 1))
     return Snapshot(
         orders=[_order()],
         vehicles=[*vehicles, inc],
-        allocations={"SO-1-1": "VEH-INC"},
-        disruption={"disrupted_orders": ["SO-1-1"]},  # free to re-allocate
+        allocations={"500001": "VEH-INC"},
+        disruption={"disrupted_orders": ["500001"]},  # free to re-allocate
         now=NOW,
     )
 
@@ -61,7 +48,7 @@ def test_closer_early_car_preferred():
     far = _vehicle("VEH-FAR", date(2026, 9, 22))  # 40 days early
     snap = _snap([near, far])
     result = solve(snap, {}, churn_price=0)
-    assert result.plan["SO-1-1"] == "VEH-NEAR", "should prefer the less-early car"
+    assert result.plan["500001"] == "VEH-NEAR", "should prefer the less-early car"
 
 
 def test_slightly_early_beats_slightly_late():
@@ -69,7 +56,7 @@ def test_slightly_early_beats_slightly_late():
     late = _vehicle("VEH-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([early, late])
     result = solve(snap, {}, churn_price=0)
-    assert result.plan["SO-1-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
+    assert result.plan["500001"] == "VEH-EARLY", "early should beat late for equal small gaps"
 
 
 def test_extreme_early_can_lose_to_slight_late():
@@ -79,7 +66,7 @@ def test_extreme_early_can_lose_to_slight_late():
     slight_late = _vehicle("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([far_early, slight_late])
     result = solve(snap, {}, churn_price=0)
-    assert result.plan["SO-1-1"] == "VEH-SLIGHT-LATE", (
+    assert result.plan["500001"] == "VEH-SLIGHT-LATE", (
         "extreme earliness may lose to slight lateness"
     )
 

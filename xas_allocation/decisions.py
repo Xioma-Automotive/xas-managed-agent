@@ -81,30 +81,27 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-3",
         status=(
-            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (break_cost.hard=200.0 in solver_config.yaml — the 'days-late worth one hard break' ratio is the number a planner must own)"
+            "MECHANISM RETIRED 2026-08-27 (the hard/soft split is gone) — ONE break_cost survives, VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (break_cost=200.0 in solver_config.yaml — the 'days-late worth one broken promise' ratio is the number a planner must own)"
         ),
-        title="Break cost: soft vs hard allocation (real vs future vehicle)",
-        default="hard (binding 'Vehicle') = expensive-but-movable; soft ('Future') = free; break_cost in solver_config.yaml",
+        title="Break cost: what disturbing a kept promise costs",
+        default="one break_cost in solver_config.yaml, charged only on an ON-TIME allocation",
         rationale=(
-            "A VSO row bound to a REAL vehicle (the 'Vehicle' binding, a car on the lot) is a "
-            "HARD allocation; one bound to a FUTURE vehicle (the 'Future' binding, still "
-            "coming) is SOFT. On real data the binding is DERIVED from the vehicle's Status "
-            "name — Ordered/On The Way are future, In Stock/Available For Sale are real, and "
-            "everything else (Customer, Reserved-*, Used, Demo, Disabled, no status) is out of "
-            "the pool entirely; XAS's own VehicleClassification field is a different axis "
-            "(Truck/Vehicle/InventoryVehicles) despite sharing a name and a value. Hard is NOT a wall — the repair loop may bump it 'for the "
-            "sake of another' order, it just pays a large finite break_cost.hard to do so; "
-            "soft costs break_cost.soft (0 by default). The cost applies only to displacing "
-            "an ON-TIME binding (a kept promise); an already-LATE binding protects nothing, so "
-            "re-allocating a disrupted order is free — the break prices the bump VICTIM, not "
-            "the disrupted order being rescued. There is NO location gradient: the real "
-            "inventory-vehicle API carries no usable position (all location fields null), so "
-            "hardness is the binary real-vs-future, keyed on Vehicle.vehicle_classification. "
-            "break_cost.hard is the tunable ratio 'how many weighted late-days is breaking "
-            "one hard allocation worth'. It is CONFIG, not steering: it left the override "
-            "object on 2026-08-26 because it is a constant somebody exposed per session, "
-            "not a sentence a planner says. (Supersedes the retired committed-vehicle hard "
-            "wall.)"
+            "The COST stands and the SPLIT is gone. It used to be two numbers keyed on a "
+            "real-vs-future binding read off the vehicle's status name (hard 200 for a car on "
+            "the lot, soft 0 for one still coming). The export the pull now reads carries no "
+            "such distinction: a car's status IS its allocation state (Available For Sale / "
+            "Dealer Order Confirmation / Dealer Reservation), and the physical stage beside it "
+            "(Sea Transit, Bonded, PDI, Future Vehicle) says where a shipment is, not what a "
+            "promise costs to disturb. Timing is already carried by the arrival date, so the "
+            "binding priced nothing the model did not already know. What remains: one "
+            "break_cost, charged ONLY when the displaced order's car was arriving ON TIME. An "
+            "already-late allocation protects nothing, so re-allocating a disrupted order is "
+            "free — the break prices the bump VICTIM, not the disrupted order being rescued. "
+            "It is NOT a wall: the repair loop may bump a kept promise 'for the sake of "
+            "another' order, it just pays for it. And it is CONFIG, not steering — it left the "
+            "override object on 2026-08-26 because it is a constant somebody exposed per "
+            "session, not a sentence a planner says. (Supersedes the retired committed-vehicle "
+            "hard wall and the location gradient the real API could never support.)"
         ),
     ),
     Decision(
@@ -160,32 +157,31 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-7",
         status=(
-            "SETTLED 2026-08-25 (contract) — BLOCKED on the app MCP's projection: it returns no `jobitems`, and asks for `DueDate` where XAS stores `DueDateTime`. docs/mcp-field-spec.md is the change request. The mapping contract itself needs no further decision."
+            "SETTLED 2026-08-27 — the source is the EXPORT's two CSVs, not the app MCP. Nothing is blocked on anyone else any more."
         ),
-        title="XAS API data contract (fields + endpoints)",
+        title="Where the allocation data comes from",
         default=(
-            "SETTLED for dev: AppMcpSource reads VSOs + vehicles through the app MCP's own "
-            "tools host-side, filters and maps them into the rich {meta, vsos, vehicles, "
-            "disruption} contract. ScenarioEngineSource stays the offline default"
+            "a scenario directory of the real export: orders.csv + vehicles.csv, read and "
+            "translated host-side by datasource.translate into two mounted JSON payloads"
         ),
         rationale=(
-            "One data seam for both lanes: the reporting lane already answers over these "
-            "tools. The MCP PROJECTS, though, and does not return everything the solver needs "
-            "yet — jobitems (the grain itself), SalesModel, VehicleDMSCode, EtaDealer and "
-            "AvailableBy are off the allowlist, "
-            "and it asks for DueDate where XAS stores DueDateTime, so no VSO returns a "
-            "promised date. docs/mcp-field-spec.md is the change request; missing_projection() "
-            "names any gap so it cannot be mistaken for empty data. Key facts the mapping "
-            "encodes: the order grain is the CAR — one `ModelItem` job item wants Quantity of "
-            "them, and each wanted car is one order keyed {JobKey}-{LineNum}-{n}; the "
-            "eligibility key is vehicle SalesModel, not ModelId.Code; future-vs-real comes from "
-            "Status NAME, never code (02 is both 'On The Way' and 'Available For Sale'); the "
-            "disruption is DERIVED (XAS records no delay manifest); a vehicle claimed by two "
-            "orders yields no allocation for either. What remains open is the DATA, not the "
-            "contract — the list projection returns no jobitems, so all 25 dev VSOs currently "
-            "drop for no_car_line and the live allocation pull is EMPTY. "
+            "The app MCP was the source for a week and is not one now. It PROJECTED — an "
+            "allowlisted subset of each record — and the fields the solver needs were not on "
+            "the list: no `jobitems` (the grain itself), so every dev job card dropped for "
+            "no_car_line and the live pull came back EMPTY, and it asked for DueDate where XAS "
+            "stores DueDateTime. Rather than wait on a widened projection, the pull reads the "
+            "export we already have: `scenario_engine/real_*.py` carves a scenario out of it, "
+            "and one mapping (`datasource.translate`) turns the two row streams into the two "
+            "payloads `flatten` reads in the sandbox. What the mapping encodes: one ORDER ROW "
+            "is one order for one car, keyed by its own OrderId (no cards, no lines, no "
+            "Quantity); the promise is the ORDER's etaDealer and the arrival is the CAR's "
+            "availableBy; eligibility is SalesModel equality, never modelId.code; free supply "
+            "is the car's own status, stripped ('Available For Sale ' carries a real trailing "
+            "space); the disruption is DERIVED (nothing records a delay manifest); a car "
+            "claimed by two orders yields no allocation for either. "
             "`python -m datasource --census` prints the funnel. Still host-side, still mounted "
-            "as a file: the agent never calls XAS and never holds a credential."
+            "as files: the agent never reads a CSV and never holds a credential. The MCP tools "
+            "the agent holds are the REPORTING lane's, and that has not changed."
         ),
     ),
     Decision(

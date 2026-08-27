@@ -38,32 +38,25 @@ def test_pull_takes_no_parameters():
     assert alloc_tools.PULL_TOOL_INPUT_SCHEMA["required"] == []
 
 
-def test_summary_carries_the_disruption():
+def test_summary_carries_the_shape_of_the_problem():
     summary = call()
-    assert summary["now"]
-    assert summary["orders"] > 0  # VSO car lines
-    assert summary["supply"] > 0  # the vehicle pool: real ∪ future
-    assert summary["disruption"]["delay_days"] > 0  # the worst slip
-    assert summary["disruption"]["delayed_vehicles"] > 0
-    # A disruption is normally several shipments slipping by DIFFERENT amounts, so
-    # the summary carries the split, not just one number. The counts must add up
-    # to the delayed cars, or the agent is told about cars nobody slipped.
-    tiers = summary["disruption"]["delay_tiers"]
-    assert tiers, "the per-slip split must reach the agent"
-    assert sum(tiers.values()) == summary["disruption"]["delayed_vehicles"]
-    assert summary["disrupted_orders"] == len(summary["disrupted_order_ids"])
+    assert summary["now"] and summary["scenario"]
+    assert summary["orders"] > 0
+    assert summary["orders_holding_a_car"] + summary["orders_holding_no_car"] == summary["orders"]
+    assert summary["supply"] > 0
+    assert 0 < summary["free_supply"] <= summary["supply"]
+    assert summary["late_orders"] == len(summary["late_order_ids"])
 
 
-def test_summary_carries_a_wellformed_customer_map():
-    """§6: the agent resolves a dealer name to a customer_id when compiling an
-    override. The map covers exactly the customers with orders in play."""
+def test_the_summary_reports_how_late_things_are_not_a_manifest():
+    """The fake's delay manifest ("30 days on 25 vehicles") went with the fake:
+    the export records no such thing, so the only honest summary of a disruption
+    is the spread the dates now imply."""
     summary = call()
-    assert summary["customers"], "no customers surfaced for §6 resolution"
-    for name, info in summary["customers"].items():
-        assert info["customer_id"].startswith("CUST-"), name
-        # No priority on the map: it is a step the planner names per order now,
-        # never a letter read off a dealer.
-        assert set(info) == {"customer_id"}, name
+    late = summary["days_late"]
+    assert set(late) == {"min", "median", "max"}
+    assert 0 < late["min"] <= late["median"] <= late["max"]
+    assert "delay_days" not in summary and "delayed_vehicles" not in summary
 
 
 def test_summary_stays_small():
@@ -76,14 +69,17 @@ def test_flatten_command_reproduces_the_snapshot(tmp_path):
     """The command handed to the agent must actually flatten the MOUNTED pull.
 
     It is the transport: if it drifts, the sandbox solves against different data
-    than the summary describes, silently. Stage the two things a real session has
-    — the solver package under a skill layout (self-located) and the pull mounted
-    at an explicit path (read directly) — and point the command at that path.
+    than the summary describes, silently. Stage the three things a real session
+    has — the solver package under a skill layout (self-located) and the two
+    payloads mounted at paths we choose (read directly) — and point the command
+    at them.
     """
     import shutil
     import subprocess
     import sys
     from pathlib import Path
+
+    import datasource
 
     repo = Path(__file__).resolve().parent.parent
     skill_dir = tmp_path / "skills" / "xas-allocation"
@@ -93,12 +89,14 @@ def test_flatten_command_reproduces_the_snapshot(tmp_path):
         skill_dir / "xas_allocation",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
-    # The mounted pull — a path we choose, exactly as web.py mounts it.
-    mounted = tmp_path / "pull.json"
-    shutil.copy(repo / "data" / "pull.json", mounted)
+    # The two mounts — paths we choose, exactly as web.py mounts them.
+    pull = datasource.get_source().pull()
+    orders_path, vehicles_path = tmp_path / "orders.json", tmp_path / "vehicles.json"
+    orders_path.write_text(json.dumps(datasource.orders_payload(pull)))
+    vehicles_path.write_text(json.dumps(datasource.vehicles_payload(pull)))
 
     summary = call()
-    command = alloc_tools.flatten_command(pull_path=str(mounted))
+    command = alloc_tools.flatten_command(str(orders_path), str(vehicles_path))
     command = command.replace("python ", f"{sys.executable} ", 1)
     subprocess.run(command, shell=True, cwd=tmp_path, check=True)
 
@@ -107,7 +105,37 @@ def test_flatten_command_reproduces_the_snapshot(tmp_path):
     snapshot = json.loads(written.read_text())
     assert len(snapshot["orders"]) == summary["orders"]
     assert len(snapshot["vehicles"]) == summary["supply"]
-    assert snapshot["disruption"]["disrupted_orders"] == summary["disrupted_order_ids"]
+    assert snapshot["disruption"]["disrupted_orders"] == summary["late_order_ids"]
+
+
+def test_the_command_fails_loudly_when_only_one_file_is_mounted(tmp_path):
+    """Half a pull is worse than none: the solver would run over demand with no
+    supply and report every order unplaceable. The command must name what is
+    missing instead."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import datasource
+
+    pull = datasource.get_source().pull()
+    orders_path = tmp_path / "orders.json"
+    orders_path.write_text(json.dumps(datasource.orders_payload(pull)))
+    command = alloc_tools.flatten_command(str(orders_path), str(tmp_path / "missing.json"))
+    command = command.replace("python ", f"{sys.executable} ", 1)
+    # From the repo root, so the package IS found and the mount check is what
+    # fails — otherwise this would pass for the wrong reason.
+    done = subprocess.run(
+        command,
+        shell=True,
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode != 0
+    assert "not mounted" in done.stdout + done.stderr
+    assert "missing.json" in done.stdout + done.stderr
 
 
 def test_flatten_command_never_sweeps_the_filesystem_root():

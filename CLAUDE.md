@@ -17,10 +17,11 @@ because a self-hosted sandbox runs tools as your own uid — an agent there
 enumerated every credential file on the host through `bash`, which is what
 prompted this branch. Don't merge the two; they are alternatives.
 
-Docs: `docs/mcp-response-schema.md` is the response shape the pull needs from the
-app MCP, `docs/mcp-field-spec.md` the allowlist diff behind it,
-`docs/real-source-investigation.md` what the live system actually holds, and
-`docs/appmcp-connect.md` how to call the dev MCP by hand. The self-hosted plans,
+Docs: `docs/real-source-investigation.md` is what the live system actually holds
+and `docs/appmcp-connect.md` how to call the dev MCP by hand (reporting lane).
+`docs/mcp-response-schema.md` and `docs/mcp-field-spec.md` are HISTORICAL as of
+2026-08-27 — they were the change request for an app-MCP allocation pull that no
+longer exists; the pull reads the export's CSVs instead. The self-hosted plans,
 specs and platform notes were retired on 2026-08-23.
 
 ## The invariant everything serves
@@ -30,16 +31,16 @@ specs and platform notes were retired on 2026-08-23.
 If the mapping, graph, costs, or pins can't be regenerated from those three
 inputs, state has leaked into model memory and determinism is gone. Concretely:
 
-- **The pull is the data snapshot.** It comes from a callable source
-  (`datasource.py`, host-side): the `scenario_engine/` fake fabricates the app
-  MCP's own two response payloads by default, or the live MCP answers them for
-  real by config (DECIDE-7). Either way `map_response` maps them to the rich pull
-  — ONE mapping, both sources. `web.py` fetches it and mounts it into the sandbox
-  as a file; `flatten` explodes each card into its `ModelItem` car lines and reads
-  the vehicle pool into the `orders/vehicles/allocations` snapshot, expanding each
-  card into its `ModelItem` car lines, one order each. The *same* pull
-  backs every turn of a repair cycle — re-applying the same override against a
-  different pull is not the same turn.
+- **The pull is the data snapshot.** It comes from a **scenario directory** of
+  the real export — `data/scenario-*/orders.csv` + `vehicles.csv`, carved by
+  `scenario_engine/real_*.py` — read host-side by `datasource.py` (DECIDE-7).
+  `translate()` is the ONE mapping: it filters, counts every drop by reason and
+  writes the two payloads `web.py` mounts, `orders.json` and `vehicles.json`.
+  `flatten` reads those two files IN THE SANDBOX into the
+  `orders/vehicles/allocations` snapshot, one order row = one order for one car.
+  The *same* pull backs every turn of a repair cycle — re-applying the same
+  override against a different pull is not the same turn, and the scenario is
+  chosen once, at session create.
 - **The override is the session.** Steering is one combined override object —
   since 2026-08-26 exactly THREE keys, `priority` / `may_move` / `churn_price` —
   which the agent edits in place and carries forward; no ledger, no replay. Same
@@ -54,9 +55,11 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   `setup_agent.py`, exactly like editing the code — and it needs `pyyaml` in the
   sandbox, so the skill's install line is `pip install ortools pyyaml`.
 - **Flatten is pure code, not judgment.** Eligibility is a hard `sales_model`
-  equality — there is no LLM spec-residual left to cache. If the rich→snapshot
+  equality — there is no LLM spec-residual left to cache. If the pull→snapshot
   mapping were re-derived by the model each turn, that is the leak this guards
-  against; `flatten.py` keeps it deterministic.
+  against; `flatten.py` keeps it deterministic. And the pull date is a FIXED date
+  (`datasource.DEFAULT_NOW`, overridable per scenario), never the clock: static
+  files plus `today()` mean the same rows mean something new tomorrow.
 
 `tests/test_invariant.py` proves this holds across a sandbox discard, and
 `tests/test_agent_contract.py` pins the two-skill wiring and the mount namespace.
@@ -159,19 +162,21 @@ XAS endpoint and its credential never touch the sandbox.
   its `tool_runner` task when it creates the session and cancels it on stop. Tie
   it to the event-stream route instead and closing the tab hangs the next pull
   forever.
-- **The skill bundles carry code, and one dataset.** `skill_files(skill_dir,
+- **The skill bundles carry code, not data.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-reporting/` (SKILL.md + `phrasebook.py` + `index.md`). The one SESSION dataset is
-  still mounted per session by `web.py` — the pull from
-  `datasource.get_source()` — so regenerating it needs no re-deploy. The tenant
+  `xas-reporting/` (SKILL.md + `phrasebook.py` + `index.md`). The DATA is mounted
+  per session by `web.py` — the pull from `datasource.get_source(scenario)` — so
+  re-carving a scenario needs no re-deploy. The tenant
   taxonomy is the exception (DECIDE-16): it rides in the `xas-reporting` bundle
   because there is one tenant, `phrasebook.py`
   finds it beside itself, and the price is that the caller can no longer pick a
   dealership per session. **Change either skill, the solver package, or the
   taxonomy and you must re-run `setup_agent.py`.**
-- **One mount, and reporting has no file at all.** `/workspace/pull.json` is the
-  allocation snapshot, and it is the only thing `web.py` mounts. The reporting
-  lane had a second mount — a fabricated `jobcards.json` under
+- **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
+  `/workspace/vehicles.json` are the pull — the export's two row streams, kept
+  apart because folding them into one document would only make `flatten` take it
+  apart again — and they are the only things `web.py` mounts. The reporting
+  lane had a third mount — a fabricated `jobcards.json` under
   `/workspace/reports/`, whose namespace existed so the prompt could forbid a
   **path** — removed 2026-08-20 because the records were only ever mock data.
   Reporting reads the live system through `xas-app-mcp` instead, so the fence is
@@ -181,15 +186,20 @@ XAS endpoint and its credential never touch the sandbox.
   irreproducible answer — `tests/test_agent_contract.py` pins the RULE's
   presence, and nothing pins that the agent follows it. Verify by hand: ask for a
   count over "late orders" and check the answer came from the solver.
-- **The disruption is derived, and the allocations may not be a matching.** XAS records no
-  "this shipment slipped 21 days" manifest, but `solver.partition` builds the free
-  set from `disruption.disrupted_orders`, so `map_response` derives it: an
-  allocated order whose car now lands past its promise. (An order with no car
-  needs no help — `partition` already frees anything unassigned.) And the live
-  live allocation is not always a matching: vehicle `10831` is allocated to three
-  VSOs at once, so a contested vehicle yields **no** allocation for anyone and the
-  conflict rides in `meta.conflicts` — otherwise the solver's own self-check
-  fires on its input.
+- **The disruption is derived, and the allocations may not be a matching.** Nothing
+  records "this shipment slipped 21 days" — the carve scripts bake the slip into
+  `availableBy` — but `solver.partition` builds the free set from
+  `disruption.disrupted_orders`, so BOTH `datasource.translate` (for the tool
+  summary) and `flatten` (authoritatively, for the solver) derive it: an allocated
+  order whose car now lands past its promise. The two must agree, and
+  `tests/test_flatten.py` pins that they do. (An order with no car needs no
+  manifest — `partition` already frees anything unassigned.) And a real book is
+  not always a matching: a car claimed by two orders yields **no** allocation for
+  anyone and the conflict rides in `meta.conflicts` — otherwise the solver's own
+  self-check fires on its input. The delay MANIFEST is gone with the fake
+  (`delay_days` / `delay_tiers` / `delayed_vehicles`, removed 2026-08-27): the
+  summary reports the min/median/max days late instead, which real data can
+  actually support.
 - **ONE CAR PER LINE, and `Quantity` is not read at all.** One car line is one
   order, keyed `{so_id}-{line}` — two levels. This REPLACED qty expansion on
   2026-08-25 (the expansion, `qty_index`, the per-car report naming and the
@@ -247,28 +257,17 @@ XAS endpoint and its credential never touch the sandbox.
   `planner_report` is the only renderer. Reinstating per-car rows means
   reinstating the grouping rule with it: collapsing was only ever allowed when
   every displayed column agreed.
-- **The fake speaks the MCP's shapes, and `pull.json` is DERIVED.**
-  `scenario_engine` authors `data/mcp-jobcards.json` + `data/mcp-vehicles.json`
-  — the two payloads of `docs/mcp-response-schema.md` — and both sources then run
-  through the SAME `map_response`, the fake via `datasource.map_world`. That is
-  what makes the fake substitutable for the MCP and `tests/test_invariant.py`
-  worth anything; a second mapping kept in step by hand would not. So editing
-  `data/pull.json` or `data/baseline.json` is editing build output: the next
-  `scenario_engine.generate` overwrites them, and the default source never reads
-  them (`flatten`'s offline default and `web.py`'s mount do). Change the scenario
-  in the two `mcp-*.json` payloads, or in the generator.
-  The one wrinkle: `now` and the delay manifest have no place in an MCP response
-  — XAS records neither — so they ride on the jobcards payload under a
-  fake-only `_scenario` key that `map_world` is the sole reader of.
-- **One definition of "this line holds a car".** `datasource.car_lines_kept` is
-  it, and both the conflict scan and the translate step call it — because
-  `_line_vehicle` falls back to the card's single `VehicleDMSCode` only for a
-  ONE-car card, so counting a `Configuration` row as a car line suppresses that
-  fallback in one place and not the other. The result was a double-booked vehicle
-  invisible to `meta.conflicts` yet still linked as an allocation, which trips the
-  solver's self-check on its own input. Fixed 2026-08-24; pinned by
-  `test_a_double_booked_vehicle_yields_no_allocation_for_anyone` and
-  `test_the_card_fallback_needs_a_single_car_line`.
+- **The scenarios are the data of record, and they are BUILD OUTPUT.**
+  `data/scenario-{unallocated,delayed,mixed}/` each hold `orders.csv` +
+  `vehicles.csv` + a `scenario.json` sidecar, carved out of the real export by
+  `scenario_engine/real_*.py`. Editing one by hand is editing build output — the
+  next carve overwrites it. Change a scenario by re-running the script or its
+  knobs, never the CSVs. The sidecar exists because the pull date has no column
+  and cannot be the clock: `datasource.scenario_now` reads it, `XAS_PULL_NOW`
+  overrides it. The fabricated `scenario_engine/generate.py` world and the two
+  `data/mcp-*.json` payloads it authored were deleted on 2026-08-27 — with the
+  export as the only source there is nothing for an invented vocabulary to be
+  substitutable for, and `data/pull.json` / `data/baseline.json` went with them.
 - **In the real export, a car's status IS its allocation state.** `data/vehicles.csv`
   + `data/orders.csv` (3523 cars, 1641 orders) hold a perfect 1:1 matching: every
   `Dealer Order Confirmation` (1380) and `Dealer Reservation` (261) car is claimed
@@ -291,71 +290,65 @@ XAS endpoint and its credential never touch the sandbox.
   count must be measured on the output rather than taken from the knob — every run
   reports the split. And `--models` exists because eligibility is exact sales-model
   equality across 66 models: a 60-car subset averages 0.9 cars per model, so most
-  orders see nothing but their own car back and NO available percentage fixes it. They emit CSVs, not MCP payloads, so neither reaches
-  `pull.json`.
-- **The two views are not one world.** `pull.json` holds VSOs fabricated by
-  `scenario_engine`; the MCP serves whatever the dev DMS holds right now, Service
-  job cards included. They describe overlapping business objects with no
-  guarantee they agree, and the live side changes between turns. Do not let a
-  quiet fixture stand in for the rule above.
-- **The real pull goes through the app MCP, host-side, and it is still ONE frozen
-  snapshot.** `datasource.AppMcpSource` calls the MCP's own `get_job_cards` +
-  `get_vehicles` — one data seam for both lanes — and `map_response` filters and
-  maps the rows, pure and tested against a captured response
-  (`tests/fixtures/xas_sample.json`). **That capture predates the line grain and
-  carries no `jobitems` at all**, so it can only prove the vehicle side and the
-  projection gap itself; the card side of those tests is hand-built until a
-  jobitems-bearing tool exists to re-capture from. The AGENT still does not make
-  these calls:
-  `web.py` fetches before the session exists and mounts the result as a file,
-  because a live mid-turn read makes the same override meet different rows on
-  turn 3 than on turn 1. The MCP tools the agent holds stay the reporting lane's.
-- **The MCP projects, so a missing field has two very different causes.** Its
-  tools return an allowlisted subset of each record, and the fields the solver
-  needs are not all on it yet — `docs/mcp-field-spec.md` is the list. The worst
-  of them is now the grain itself: the list projection returns **no `jobitems`**,
-  and one `ModelItem` line IS one order, so every one of the 25 cards drops for
-  `no_car_line` and the live allocation pull is EMPTY. `jobitems` is therefore in
-  `REQUIRED_CARD_FIELDS` — without it the line-level check reads nothing out of an
-  empty list and reports no gap at all. Next worst is a NAME BUG: it asks for
-  `DueDate` where XAS stores `DueDateTime`, so 0 of 25 VSOs return a promised date
-  while 13 have one.
-  `missing_projection()` tells the two cases apart: a field absent from EVERY row
-  is the allowlist omitting it (widen the MCP), a field absent from SOME rows is
-  the tenant not having filled it in (data entry). Both produce an identical
-  empty funnel and need opposite fixes, so the gap is named in
-  `meta.projection_gaps` and reaches the planner as its own sentence.
-- **Two mapping rules that fail silently if reversed.** Future-vs-real comes from
-  the status **name**, never the code: `02` is `On The Way` on 218 vehicles and
-  `'Available For Sale '` (trailing space) on 106 more, so bucketing by code
-  merges a car still shipping with a car on the lot. And eligibility joins the
-  order's `SalesModelCode` to the vehicle's **`SalesModel`** — `ModelId.Code`
-  holds the model above it and matches nothing, which would backorder every
-  order.
+  orders see nothing but their own car back and NO available percentage fixes it.
+- **The two views are not one world.** The pull holds orders and cars carved out
+  of a REAL export, frozen; the MCP serves whatever the dev DMS holds right now,
+  Service job cards included. They describe overlapping business objects with no
+  guarantee they agree, and the live side changes between turns. That is why the
+  allocation lane never reads the MCP, and why an allocation number sourced from
+  it would not be reproducible even in principle.
+- **The pull is host-side, and it is ONE frozen snapshot.**
+  `datasource.ScenarioSource` reads the two CSVs and `translate` filters and maps
+  them, pure and tested row by row (`tests/test_datasource.py`). The AGENT does
+  not read them: `web.py` reads before the session exists and mounts the two
+  translated payloads, because a live mid-turn read makes the same override meet
+  different rows on turn 3 than on turn 1. The MCP tools the agent holds stay the
+  reporting lane's.
+- **Two mapping rules that fail silently if reversed.** The PROMISE is the ORDER's
+  `etaDealer`; the ARRIVAL is the CAR's `availableBy`. Confuse them and a date is
+  compared with itself, so nothing is ever late and nothing downstream notices.
+  And eligibility joins the order's `SalesModel` to the vehicle's **`SalesModel`**
+  — `modelId.code` holds the model above it (`T71604NXXMH0031` against the order's
+  `T71604NCLMH0031`) and matches nothing, which would leave every order with no
+  car. There is deliberately NO fallback to it.
+- **`'Available For Sale '` carries a real trailing space, and both spellings
+  occur in one file** — 152 padded rows and 8 bare ones in the mixed scenario. So
+  every status comparison strips first (`datasource._text`); compare unstripped
+  and 8 free cars quietly leave the supply pool.
+- **A missing column raises, and there is no projection gap any more.** A CSV
+  header either has the column or it does not, so `datasource.read_rows` checks
+  `REQUIRED_ORDER_COLUMNS` / `REQUIRED_VEHICLE_COLUMNS` at read time and raises
+  naming what is absent, with the file still in hand. The app MCP's "absent from
+  EVERY row vs absent from SOME rows" distinction — `missing_projection`,
+  `meta.projection_gaps` and the planner-facing sentence about it — went with the
+  MCP source on 2026-08-27.
 - **Everything the filter drops is counted, and the count must be reported.**
   `meta.excluded` carries the funnel by reason and `session.exclusion_note` turns
-  it into the first thing the planner reads: on dev data ALL 25 sales orders drop
-  (`no_car_line` — the projection returns no jobitems), and before the grain
-  changed it was 24 of 25 for want of a model or a promised date. A plan over a
-  survivor presented as the whole book is the worst thing this pipeline can do.
-  The counts run at both levels now — `order_drops` and `line_drops`, with
-  `lines_kept` beside `orders_kept`. The fabricated source drops only its
-  `Configuration` lines, which is exactly what proves the type filter runs.
-- **The pull mounts a file, not a seed, and not the rows in-band.** The source
+  it into the first thing the planner reads. A plan over a survivor presented as
+  the whole book is the worst thing this pipeline can do. On the three scenarios
+  nothing drops but unwanted models (13 of 400 cars in the mixed one), which is
+  what makes the OTHER half of that note load-bearing: it also names the orders
+  **holding no car** — 50 of 290 mixed, 7 of 7 in the unallocated carve, where
+  "no orders are late" on its own would read as "nothing to do".
+- **The pull mounts files, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
   context. So the tool returns only a summary + a `flatten` command; the rows
-  travel as the mounted file (fetched host-side, out of the sandbox's sight) and
-  `flatten` reads them there — nothing dumps ~KBs of JSON into the transcript. The
-  scenario engine's *code* (and any XAS credential) stays out of the sandbox; only
-  the fetched *output* travels in. The summary still carries the customer-name →
-  `customer_id` map, because §6 steering needs it to compile "prefer Colmobil" into
-  an override.
+  travel as the two mounted files (read host-side, out of the sandbox's sight) and
+  `flatten` reads them there — nothing dumps ~100KB of JSON into the transcript.
+  The scenario scripts' *code* stays out of the sandbox; only the translated
+  *output* travels in. The summary carries counts, the scenario name, the drop
+  funnel and the min/median/max days late — no rows, and no customer map, because
+  there are no customers.
 - **`flatten_command` searches from `.`/`/workspace`, never from `/`.** The solver
   lands wherever the platform puts skills, so the command self-locates
-  `xas_allocation/flatten.py` — but bounded to the sandbox tree. (The pull is *not*
-  searched for: it's read from the known `MOUNT_PATH` the host mounted it at.) An
-  unbounded `find /` exceeds the 120s bash timeout and kills the agent's shell;
-  that is not hypothetical, it happened on the self-hosted build.
+  `xas_allocation/flatten.py` — but bounded to the sandbox tree. An unbounded
+  `find /` exceeds the 120s bash timeout and kills the agent's shell; that is not
+  hypothetical, it happened on the self-hosted build. The two payloads are *not*
+  searched for: each is resolved against `mount_candidates` (the path we chose,
+  then the `/mnt/session/uploads` prefix the platform was observed to use). The
+  command names whichever is missing and exits non-zero — and note the trap that
+  cost one debug cycle: `next(gen, sys.exit(...))` evaluates the default EAGERLY,
+  so the exit fires before the lookup. Pick, then check.
 - **A skill's `name` is immutable per `skill_id`, and `display_title` is unique
   per organization.** Renaming a skill is therefore a NEW skill object, not a new
   version: `versions.create` 400s with "must be consistent across all versions",
@@ -385,10 +378,11 @@ line counts what is genuinely undecided. The shape of it:
   id, mounted like the pull) is the candidate fix, not a decision. Check the
   Managed Agents persistence surface against current docs before wiring it.
 - **Two are settled in SHAPE but carry a number nobody has validated** —
-  DECIDE-3 (`break_cost.hard=200`) and DECIDE-15 (`early_weight=0.15`), both in
-  `solver_config.yaml`. Tuned against the fabricated dataset alone. The mechanism
+  DECIDE-3 (`break_cost=200`) and DECIDE-15 (`early_weight=0.15`), both in
+  `solver_config.yaml`. Never checked against a planner's judgment. The mechanism
   is not up for debate; the value is, and it is reviewed at first real dealer
-  data. The other four of the old five are gone, not re-tuned.
+  data. DECIDE-3's own MECHANISM retired on 2026-08-27 — the hard/soft split read
+  a real-vs-future binding the export does not carry — leaving one number.
 - **Five are RETIRED** — DECIDE-1 (aging), DECIDE-2 (time fence), DECIDE-4 (pin
   mechanism), DECIDE-11 (reschedule fairness), DECIDE-14 (time scale). Built,
   reviewed and removed on 2026-08-26. They stay in the register with what went
@@ -400,11 +394,11 @@ line counts what is genuinely undecided. The shape of it:
   earmarked supply is the deferred upgrade. DECIDE-6 — there is no liveness
   check and will not be one: the pull happens host-side before the session
   exists, so a session-start call from the agent proves nothing about it.
-- **DECIDE-7 is settled as a contract and BLOCKED on someone else.** The mapping
-  needs no further decision; the app MCP's projection does — no `jobitems` (so
-  all 25 dev VSOs drop for `no_car_line` and the live allocation pull is EMPTY)
-  and `DueDate` where XAS stores `DueDateTime`. `docs/mcp-field-spec.md` is the
-  change request.
+- **DECIDE-7 is settled and unblocked.** The source is the export's two CSVs, so
+  nothing waits on a widened MCP projection any more (the blocker was: no
+  `jobitems`, so every dev job card dropped and the live allocation pull came back
+  EMPTY). `docs/mcp-field-spec.md` and `docs/mcp-response-schema.md` are the
+  historical record of that request, not open work.
 - **The rest are decided**, with their trigger named where they have one:
   DECIDE-9 (solver stays in-repo; extraction is triggered by the first NON-DEV
   tenant, not a date) and DECIDE-16 (taxonomy ships in the `xas-reporting`
@@ -420,16 +414,19 @@ mutation.
 ## Verifying a change
 
 ```bash
-uv run python -m scenario_engine.generate           # author the MCP payloads, derive pull/baseline
-uv run python -m datasource --census                # what the configured source kept vs dropped
-uv run pytest                                       # engine, flatten, contracts, phrasebook, determinism
+uv run python -m datasource --list                  # the scenarios the picker offers
+uv run python -m datasource --census                # what the scenario kept vs dropped
+uv run python -m datasource --scenario scenario-unallocated --census
+uv run python -m xas_allocation.session             # a full four-turn demo over the default scenario
+uv run pytest                                       # mapping, flatten, contracts, phrasebook, determinism
 PYTHONPATH=. uv run python tests/test_invariant.py  # the invariant, standalone (4/4)
 uv run ruff format . && uv run ruff check .
 ```
 
-Tests need no credentials and no network — the tool and flatten are exercised
-in-process, and `data/mcp-*.json` + the derived `data/pull.json` are committed so
-the suite runs without the engine. Regenerating the dataset means re-running `setup_agent.py`.
+Tests need no credentials and no network — the tool and flatten run in-process,
+and the three `data/scenario-*/` directories are committed so the suite needs no
+carve. Re-carving a scenario needs NO re-deploy (the data is mounted, not
+bundled); changing the skill or the solver package does.
 
 The sandbox being Anthropic's is worth confirming once by hand: ask the agent to
 run `whoami; ls ~; cat /proc/1/environ | tr "\0" "\n"` and check that what comes

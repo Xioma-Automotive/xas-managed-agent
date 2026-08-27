@@ -2,8 +2,8 @@
 
 Each turn (there is no liveness-check step — DECIDE-6 settled as NOT APPLICABLE,
 since the pull happens host-side before the session exists):
-  1. Pull the rich dataset and ``flatten`` it -> the orders/vehicles/allocations
-     snapshot (pure code; see flatten.py).
+  1. Flatten the two mounted files (``orders.json`` + ``vehicles.json``) -> the
+     orders/vehicles/allocations snapshot (pure code; see flatten.py).
   2. Map the discrepancies — which orders the disruption broke — BEFORE solving
      (`discrepancy_report`). Every one of them is repairable now: the time fence
      that used to make some "locked in" was removed on 2026-08-26, and it was the
@@ -33,7 +33,7 @@ from datetime import date
 from pathlib import Path
 
 from . import decisions as D
-from .flatten import flatten_default
+from .flatten import flatten
 from .snapshot import Order, Snapshot, date_label
 from .solver import (
     CHURN_PRICE_SWEEP,
@@ -65,7 +65,6 @@ class CycleResult:
 @dataclass
 class Discrepancy:
     order_key: str
-    customer: str
     sales_model: str
     vehicle_id: str
     promised: date
@@ -85,7 +84,6 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
     out = [
         Discrepancy(
             order_key=oid,
-            customer=orders[oid].customer,
             sales_model=orders[oid].sales_model,
             vehicle_id=vid,
             promised=orders[oid].delivery_date,
@@ -100,13 +98,15 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
 
 
 # What the pull filtered out, in the planner's words. The keys are the reasons
-# `datasource.map_response` (host-side) and `flatten` (here) count; each has one
+# `datasource.translate` (host-side) and `flatten` (here) count; each has one
 # plain-English phrase, because the reply must never print a reason code.
 DROP_PHRASES = {
-    "no_model_on_the_order": "no model on the order",
+    "no_model": "no model on the order",
     "no_promised_date": "no promised date",
+    "no_order_id": "no order number",
+    "order_without_an_id": "no order number",
+    "order_without_a_model": "no model on the order",
     "order_without_a_promised_date": "no promised date",
-    "order_line_without_a_model": "no model on the order",
     "vehicle_without_a_model": "no model on the car",
     "vehicle_without_an_arrival_date": "no arrival date on the car",
     "allocation_to_a_dropped_vehicle": "allocated to a car that is out of scope",
@@ -118,13 +118,13 @@ def _phrase(reason: str) -> str:
 
 
 def exclusion_note(snapshot: Snapshot) -> str:
-    """The sales orders and cars that are NOT in this plan, and why.
+    """What is NOT in this plan, and what is in it holding no car.
 
-    Mandatory on turn 1, BEFORE the discrepancy map. Real data is patchy — a
-    sales order with no model on it has nothing to match a car against, so it
-    cannot be planned — and a plan covering three of twenty-five orders that
-    does not say so reads as the whole book. Empty string when the pull filtered
-    nothing (the fabricated dataset), so this costs nothing there.
+    Mandatory on turn 1, BEFORE the discrepancy map. Real data is patchy — an
+    order with no model on it has nothing to match a car against, so it cannot be
+    planned — and a plan covering three of twenty-five orders that does not say so
+    reads as the whole book. Empty string when the pull filtered nothing and every
+    order holds a car, so it costs nothing on a clean book.
     """
     excluded = dict((snapshot.meta or {}).get("excluded") or {})
     conflicts = (snapshot.meta or {}).get("conflicts") or []
@@ -134,31 +134,22 @@ def exclusion_note(snapshot: Snapshot) -> str:
             drops[_phrase(reason)] += n
 
     lines: list[str] = []
-    # A field the source does not return at all is not a data problem the planner
-    # can fix by completing an order — say so, or they will go looking in the app
-    # for something that is missing in the plumbing.
-    gaps = (snapshot.meta or {}).get("projection_gaps") or {}
-    if gaps:
-        lines.append(
-            "**The system is not returning some of the fields this needs** — "
-            f"{', '.join(sorted({n for names in gaps.values() for n in names}))}. "
-            "Until that is fixed the plan below can only cover part of the book, "
-            "and it is not something you can correct on the orders themselves."
-        )
     seen, kept = excluded.get("orders_seen"), excluded.get("orders_kept")
     if drops and seen:
         why = ", ".join(f"{n} with {phrase}" for phrase, n in sorted(drops.items()))
-        # With a projection gap the reasons below are ARTEFACTS of it — every order
-        # looks incomplete because the field never arrived. Telling the planner to
-        # go complete 25 orders would send them after work that is already done.
-        cause = (
-            "That is the missing fields above, not the orders themselves — these "
-            "counts mean nothing until the system returns them."
-            if gaps
-            else "They need completing in the system before they can be allocated."
-        )
         lines.append(
-            f"**{seen - (kept or 0)} of {seen} sales orders are not in this plan** — {why}. {cause}"
+            f"**{seen - (kept or 0)} of {seen} orders are not in this plan** — {why}. "
+            "They need completing in the system before they can be allocated."
+        )
+    # Orders that ARE in the plan but hold no car at all. Not a drop — this is
+    # real unfilled demand, and it is the whole of a pure-unallocated book, where
+    # "no orders are late" would otherwise read as "nothing to do".
+    unallocated = sorted(o.key for o in snapshot.orders if o.key not in snapshot.allocations)
+    if unallocated:
+        shown = ", ".join(unallocated[:6]) + ("…" if len(unallocated) > 6 else "")
+        lines.append(
+            f"**{len(unallocated)} of {len(snapshot.orders)} orders hold no car yet** "
+            f"({shown}) — they need allocating, not repairing."
         )
     for c in conflicts:
         lines.append(
@@ -193,11 +184,11 @@ def discrepancy_report(snapshot: Snapshot) -> str:
         f"**A supply delay pushed {len(discs)} order(s) past their promised date.** "
         "A re-allocation may get these back on track:\n"
     )
-    lines.append("| Order | Dealer | Promised | Now arriving | Late |")
+    lines.append("| Order | Model | Promised | Now arriving | Late |")
     lines.append("|---|---|---|---|---|")
     for x in discs:
         lines.append(
-            f"| {x.order_key} | {x.customer} "
+            f"| {x.order_key} | {x.sales_model} "
             f"| {date_label(x.promised)} | {date_label(x.now_arriving)} "
             f"| {_dur(x.days_late)} |"
         )
@@ -243,12 +234,11 @@ def bump_candidates(
             if u.eta_dealer <= lo.delivery_date:
                 cands[oid] = {
                     "row": oid,
-                    "customer": o.customer,
+                    "model": o.sales_model,
                     "priority": priority.get(oid, DEFAULT_STEP),
                     "vehicle": vid,
                     "arrives": date_label(u.eta_dealer),
                     "would_rescue": lid,
-                    "rescue_customer": lo.customer,
                 }
     return sorted(
         cands.values(), key=lambda c: (effective_weight(orders[c["row"]], priority), c["row"])
@@ -259,29 +249,23 @@ def bump_candidates(
 
 
 def data_prep_flowchart(snapshot: Snapshot) -> str:
-    """Mermaid of how the rich pull became solver inputs — the data-prep hop."""
+    """Mermaid of how the mounted pull became solver inputs — the data-prep hop."""
     n_orders = len(snapshot.orders)
     n_vehicles = len(snapshot.vehicles)
     n_allocations = len(snapshot.allocations)
-    n_real = sum(1 for u in snapshot.vehicles if u.is_hard)
-    n_future = n_vehicles - n_real
+    n_free = n_vehicles - n_allocations
     n_models = len({o.sales_model for o in snapshot.orders})
     d = snapshot.disruption
     n_disrupted = len(d.get("disrupted_orders", []))
-    n_delayed = len(d.get("delayed_vehicles", []))
     return "\n".join(
         [
             "```mermaid",
             "flowchart LR",
             (
-                f'  SRC["rich pull<br/>VSO jobcards · vehicle pool<br/>'
-                f'{n_orders} car lines · {n_real} real + {n_future} future"]'
+                f'  SRC["mounted pull<br/>orders.json · vehicles.json<br/>'
+                f'{n_orders} orders · {n_vehicles} cars ({n_free} free)"]'
             ),
-            (
-                f'  DIS["disruption<br/>{n_delayed} vehicles '
-                f"{d.get('delay_label') or str(d.get('delay_days', 0)) + ' days'}<br/>"
-                f'{n_disrupted} orders freed"]'
-            ),
+            (f'  DIS["late arrivals<br/>derived, not declared<br/>{n_disrupted} orders freed"]'),
             '  FL["flatten + freeze<br/>(pure code, no model judgment)"]',
             f'  ORD["orders[]<br/>{n_orders} rows"]',
             f'  VEH["vehicles[]<br/>{n_vehicles} rows"]',
@@ -338,21 +322,17 @@ def _dur(days: int) -> str:
     return f"{days} day" + ("" if days == 1 else "s")
 
 
-def _cid_to_name(snapshot: Snapshot) -> dict[str, str]:
-    """customer_id -> display name; first order wins, so it is stable."""
-    return {o.customer_id: o.customer for o in reversed(snapshot.orders)}
-
-
-def _who(filt: dict, cid_to_name: dict[str, str]) -> str:
-    """Whoever a may_move filter names, in the planner's own words."""
+def _who(filt: dict) -> str:
+    """Whatever a may_move filter names, in the planner's own words. Order ids
+    first, then models — there is no customer dimension since 2026-08-27."""
     return (
-        ", ".join(cid_to_name.get(c, c) for c in (filt.get("customers") or []))
-        or ", ".join(filt.get("orders") or [])
+        ", ".join(filt.get("orders") or [])
+        or ", ".join(filt.get("models") or [])
         or "selected orders"
     )
 
 
-def _steering_summary(override: dict, cid_to_name: dict[str, str]) -> str:
+def _steering_summary(override: dict) -> str:
     """The three steering keys, said back in plain words. Every turn shows this:
     the override is the only state a turn carries, so a planner who cannot see
     what is still in force cannot tell why a plan changed."""
@@ -361,9 +341,9 @@ def _steering_summary(override: dict, cid_to_name: dict[str, str]) -> str:
         parts.append(f"{entry['order']} set to {entry['step']}")
     may_move = override.get("may_move") or {}
     if may_move.get("only"):
-        parts.append(f"working only {_who(may_move['only'], cid_to_name)}")
+        parts.append(f"working only {_who(may_move['only'])}")
     if may_move.get("also"):
-        parts.append(f"allowed bumping {_who(may_move['also'], cid_to_name)}")
+        parts.append(f"allowed bumping {_who(may_move['also'])}")
     if may_move.get("never"):
         parts.append("leaving " + ", ".join(may_move["never"]) + " alone")
     if override.get("churn_price") is not None:
@@ -395,7 +375,6 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     vehicles = snapshot.vehicle_by_id()
     allocations = snapshot.allocations
     disrupted = disrupted_order_keys(snapshot)
-    cid_to_name = _cid_to_name(snapshot)
     priority = partition(snapshot, override).priority
     plan = result.plan
 
@@ -413,7 +392,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     ]
     still_late = [oid for oid in sorted(orders) if late_by(oid, plan.get(oid))]
 
-    lines = [f"**Done — {_steering_summary(override, cid_to_name)}.**"]
+    lines = [f"**Done — {_steering_summary(override)}.**"]
     head = f"{n_fixed} of {len(broken)} delayed orders now on time"
     if still_late:
         head += f"; {len(still_late)} still late"
@@ -429,7 +408,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     if changed:
         lines.append("\n**What I moved**\n")
         lines.append(
-            "| Order | Dealer | Was arriving | Now arrives | Promised | New allocation | Result |"
+            "| Order | Model | Was arriving | Now arrives | Promised | New allocation | Result |"
         )
         lines.append("|---|---|---|---|---|---|---|")
 
@@ -438,11 +417,10 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
             res = _result_phrase(o, u)
             if was_id is not None and oid not in disrupted:
                 res += " — **bumped**"
-            kind = "future" if not u.is_hard else "car"
-            alloc = f"`{plan[oid]}` [{kind}]" + (f" (was `{was_id}`)" if was_id else "")
+            alloc = f"`{plan[oid]}`" + (f" (was `{was_id}`)" if was_id else "")
             was = date_label(vehicles[was_id].eta_dealer) if was_id else "—"
             lines.append(
-                f"| {oid} | {o.customer} | {was} "
+                f"| {oid} | {o.sales_model} | {was} "
                 f"| **{date_label(u.eta_dealer)}** | {date_label(o.delivery_date)} "
                 f"| {alloc} | {res} |"
             )
@@ -451,14 +429,14 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
 
     if still_late or result.unfilled:
         lines.append("\n**Still needs your call**\n")
-        lines.append("| Order | Dealer | Arrives | Promised | Late | Why |")
+        lines.append("| Order | Model | Arrives | Promised | Late | Why |")
         lines.append("|---|---|---|---|---|---|")
 
         for oid in still_late:
             o, u = orders[oid], vehicles[plan[oid]]
             label = oid + (" ↑moved" if oid in moved_and_late else "")
             lines.append(
-                f"| {label} | {o.customer} | {date_label(u.eta_dealer)} "
+                f"| {label} | {o.sales_model} | {date_label(u.eta_dealer)} "
                 f"| {date_label(o.delivery_date)} | {_dur(tardiness(o, u))} "
                 f"| {WHY_LATE} |"
             )
@@ -466,7 +444,8 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
         for oid in result.unfilled:
             o = orders[oid]
             lines.append(
-                f"| {oid} | {o.customer} | — | {date_label(o.delivery_date)} | — | no car at all |"
+                f"| {oid} | {o.sales_model} | — | {date_label(o.delivery_date)} "
+                "| — | no car at all |"
             )
 
         if moved_and_late:
@@ -494,7 +473,7 @@ def _caveat(
         return None
     o = orders[max(still_late, key=lambda x: (effective_weight(orders[x], priority), x))]
     return (
-        f"{o.customer} order {o.key} stays late — no compatible car is free; "
+        f"order {o.key} ({o.sales_model}) stays late — no compatible car is free; "
         "authorising a bump on another order might help."
     )
 
@@ -535,8 +514,6 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
         rows.append(
             {
                 "order": oid,
-                "customer": o.customer,
-                "customer_id": o.customer_id,
                 "priority": priority.get(oid, DEFAULT_STEP),
                 "model": o.sales_model,
                 "promised": date_label(o.delivery_date),
@@ -544,7 +521,6 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
                 "was_arriving": date_label(was.eta_dealer) if was else None,
                 "now_car": now_id,
                 "now_arriving": date_label(now.eta_dealer) if now else None,
-                "on_the_lot": (now.is_hard if now else None),
                 "days_late": late,
                 "on_time": (late == 0) if late is not None else None,
                 "status": status,
@@ -608,6 +584,16 @@ def repair_and_report(
 # --- Demo (host-side) --------------------------------------------------------
 
 
+def _demo_snapshot() -> Snapshot:
+    """The demo's snapshot, built the way the host does it: translate a scenario
+    directory, then flatten the two payloads. Host-side only — `datasource` never
+    ships to the sandbox, which is why this import is inside the function."""
+    import datasource
+
+    pull = datasource.get_source().pull()
+    return flatten(datasource.orders_payload(pull), datasource.vehicles_payload(pull))
+
+
 def _banner(title: str) -> str:
     rule = "=" * 70
     return f"\n{rule}\n{title}\n{rule}"
@@ -617,13 +603,12 @@ def main() -> None:
     print(D.format_decisions())
     print(f"\nsolver version: {SOLVER_VERSION} (from solver_config.yaml)")
 
-    snap = flatten_default()
+    snap = _demo_snapshot()
     d = snap.disruption
     print(
         f"\nsnapshot now={date_label(snap.now)}: {len(snap.orders)} orders, "
-        f"{len(snap.vehicles)} vehicles. Disruption: {len(d.get('delayed_vehicles', []))} vehicles "
-        f"delayed {d.get('delay_label') or str(d.get('delay_days')) + ' days'}, "
-        f"{len(d.get('disrupted_orders', []))} orders to repair."
+        f"{len(snap.vehicles)} vehicles, {len(snap.allocations)} allocated. "
+        f"{len(d.get('disrupted_orders', []))} orders arrive late and are free to repair."
     )
     print(_banner("DISCREPANCY MAP (what broke, before solving)"))
     print(discrepancy_report(snap))
@@ -643,8 +628,8 @@ def main() -> None:
             {"priority": [{"order": fav.key, "step": "urgent"}]},
         ),
         (
-            f"steer: and work only {fav.customer}'s orders",
-            {"may_move": {"only": {"customers": [fav.customer_id]}}},
+            f"steer: and work only the {fav.sales_model} orders",
+            {"may_move": {"only": {"models": [fav.sales_model]}}},
         ),
         ("steer: change as little as possible", {"churn_price": 100}),
     ]

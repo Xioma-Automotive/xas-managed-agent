@@ -90,13 +90,18 @@ _answering: asyncio.Task | None = None
 _rotating: asyncio.Task | None = None
 _lock = asyncio.Lock()
 
-# The rich pull we fetched and mounted for each session, so the tool answerer can
-# summarize it without re-reading. A convenience cache: the mounted file is the
-# durable copy, rebuilt from it after a restart (see _pull_for).
+# The pull we translated and mounted for each session, so the tool answerer can
+# summarize it without re-reading. A convenience cache: the mounted files are the
+# durable copy, rebuilt from them after a restart (see _pull_for).
 _pull_by_session: dict[str, dict] = {}
-MOUNTED_PULL_FILENAME = "pull.json"
 
-# The pull is the ONLY mount. The reporting lane used to get a second one — a
+# The two mounts, named by the paths the flatten command already resolves — one
+# file per row stream, because the export has two and folding them into one
+# document would only make `flatten` take it apart again.
+ORDERS_FILENAME = os.path.basename(alloc_tools.ORDERS_MOUNT_PATH)
+VEHICLES_FILENAME = os.path.basename(alloc_tools.VEHICLES_MOUNT_PATH)
+
+# These two are the ONLY mounts. The reporting lane used to get a third — a
 # fabricated jobcards.json under /workspace/reports/ — and the prompt's hard rule
 # forbade that path. Reporting now reads the live system through `xas-app-mcp`
 # instead, so the fence is toolset-shaped and there is no records file to mount.
@@ -104,12 +109,15 @@ MOUNTED_PULL_FILENAME = "pull.json"
 # Mounted inputs come back from files.list(scope_id=...) alongside whatever the
 # agent wrote, so both the listing and the download filter them out — otherwise a
 # planner asking for "the outputs" gets their own inputs handed back.
-MOUNTED_INPUT_FILENAMES = frozenset({MOUNTED_PULL_FILENAME})
+MOUNTED_INPUT_FILENAMES = frozenset({ORDERS_FILENAME, VEHICLES_FILENAME})
 
 
 class NewSession(BaseModel):
     model: str = DEFAULT_MODEL
     title: str | None = None
+    # Which scenario directory this session is about. None = the default one; the
+    # picker in the form lists whatever `datasource.scenarios()` finds.
+    scenario: str | None = None
 
 
 class Message(BaseModel):
@@ -137,36 +145,61 @@ def _digest(call) -> str:
         d = json.loads(body)
     except json.JSONDecodeError:
         return f"{len(body)} chars"
-    disruption = d.get("disruption") or {}
+    late = d.get("days_late") or {}
     return (
-        f"now={d.get('now')} rows={d.get('orders')} supply={d.get('supply')} "
-        f"disruption={disruption.get('delayed_model')}+{disruption.get('delay_days')}d "
-        f"on {disruption.get('delayed_vehicles')} vehicles freed={d.get('disrupted_orders')}"
+        f"scenario={d.get('scenario')} now={d.get('now')} orders={d.get('orders')} "
+        f"(no car: {d.get('orders_holding_no_car')}) supply={d.get('supply')} "
+        f"(free: {d.get('free_supply')}) late={d.get('late_orders')} "
+        f"by {late.get('min')}-{late.get('max')} days"
     )
 
 
 async def _upload(filename: str, blob: bytes, media_type: str):
-    """Upload the pull for mounting into a session's sandbox."""
+    """Upload one payload for mounting into a session's sandbox."""
     return await client.beta.files.upload(
         file=(filename, blob, media_type), betas=[MANAGED_AGENTS_BETA]
     )
 
 
 async def _download_pull(session_id: str) -> dict:
-    """Rebuild a session's rich pull from the file we mounted into its sandbox.
+    """Rebuild a session's pull from the two files we mounted into its sandbox.
 
-    The mounted ``pull.json`` is the durable copy; used when ``_pull_by_session``
-    is cold (this process restarted while the session lived on)."""
+    The mounts are the durable copy; used when ``_pull_by_session`` is cold (this
+    process restarted while the session lived on). Both halves are required —
+    summarizing half a pull would report counts the sandbox does not have."""
     listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
+    parts: dict[str, dict] = {}
     for f in listing.data:
-        if os.path.basename(f.filename or "") == MOUNTED_PULL_FILENAME:
+        name = os.path.basename(f.filename or "")
+        if name in MOUNTED_INPUT_FILENAMES:
             content = await client.beta.files.download(f.id)
-            return json.loads(await content.read())
-    raise RuntimeError(f"no mounted {MOUNTED_PULL_FILENAME} for session {session_id}")
+            parts[name] = json.loads(await content.read())
+    missing = [n for n in (ORDERS_FILENAME, VEHICLES_FILENAME) if n not in parts]
+    if missing:
+        raise RuntimeError(f"session {session_id} is missing mounted {', '.join(missing)}")
+    orders, vehicles = parts[ORDERS_FILENAME], parts[VEHICLES_FILENAME]
+    return {
+        "now": orders["now"],
+        "meta": orders["meta"],
+        "orders": orders["orders"],
+        "vehicles": vehicles["vehicles"],
+        # Derived, not mounted — same rule as in `flatten`, over the same rows.
+        "disruption": {
+            "disrupted_orders": sorted(
+                o["OrderId"]
+                for o in orders["orders"]
+                if o.get("VehicleCode")
+                and {v["VehicleCode"]: v["EtaDealer"] for v in vehicles["vehicles"]}.get(
+                    o["VehicleCode"], ""
+                )
+                > o["DeliveryDate"]
+            )
+        },
+    }
 
 
 async def _pull_for(session_id: str) -> dict:
-    """The rich pull for this session: the in-process cache, or the mounted file
+    """The pull for this session: the in-process cache, or the mounted files
     after a restart. This is what the tool answerer summarizes."""
     cached = _pull_by_session.get(session_id)
     if cached is not None:
@@ -330,6 +363,14 @@ async def index() -> FileResponse:
     return FileResponse(REPO_ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/scenarios")
+def scenarios() -> dict:
+    """The scenario directories a new session may be about. One session is one
+    scenario: the pull is read at create time and never re-read, so switching
+    worlds means starting a session, not a message."""
+    return {"scenarios": datasource.scenarios(), "default": datasource.default_scenario()}
+
+
 @app.get("/models")
 async def models() -> dict:
     return {"models": MODELS, "default": DEFAULT_MODEL}
@@ -376,17 +417,25 @@ async def new_session(body: NewSession) -> dict:
             previous, _active = _active, None
             await _detach(previous)
 
-        # Fetch the pull HERE, on the host, from the configured data source (the
-        # scenario fake or real XAS), then mount it into the sandbox as a file.
-        # The sandbox never calls the source and never sees a credential; it only
-        # finds the rows waiting as a file the flatten command reads. One pull
-        # backs the whole repair cycle — the invariant "same snapshot every turn".
-        # `pull()` is sync and the real source makes two blocking HTTP calls, so
-        # it goes to a thread: on the event loop it would stall every other
-        # session's tool answers for the duration of the fetch.
-        rich = await asyncio.to_thread(datasource.get_source().pull)
-        pull_meta = await _upload(
-            MOUNTED_PULL_FILENAME, json.dumps(rich).encode(), "application/json"
+        # Read and translate the pull HERE, on the host, from the scenario the
+        # planner picked, then mount it into the sandbox as two files. The sandbox
+        # never reads the CSVs; it finds the translated rows waiting as files the
+        # flatten command reads. One pull backs the whole repair cycle — the
+        # invariant "same snapshot every turn". `pull()` is sync file I/O, so it
+        # goes to a thread rather than stalling every other session's tool answers.
+        source = datasource.get_source(body.scenario)
+        rich = await asyncio.to_thread(source.pull)
+        orders_meta, vehicles_meta = await asyncio.gather(
+            _upload(
+                ORDERS_FILENAME,
+                json.dumps(datasource.orders_payload(rich)).encode(),
+                "application/json",
+            ),
+            _upload(
+                VEHICLES_FILENAME,
+                json.dumps(datasource.vehicles_payload(rich)).encode(),
+                "application/json",
+            ),
         )
         # Mint the app-MCP bearer into its vault before the session exists, so
         # the agent's first reporting call cannot land on a stale one. Failing
@@ -405,7 +454,16 @@ async def new_session(body: NewSession) -> dict:
             # not model it yet. Drop the wrapper once the SDK grows the field.
             extra_body={"budget": SESSION_BUDGET},
             resources=[
-                {"type": "file", "file_id": pull_meta.id, "mount_path": alloc_tools.MOUNT_PATH},
+                {
+                    "type": "file",
+                    "file_id": orders_meta.id,
+                    "mount_path": alloc_tools.ORDERS_MOUNT_PATH,
+                },
+                {
+                    "type": "file",
+                    "file_id": vehicles_meta.id,
+                    "mount_path": alloc_tools.VEHICLES_MOUNT_PATH,
+                },
             ],
             # Create-only: `vault_ids` is rejected on session update, so a vault
             # not attached here can never be attached to this session.
@@ -418,8 +476,18 @@ async def new_session(body: NewSession) -> dict:
         _answering = asyncio.create_task(_answer_custom_tools(session.id))
         _rotating = _start_rotating()
 
-    log.info("session %s started (%s)", session.id, MODELS[body.model]["id"])
-    return {"id": session.id, "model": body.model, "stopped": previous}
+    log.info(
+        "session %s started (%s, %s)",
+        session.id,
+        MODELS[body.model]["id"],
+        rich["meta"]["source"],
+    )
+    return {
+        "id": session.id,
+        "model": body.model,
+        "scenario": rich["meta"]["source"],
+        "stopped": previous,
+    }
 
 
 @app.post("/session/{session_id}/activate")
@@ -613,7 +681,7 @@ async def download_files(session_id: str) -> dict:
     saved = []
     for f in listing.data:
         # basename first: the filter must compare the same untrusted string the
-        # write below uses, or a crafted "outputs/pull.json" would slip past it.
+        # write below uses, or a crafted "outputs/orders.json" would slip past it.
         name = os.path.basename(f.filename or "")
         if name in MOUNTED_INPUT_FILENAMES:
             continue

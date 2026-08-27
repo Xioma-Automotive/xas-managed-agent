@@ -10,47 +10,30 @@ uv sync          # install dependencies (run once, and after pulling changes)
 
 ---
 
-## Generate / vary the data
+## Pick / inspect the data
 
-The scenario engine fabricates the app MCP's two response payloads
-(`data/mcp-jobcards.json`, `data/mcp-vehicles.json`) and then DERIVES
-`data/pull.json` from them through `datasource.map_world` — the same mapping the
-live pull uses (plus `data/baseline.json`, the pre-disruption "good world").
-`data/pull.json` is the file the web app reads and mounts into the agent's sandbox.
+The pull is a **scenario directory** of the real export — `orders.csv` +
+`vehicles.csv` + a `scenario.json` sidecar carrying the pull date — read
+host-side and translated into the two files the sandbox gets. Three are
+committed; the next section is how to cut another.
 
 ```bash
-uv run python -m scenario_engine.generate          # regenerate with defaults
+uv run python -m datasource --list                 # the scenarios the picker offers
+uv run python -m datasource --census               # the read/filter funnel for the default one
+uv run python -m datasource --scenario scenario-delayed --census
+uv run python -m datasource --json | head -40      # the whole translated pull
 ```
 
-### Parameters (this is how you "play with the starting conditions")
-
-| Flag | Default | What it changes |
+| Variable | Default | What it changes |
 | --- | --- | --- |
-| `--seed` | `20` | Random seed. Same seed → byte-identical data. Change it for a different-but-reproducible world. |
-| `--customers` | `30` | How many dealers exist. |
-| `--orders` | `40` | How many car lines, which is how many wanted cars — one car per line. Spread across VSOs of 1-3 lines each, so this yields fewer VSOs than orders. |
-| `--spare-ratio` | `0.4` | Extra supply beyond demand. Higher = more spare cars the solver can shuffle to; lower = tighter, more orders stay stuck. |
-| `--delay-days` | `21` | How many days the disrupted PO slips. Bigger = a worse disruption, more orders pushed late. |
-| `--out` | `data/` | Output directory. |
+| `XAS_SCENARIO` | `scenario-mixed` | Which scenario the web form starts on. The picker overrides it per session. |
+| `XAS_PULL_NOW` | the scenario's `scenario.json` (`2026-08-25`) | The pull date, for a what-if. Never the clock: static files plus `today()` mean the same rows mean something new tomorrow. |
 
-Examples:
-
-```bash
-# A bigger book with a milder disruption and more spare cars to play with
-uv run python -m scenario_engine.generate --customers 60 --orders 120 --spare-ratio 0.6 --delay-days 10
-
-# A harsh disruption on a tight supply — more orders end up stuck
-uv run python -m scenario_engine.generate --orders 80 --spare-ratio 0.2 --delay-days 45
-
-# A different reproducible scenario
-uv run python -m scenario_engine.generate --seed 7
-```
-
-> You can also just hand-edit `data/pull.json` directly — whatever is in that file
-> is exactly what the next session sees. But it is a DERIVED file now: the next
-> `scenario_engine.generate` overwrites it, and the default source maps the two
-> `data/mcp-*.json` payloads rather than reading it. Edit those to make a change
-> that survives a regenerate.
+> Do NOT hand-edit a `data/scenario-*/` CSV to change a scenario — it is build
+> output, and the next carve overwrites it. Change the knobs below instead.
+> The fabricated `scenario_engine.generate` world (and the `data/mcp-*.json`
+> payloads + `data/pull.json` it derived) was deleted on 2026-08-27: the export is
+> the only source now.
 
 ---
 
@@ -135,9 +118,9 @@ lands by the promise. Re-roll `--seed` if a draw comes out dull.
 > yields ~124, and every run breaks out "delayed here / already late in the export
 > / on time", including the scenarios that delay nothing.
 
-> All three emit CSVs, not the app MCP's response payloads, so they do **not** reach
-> `data/pull.json` and the solver cannot read them yet — a CSV → MCP-shape
-> translation does not exist. Three things none of them touches: `inv status label`
+> All three write `data/scenario-<name>/{orders,vehicles}.csv` plus a
+> `scenario.json` sidecar with the pull date, and that IS the pull — `datasource`
+> reads them directly. Three things none of them touches: `inv status label`
 > (the physical stage — freeing or delaying a car does not move it), the order row
 > in the delay case, and the order's colour (the export copies it from the assigned
 > car, so re-matching on colour is circular).
@@ -146,30 +129,17 @@ lands by the promise. Re-roll `--seed` if a draw comes out dull.
 
 ## Run the solver locally (no API key, no sandbox)
 
-Exercises the same code the agent runs, against `data/pull.json` on your machine.
+Exercises the same code the agent runs, against a scenario directory on your
+machine.
 
 ```bash
 uv run python -m xas_allocation.session      # full per-turn loop: discrepancy map,
                                              # planner report, 3 demo steering turns
-uv run python -m xas_allocation.flatten      # rich pull -> snapshot (sanity check)
 uv run python -m xas_allocation.decisions    # every DECIDE-n, its default and its STATUS
+
+# flatten the two MOUNTED payloads (what the agent's pull command runs):
+uv run python -m xas_allocation.flatten --orders orders.json --vehicles vehicles.json
 ```
-
----
-
-## Inspect the pull itself
-
-Runs against whichever source `XAS_DATA_SOURCE` selects, so it is also how you
-check WHICH source you are on and what it actually returned. Read-only.
-
-```bash
-uv run python -m datasource --census   # the funnel: collected -> usable, and why the rest dropped
-uv run python -m datasource --json     # the whole rich pull, pretty-printed
-```
-
-`--census` is the fastest way to see why a plan covers three orders out of
-twenty-five, and the meter to watch while dev records are being filled in: fix
-records in the app, re-run, the usable counts should climb.
 
 ---
 
@@ -221,25 +191,20 @@ uv run uvicorn web:app --reload --port 8000   # same, auto-reload on code change
 
 | Variable | Values | Meaning |
 | --- | --- | --- |
-| `XAS_DATA_SOURCE` | `scenario` (default) / `xas` | `scenario` = the fabricated payloads, mapped offline with no credentials. `xas` = the LIVE dev system, read host-side through the app MCP's own `get_job_cards` + `get_vehicles`. |
+| `XAS_SCENARIO` | `scenario-mixed` | Which scenario directory the web form starts on; the per-session picker overrides it. |
+| `XAS_PULL_NOW` | the scenario's sidecar | Override the pull date for a what-if. |
 | `APPMCP_URL` | URL | The app MCP to call. Defaults to `appmcp_auth.APPMCP_URL`. |
 
-There is no `XAS_API_TOKEN`: the gateway authenticates with a session cookie from
-its own login, so the credential IS the login. `XAS_DATA_SOURCE=xas` therefore
-needs the same six host-side variables the reporting lane's bearer needs —
-`MCP_TOKEN_ENC_KEY`, `APPMCP_VAULT_ID`, `APPMCP_CREDENTIAL_ID`,
-`APPMCP_COMPANY_DB`, `APPMCP_LOGIN_EMAIL`, `APPMCP_LOGIN_PASSWORD` — and names
-any that are missing rather than failing quietly. None of them ever reach the
-sandbox.
-
-**Live currently yields an EMPTY allocation pull.** The MCP's list projection
-returns no `jobitems`, and one car line is one order, so all 25 dev VSOs drop for
-`no_car_line`. That is a projection gap (`docs/mcp-field-spec.md`), not a bug
-here — `datasource --census` names it.
+There is no `XAS_API_TOKEN` and the allocation pull needs no credential at all —
+it reads committed CSVs. The six host-side variables (`MCP_TOKEN_ENC_KEY`,
+`APPMCP_VAULT_ID`, `APPMCP_CREDENTIAL_ID`, `APPMCP_COMPANY_DB`,
+`APPMCP_LOGIN_EMAIL`, `APPMCP_LOGIN_PASSWORD`) are the REPORTING lane's bearer;
+`web.py` names any that are missing rather than failing quietly, and none of them
+ever reaches the sandbox.
 
 ```bash
-# Run the web app against the fabricated data (the normal local mode)
-XAS_DATA_SOURCE=scenario uv run uvicorn web:app --port 8000
+# Run the web app on a specific order book (the picker overrides this per session)
+XAS_SCENARIO=scenario-delayed uv run uvicorn web:app --port 8000
 ```
 
 ---
@@ -248,8 +213,8 @@ XAS_DATA_SOURCE=scenario uv run uvicorn web:app --port 8000
 
 Creates/updates the cloud environment, uploads the skill (solver + `SKILL.md`),
 and creates/updates the agent. Re-runnable — updates in place. Re-run it whenever
-you change the **solver package** or **`SKILL.md`** (regenerating `data/pull.json`
-no longer needs a redeploy — it's fetched live).
+you change the **solver package** or **`SKILL.md`** (re-carving a scenario needs
+no redeploy — the data is mounted per session, not bundled).
 
 ```bash
 uv run python setup_agent.py
@@ -261,8 +226,8 @@ uv run python setup_agent.py
 
 ```bash
 # Change the data, then see the solver's behaviour locally
-uv run python -m scenario_engine.generate --delay-days 40
-uv run python -m xas_allocation.session
+uv run python -m scenario_engine.real_delayed --late 120 --days-late 30 --extra-free 0 --subset 400 --available-pct 15
+XAS_SCENARIO=scenario-delayed uv run python -m xas_allocation.session
 
 # Cut a fresh scenario out of the real export (no car / late car / both)
 uv run python -m scenario_engine.real_mixed --empty 50 --late 50 --days-late 1-20 --extra-free 50 --subset 400 --available-pct 40

@@ -7,7 +7,7 @@
 # the config it was solved with. `version` is what a saved plan records.
 #
 # Reviewed 2026-08-26. Four of these are numbers a planner would argue about —
-# convex_exponent, early_weight, break_cost.hard and the churn sweep — and none
+# convex_exponent, early_weight, break_cost and the churn sweep — and none
 # has been checked against a real dealer's book.
 
 version: "0.3.0-prototype"
@@ -32,13 +32,15 @@ no_car_cost: 10000000
 cost_scale: 1000
 
 # What it costs to take a car away from an order whose car was arriving ON TIME.
-# `hard` is a real car with a number plate; `soft` is one not built yet, free to
-# reshuffle. An order whose car is already late pays nothing — a promise already
-# broken protects nothing. This is the only thing that stops an authorised
-# displacement being free, and 200 is a guess nobody has signed off.
-break_cost:
-  hard: 200.0
-  soft: 0.0
+# An order whose car is already late pays nothing — a promise already broken
+# protects nothing. This is the only thing that stops an authorised displacement
+# being free, and 200 is a guess nobody has signed off.
+#
+# ONE number since 2026-08-27. It used to be split hard/soft (200 for a real car,
+# 0 for one not built yet), which read a classification the export does not carry:
+# there, a car's status IS its allocation state, and what a promise costs to
+# disturb does not depend on which shipping stage the car is at.
+break_cost: 200.0
 
 # How much an order's lateness counts, in named steps the planner sets per turn
 # (override key `priority`). Every order starts at `default_priority_step`;

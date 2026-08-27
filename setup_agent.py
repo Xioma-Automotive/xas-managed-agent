@@ -14,16 +14,16 @@ RUN ONCE, re-runnable. Creates the persistent resources — an **Anthropic-hoste
 into .env. Re-running with those IDs already set updates the agent and pushes a
 new skill version instead of creating duplicates.
 
-The skill bundle carries the reference solver AND the fabricated dataset, which
-is how both reach a sandbox we do not run. Change anything under xas_allocation/
-or regenerate data/pull.json and you must re-run this, or the sandbox keeps
-solving with the previous version.
+The skill bundle carries the reference solver, which is how it reaches a sandbox
+we do not run. Change anything under xas_allocation/ and you must re-run this, or
+the sandbox keeps solving with the previous version. The DATA is never bundled —
+it is mounted per session, so re-carving a scenario needs no redeploy.
 
-ONE vault, for the app MCP only. The allocation data is still fabricated by
-scenario_engine/ and mounted (DECIDE-7) — that path needs no credential. The
-reporting lane's live tools do: appmcp_auth.py mints their bearer host-side into
-a vault that web.py attaches per session, so the secret reaches Anthropic's
-egress proxy and never the sandbox.
+ONE vault, for the app MCP only. The allocation data is read from a scenario
+directory of the real export and mounted (DECIDE-7) — that path needs no
+credential. The reporting lane's live tools do: appmcp_auth.py mints their bearer
+host-side into a vault that web.py attaches per session, so the secret reaches
+Anthropic's egress proxy and never the sandbox.
 
 Anti-pattern warning: never call environments/agents/skills create() in the
 per-conversation path — that accumulates orphaned resources and pays create
@@ -116,7 +116,7 @@ Environment
 
 - The solver and its cost model ship inside the `xas-allocation` skill as the `xas_allocation` package, which says how to run it. Never reimplement or approximate it. On an import error look in the skill directory — never `find /`, which blows the 120s bash timeout and kills your shell.
 - `pip install ortools pyyaml` once per session — the solver reads every price from its own config file, so both are needed.
-- `pull_allocation_snapshot` returns a summary plus a `flatten` command. Run it verbatim and read the file it writes from your code, never into this conversation. Never read the rows at /workspace/pull.json by hand.
+- `pull_allocation_snapshot` returns a summary plus a `flatten` command. Run it verbatim and read the file it writes from your code, never into this conversation. Never read the rows at /workspace/orders.json or /workspace/vehicles.json by hand.
 - Taxonomy: `index.md` ships inside the `xas-reporting` skill directory, beside `phrasebook.py` — the ONLY authority for business words to system codes, and codes back to names.
 - The `xas-app-mcp` tools read the LIVE XAS dev system: the one exception to "everything is local", and REPORTING's only source of records. You never handle their credential. No other network.
 
@@ -156,7 +156,7 @@ Every reporting number comes from the `xas-app-mcp` tools and is true only as of
 
 Reply in the language the person wrote in — Hebrew or English — chart labels included.
 
-Prototype: no write-back yet, and the pull may be fabricated data in the real XAS vocabulary. Raise any DECIDE-n in plain words — never silently guess.
+Prototype: no write-back yet, and the pull is one scenario carved out of a real export — the orders and cars are real, the disruption in them was manufactured. Raise any DECIDE-n in plain words — never silently guess.
 """
 
 # Both entries matter on every update: agents.update() PRESERVES omitted array
@@ -217,7 +217,7 @@ def skill_files(skill_dir: Path, package: Path | None = None) -> list[tuple[str,
     Sources stay where they are: this synthesizes the bundle at upload time
     rather than duplicating files, so the tests and the skill run against the
     same source. The pull is never bundled — it is mounted per session (see
-    web.py), so regenerating it needs no redeploy.
+    web.py), so re-carving a scenario needs no redeploy.
     Changing this code does, and so does editing the taxonomy the reporting bundle now
     carries (DECIDE-16).
     """
