@@ -82,11 +82,20 @@ curl -s -X POST "$MCP" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "Authorization: Bearer $JWE" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_job_cards","arguments":{"filter":{"JobClassification":"Service"},"paging":{"page":1,"count":2}}},"id":2}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_job_list","arguments":{"filter":{"JobClassification":"Service"},"fields":["DMSJCEntry"],"paging":{"page":1,"count":2}}},"id":2}'
 ```
 
 ## Tools available
-`get_job_cards`, `get_job_card`, `get_vehicles`, `get_vehicle`, `get_accounts`, `get_account`.
+`get_job_list`, `get_job_details`, `get_vehicle_list`, `get_vehicle_details`,
+`get_account_list`, `get_account_details`. **Renamed 2026-08-27** — the old
+`get_job_cards` / `get_vehicles` / `get_accounts` names now return
+`-32602 Tool not found`, so re-probe with `tools/list` before trusting any name
+written down here.
+
+All six take `fields` (a subset of what the tool already returns — it cannot
+widen, and a name outside that set is dropped silently). The `*_details` tools
+take `include` for sub-resources; `get_job_details` returns job items by default,
+which is the only place the `ModelItem` car lines live.
 
 ## Verifying / debugging
 - `tools/list` → **200 + tool list** means the JWE auth is correct.

@@ -95,12 +95,11 @@ Other recipes:
 3. **Substring search matches more than you meant.** `כרטיס עבודה` hits `Service`
    (as an alias) and `Invoice` (inside its Hebrew name). Read the rows you got
    before acting on them.
-4. **Statuses filter the way the index says.** JobCard statuses filter on
-   `JobStatus.ID` using the status `id`, **always as an array** even for one
-   status; Vehicle statuses have no `id` (they are core enums) — filter those on
-   `code`. A status `id` does not identify a classification: `…5b6764`
-   ("Closed") appears under Parts, ServiceCall, VPO, Service and more, so always
-   scope it.
+4. **Statuses filter the way the index says.** JobCard statuses filter on the
+   status `id` from the phrasebook; Vehicle statuses have no `id` (they are core
+   enums), so filter those on `code`. A status `id` does not identify a
+   classification — `…5b6764` ("Closed") appears under Parts, ServiceCall, VPO,
+   Service and more — so always send the classification with it.
 5. **A lifecycle word IS a status — take it literally.** "open" means the status
    named `Open`, not "everything unfinished". Each such word is exactly one `id`
    spanning every classification that has it — `Open` covers eight of them — so it
@@ -118,13 +117,12 @@ Other recipes:
    status (code NN)" and count them separately. Never invent a label.
 7. **Everything listed is active.** Inactive classifications are already
    omitted; no liveness check is needed.
-8. **Send a branch `id` from the phrasebook, and nothing else.**
-   `{"Branch": ["<id>"]}` filters; `{"Branch": ["Main"]}` returns 0 with no
-   error, and `{"Branch": true}` is whichever branch the login sits in, not the
-   branch the user named. A value you cannot resolve to a branch name is a count
-   you cannot report. Branch lives on job cards only: vehicle records have the
-   field but no usable value, so "which branch is this car at" has no answer
-   here.
+8. **Send a branch `id` from the phrasebook, and nothing else.** A branch NAME
+   returns 0 with no error, and the tool's own session-branch shortcut is
+   whichever branch the login sits in, not the branch the user named. A value you
+   cannot resolve to a branch name is a count you cannot report. Branch lives on
+   job cards only: vehicle records have the field but no usable value, so "which
+   branch is this car at" has no answer here.
 9. **Job cards with no branch are real**, so per-branch buckets do not sum to
    the total. Say the remainder rather than letting it disappear into the
    biggest branch.
@@ -132,18 +130,19 @@ Other recipes:
     booleans and counts are not (`closed=true`, `fields=649`), so a
     `(\w+)="([^"]*)"` regex silently drops every boolean, `closed` included. The
     phrasebook has already handled this.
-11. **The taxonomy holds no field names** — only a `fields=<n>` count. Learn a
-    record's real shape from one record, never from the index.
+11. **The taxonomy holds no field names** — only a `fields=<n>` count. The names
+    you may ask for are listed on the tool itself; which ones actually come back
+    is learned from one record. Never from the index, and never from memory.
 
 ## Getting the number — a count, or the cards
 
 Two kinds of question, two shapes. Decide which one was asked before the first
 call.
 
-**"How many …?" — ask for the count, not the cards.** Every `get_job_cards`
-response reports **`totalCount`: how many cards matched the filter you sent**,
-whatever came back as rows. So send the filter, ask for one row, read the count
-off it. For a breakdown, count the buckets *before* the first call:
+**"How many …?" — ask for the count, not the cards.** `totalCount` counts what
+MATCHED your filter, not what came back in the page — so send the filter, ask for
+one row, and read the count off it. For a breakdown, count the buckets *before*
+the first call:
 
 - **Up to 5 buckets** — one filtered count call each. Five integers, no cards.
 - **More than 5** — one call for the cards, tallied yourself. A split by
@@ -154,29 +153,54 @@ off it. For a breakdown, count the buckets *before* the first call:
 
 **Never walk pages to compute an aggregate.** Paging and adding up costs roughly
 forty times as much: every card you pull stays in this conversation and is re-read
-on every later turn, and cards arrive padded — eleven account-role objects, the
-owner's whole contact list — with nothing a count needs.
+on every later turn. And a card arrives padded — eleven account-role objects, the
+owner's whole contact list — so name the fields you want (below). A count needs
+none of them.
 
 **"Show me the cards that …" — ask for the rows.** Ids, statuses, customers,
 dates, the cards behind a chart: that needs the records themselves. Ask for them,
-keep `paging.count` small, and name the ones you show. The count comes with them —
-**`totalCount` rides on every response** — so never send `count: 1` for the count
-and then re-send the same filter for the rows. That is the same query twice. (A
+keep `paging.count` small, and name the ones you show. The count comes back with
+them, so never send `count: 1` for the count and then re-send the same filter for
+the rows. That is the same query twice. (A
 tool result big enough to be offloaded to a file is a symptom: you asked for cards
 you did not need, and the tokens are spent by the time you read the file.)
 
 ### The calls
 
+Every row sends `fields`. See below for why, and what to put in it.
+
 | Goal | Call |
 | --- | --- |
-| A count | `filter: {…}`, `paging: {"count": 1}` -> `totalCount` |
-| Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `paging: {"count": 1}` |
-| Breakdown, more than 5 buckets | one call, `paging: {"count": 50}`, and tally the rows by hand |
+| A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
+| Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
+| Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch id, `filter: {"Branch": ["<id>"]}` |
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification (rule 5) |
 | Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 | The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/phrasebook.tsv \| sort -u` |
+
+### Ask for the fields you need
+
+A card comes back with its salient fields whether you use them or not, and every
+one of them stays in this conversation for the rest of the session. `fields` is
+the only lever on that, so **send it on every call**:
+
+- **A count needs no fields.** You read `totalCount`, never a row. Ask for the
+  key alone — it comes back regardless — and the page costs nothing.
+- **A tally needs one field**: the one you group by.
+- **A card list needs the columns you will actually print.** Decide them from the
+  answer you are about to write, not from what might be interesting.
+
+Two things to know before you trust a response:
+
+- **`fields` narrows; it cannot widen.** It picks from what the tool already
+  returns. A name it does not return is dropped in silence — no error, no empty
+  value, no mention.
+- **So an absent field is not an empty value.** A missing date means "not
+  returned here", never "this card has no date", and it is NEVER a business fact
+  to report. If a field you need never arrives on any row, say the live system
+  does not supply it and stop; do not read it as zero, blank, or none.
 
 **Building a date filter? Read the date paragraph in `index.md` first.** The
 bounds shape and the local-to-UTC conversion are both there, and getting the
@@ -275,7 +299,7 @@ Say:
   bucket that is an unknown status, a count that came back empty, the one question
   you would need answered to go further.
 
-Never say: phrasebook, taxonomy, index, normalize, grep, awk, `get_job_cards` or
+Never say: phrasebook, taxonomy, index, normalize, grep, awk, `get_job_list` or
 any other tool name, filter, paging, `totalCount`, record, row, field, code,
 ObjectId, UTC, sandbox, token — and no file path, no filename, and nothing about
 what you saved where or which data operations you ran. Narration is what the

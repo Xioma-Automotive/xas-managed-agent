@@ -53,7 +53,7 @@ a status on its label. `{"Branch": true}` means "the branch of whoever is logged
 on the dev login is Main; a question about a *named* branch must send that branch's id
 rather than rely on it. There is no `code=` on these lines because the branch dictionary's
 own short code (`dictionarybranches.DMSCode`) is not exposed by any read tool the agent
-holds — job cards carry `Branch` as a bare ObjectId, `get_job_card` does not populate it,
+holds — job cards carry `Branch` as a bare ObjectId, `get_job_details` does not populate it,
 and neither does anything else. The `id` IS the queryable value here; if DMSCode is ever
 added, it is a display string and still not a filter value.
 

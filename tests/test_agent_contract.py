@@ -162,7 +162,7 @@ def test_prompt_caps_the_effort_an_off_topic_ask_may_spend():
     six accounts. So: resolve the entity first, then ONE follow-up, then stop."""
     prompt = setup_agent.SYSTEM_PROMPT
     rule = prompt.split("Hard rules (never violate)")[1][:2600]
-    assert "`get_accounts` first" in rule, "a name lives on an account"
+    assert "`get_account_list` first" in rule, "a name lives on an account"
     assert "ONE follow-up" in rule
     assert "No tables, no breakdowns" in rule
 
@@ -396,7 +396,7 @@ def test_reporting_skill_does_not_probe_then_refetch_the_same_filter():
     line rides on the second one."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "same query twice" in skill
-    assert "rides on every response" in skill
+    assert "The count comes back with" in skill
     assert '"Show me the cards that' in skill, "the rows case must have its own heading"
     assert "Up to 5 buckets" in skill, "the bucket threshold, or a breakdown has no rule"
     assert "More than 5" in skill
@@ -568,3 +568,27 @@ def test_html_charts_are_framed_not_trusted():
     frame = ui[ui.index('<iframe class="output-frame"') :][:200]
     assert 'sandbox="allow-scripts"' in frame
     assert "allow-same-origin" not in frame
+
+
+def test_reporting_skill_sends_fields_on_every_call():
+    """The MCP renamed its six tools on 2026-08-27 and documents `fields` itself:
+    a response carries its salient fields whether the answer uses them or not, and
+    they stay in context for the session. Prose alone did not hold — the agent
+    copies the calls table — so the table itself carries `fields`, and a count asks
+    for the key alone because it only ever reads `totalCount`."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Every row sends `fields`" in skill
+    assert 'fields: ["DMSJCEntry"]' in skill, "the count row must ask for the key alone"
+    assert "A count needs no fields" in skill
+
+
+def test_reporting_skill_says_an_absent_field_is_not_an_empty_value():
+    """`fields` NARROWS and cannot widen: a name the tool does not return is
+    dropped in silence — no error, no empty value. Verified live 2026-08-27, asking
+    11 vehicle fields and getting 2 back. Without this rule the agent reports "no
+    promised date" as a business fact when the field was simply never projected —
+    the reporting-side twin of `meta.projection_gaps`."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "narrows; it cannot widen" in skill
+    assert "an absent field is not an empty value" in skill.lower()
+    assert "NEVER a business fact" in skill
