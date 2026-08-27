@@ -173,6 +173,25 @@ records in the app, re-run, the usable counts should climb.
 
 ---
 
+## Poke the app MCP by hand (needs `.env`)
+
+The reporting lane's live source, called directly with no agent in the way. It
+mints the bearer through `appmcp_auth`, so `.env` is the only setup, and it trims
+the `states` block that rides on every job-card response and says nothing.
+
+```bash
+uv run python -m appmcp --list                      # every tool, params summarised
+uv run python -m appmcp --list get_job_list         # one tool, full input schema
+uv run python -m appmcp get_job_list '{"paging": {"count": 1}}'
+uv run python -m appmcp get_job_list '{...}' --raw  # keep the states block too
+```
+
+This is the way to CHECK `docs/appmcp-connect.md` rather than trust it — the
+surface has been renamed under us twice. Read-only, and it talks to the LIVE dev
+system, so it is the one command here that is neither offline nor reproducible.
+
+---
+
 ## Tests & checks (the gate)
 
 ```bash

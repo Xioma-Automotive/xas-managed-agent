@@ -68,22 +68,22 @@ separate agents:
 | Lane | Skill | Reads | Answers |
 | --- | --- | --- | --- |
 | Allocation repair | `xas-allocation` | `/workspace/pull.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
-| Reporting | `xas-reporting` | `index.md` in its own skill dir + the `xas-app-mcp` read tools (LIVE) | how many, what status — and charts |
+| Reporting | `xas-reporting` | `index.md` in its own skill dir + the `xas-app-mcp` tools (LIVE dev system) | how many, which branch, what status — and charts |
 
 Both skills are on the same session, so a planner can repair an allocation and
 then ask for a chart without switching tools.
 
 **The rule that makes that safe:** every allocation claim comes from running the
 solver. Never from an `xas-app-mcp` tool, and never from a file the agent read
-itself. Reporting reads the LIVE system, which is a different view of the
-business with no guarantee it agrees with the pull — so an allocation number
-taken from it would look right and not be reproducible, the exact thing
-`plan = pure_function(snapshot, skill, override)` exists to prevent. The system
-prompt forbids it by toolset and `tests/test_agent_contract.py` pins the rule —
-but whether the agent OBEYS it is model behaviour, and nothing here checks that.
+itself. Reporting reads a LIVE view of the business with no guarantee it agrees
+with the pull, so an allocation number read from it would look right and not be
+reproducible — the exact thing `plan = pure_function(snapshot, skill, override)`
+exists to prevent. The system prompt forbids it by TOOLSET (there is no records
+path left to forbid), `tests/test_agent_contract.py` pins the rule,
+and `docs/evals/routing.md` is the hand-run behavioural check.
 
 **Reporting vocabulary.** Dealerships rename things — in the shipped tenant the
-code `Service` displays as `Distinct_name`. `xas-reporting` flattens the taxonomy into a
+code `Evaluation` displays as `Service Lead`. `xas-reporting` flattens the taxonomy into a
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
 exact-first, then loosely, then through other wordings it proposes and the grep
@@ -114,7 +114,7 @@ before real dealer data (DECIDE-9).
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
 | `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the app MCP's two response payloads (good → disrupted), then derives `data/pull.json` from them through the shared mapping. |
 | `../datasource.py`      | —     | **Host-side pull interface** (DECIDE-7): `ScenarioEngineSource` (the fake, default) / `AppMcpSource` (LIVE, reads the dev system through the app MCP's own tools), selected by `XAS_DATA_SOURCE`. Both run through the SAME `map_response`. `web.py` calls it and mounts the result into the sandbox. |
-| `../tests/`      | §11.7  | 175 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, may_move, report, datasource). |
+| `../tests/`      | §11.7  | 184 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, may_move, report, datasource). |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
 contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
@@ -126,7 +126,7 @@ uv sync
 uv run python -m scenario_engine.generate        # (re)fabricate the MCP payloads + derive pull/baseline
 uv run python -m xas_allocation.session          # full §8 loop over the repo dataset
 uv run python -m xas_allocation.decisions        # dump every open DECIDE + default
-uv run pytest                                    # the gate — 183 tests, no network, no key
+uv run pytest                                    # the gate — 184 tests, no network, no key
 PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4), standalone
 ```
 

@@ -11,6 +11,7 @@ How to read a line:
   CLASSIFICATION  entity=<owning entity> code=<system value to query> name=<what users call it> aliases=<other names users say>
   STATUS          entity=<owning entity> classification=<owning classification code> id=<JobStatus ObjectId> code=<system/human term> state=<lifecycle bucket> closed=<close flag>
   BRANCH          id=<ObjectId, the only value that NAMES a branch — see the -2 note below> name=<what users call it> cards=<job cards there, counted live>
+  STATE           id=<the ObjectId a card's JobState holds> code=<1-5> name=<what to print>
 
 A classification belongs to exactly one entity — always read `entity=` with the code,
 because codes are unique per entity, not globally: code "Model" exists under both the
@@ -21,30 +22,6 @@ Filtering: a classification `code` is the system value; a JobCard status is filt
 "Transfer" is used as "Vehicle Transfer"). `unresolved=true` = status referenced by a
 record but missing from the status dictionary.
 
-A date range is a nested object on the field name, both bounds ISO-8601 with a `Z`:
-
-```
-filter: {"CreateDateTime": {"start": "2026-08-20T21:00:00.000Z", "end": "2026-08-21T20:59:59.999Z"}}
-```
-
-Verified live on 2026-08-23 against `CreateDateTime` — the shape is accepted and it really
-filters (that window returned 1 of 7733 cards). What is NOT established: whether the bounds
-are inclusive, whether one bound alone works, whether a non-`Z` offset is accepted, and
-whether `ClosedDateTime` / `UpdateDateTime` / `EntryDate` / `DueDate` take the same shape.
-Assume only `CreateDateTime` until someone checks, and remember `EntryDate` and `DueDate`
-are date-only on some records, so a timestamp range may not mean anything there.
-
-Bounds are compared in UTC, and this tenant's records are stamped `+03:00`, so a local period
-has to be converted before it is sent — asking for July as `2026-07-01T00:00:00.000Z` clips
-the month's first three hours and silently absorbs three hours of August:
-
-```
-July 2026  ->  start "2026-06-30T21:00:00.000Z"   end "2026-07-31T20:59:59.999Z"
-```
-
-`dump_taxonomy` does not emit this paragraph either — it is hand-maintained here, like the
-BRANCH lines and the Vehicle status block, and a regeneration drops it.
-
 Branches are tenant-wide — they hang off the company, not off an entity, which is why the
 lines below carry no `entity=`. **A branch is filtered by its `id`, never by its name**:
 `{"Branch": ["69f07fdaf930e4ee6d524dc1"]}` returns Main's cards, while
@@ -53,7 +30,7 @@ a status on its label. `{"Branch": true}` means "the branch of whoever is logged
 on the dev login is Main; a question about a *named* branch must send that branch's id
 rather than rely on it. There is no `code=` on these lines because the branch dictionary's
 own short code (`dictionarybranches.DMSCode`) is not exposed by any read tool the agent
-holds — job cards carry `Branch` as a bare ObjectId, `get_job_card` does not populate it,
+holds — job cards carry `Branch` as a bare ObjectId, `get_job_details` does not populate it,
 and neither does anything else. The `id` IS the queryable value here; if DMSCode is ever
 added, it is a display string and still not a filter value.
 
@@ -123,6 +100,28 @@ BRANCH          id="69f07fdaf930e474935edfd1"  name="Potain"  cards=71
 BRANCH          id="69f07fdaf930e474921bc021"  name="Workshop"  cards=40
 BRANCH          id="69f2fbbc0e50752cea0d512e"  name="Test123"  cards=1
 BRANCH          id="69f07fdaf930e4748722ced1"  name="TestBranch"  cards=0
+
+A job card carries TWO status-ish fields and they are not the same thing. `JobStatus`
+arrives as {ID, Code, Label} and is self-describing. `JobState` arrives as a BARE
+ObjectId, which is what these five rows are for: they are the id -> label dictionary,
+so a state can be printed as a name instead of an ObjectId.
+
+They are a dictionary and nothing more. A card's state does NOT follow from its
+status: sampled 2026-08-27, Service/`Open` cards came back 47 In Process to 3 New,
+and VRV/`Closed` split three ways. The `state=` on a STATUS line below is the
+TYPICAL state for that status and disagreed with the live card on 10 of ~215
+sampled — so read a card's state off the card, never off its status. Filtering on
+state is `{"JobState": ["<id>"]}`, array-only: a bare string 500s.
+
+`dump_taxonomy` does not emit these rows — they are hand-maintained, like the BRANCH
+lines, and a regeneration drops them. The same dictionary rides on every job-card
+response in its `states` block if they ever go missing.
+
+STATE           id="6530d9a89c098a33be3e0c78"  code="1"  name="New"
+STATE           id="6530d9a89c098a05a65b6766"  code="2"  name="Pending"
+STATE           id="6530d9a89c098a37eb4562db"  code="3"  name="In Process"
+STATE           id="6530d9a89c098a37e96ff5c8"  code="4"  name="Has Alert"
+STATE           id="6530d9a89c098a15dc784be6"  code="5"  name="Closed"
 
 ENTITY          entity="Account"  businessType="accounts"  classifications=3  statuses=0
 CLASSIFICATION  entity="Account"  code="supplier"  name="Accounts- Suppliers"  fields=29  statuses=0  aliases=""
@@ -223,7 +222,7 @@ STATUS          entity="JobCard"  classification="Invoice"  id="6530d9a89c098a33
 CLASSIFICATION  entity="JobCard"  code="VSR"  name="Vehicle Stock Transfer Request"  fields=59  statuses=0  aliases=""
 CLASSIFICATION  entity="JobCard"  code="VDN"  name="Vehicle Delivery Note"  fields=0  statuses=0  aliases=""
 CLASSIFICATION  entity="JobCard"  code="VRS"  name="Vehicle Reservation (VRS)"  fields=108  statuses=0  aliases=""
-CLASSIFICATION  entity="JobCard"  code="Service"  name="Distinct_name"  fields=649  statuses=16  aliases="External Vehicle Service Order | קריאת שירות | Vehicle Service Order | כרטיס עבודה | Jobkarte"
+CLASSIFICATION  entity="JobCard"  code="Service"  name="Vehicle Service Order"  fields=649  statuses=16  aliases="External Vehicle Service Order | קריאת שירות | כרטיס עבודה | Jobkarte"
 STATUS          entity="JobCard"  classification="Service"  id="6530d9a89c098a37e96ff5c6"  code="20"  name="Draft"  state="In Process"  closed=false
 STATUS          entity="JobCard"  classification="Service"  id="6530d9a89c098a33be3e0c70"  code="03"  name="In Process"  state="In Process"  closed=false
 STATUS          entity="JobCard"  classification="Service"  id="6530d9a89c098a33be3e0c73"  code="1"  name="Open"  state="In Process"  closed=false

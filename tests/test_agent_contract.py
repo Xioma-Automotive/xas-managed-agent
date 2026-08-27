@@ -162,7 +162,7 @@ def test_prompt_caps_the_effort_an_off_topic_ask_may_spend():
     six accounts. So: resolve the entity first, then ONE follow-up, then stop."""
     prompt = setup_agent.SYSTEM_PROMPT
     rule = prompt.split("Hard rules (never violate)")[1][:2600]
-    assert "`get_accounts` first" in rule, "a name lives on an account"
+    assert "`get_account_list` first" in rule, "a name lives on an account"
     assert "ONE follow-up" in rule
     assert "No tables, no breakdowns" in rule
 
@@ -197,12 +197,20 @@ def test_prompt_makes_the_agent_name_its_reporting_source():
 
 def test_prompt_forbids_answering_allocation_from_a_file_read():
     """The fabricated job-card records are gone, so the rule can no longer forbid
-    a PATH -- but a file read is still the other way to produce an allocation
-    number without the solver (the pull is mounted, and the agent can cat it)."""
+    a PATH -- but working a number out of the data is still the other way to
+    produce an allocation claim without the solver (the pull is mounted, and the
+    agent can cat it).
+
+    Reworded 2026-08-27 on the merge: the rule used to read "NEVER from a file you
+    read yourself", which the skill now contradicts -- `repair_and_report` WRITES
+    `plan.json` and every follow-up is a read of it. What is banned is the agent's
+    own derivation, and the helpers' own output file is the one exception."""
     prompt = setup_agent.SYSTEM_PROMPT
     assert "The plan comes from the solver, not from you." in prompt
     rule = prompt.split("The plan comes from the solver, not from you.")[1][:700]
-    assert "NEVER" in rule and "NEVER from a file you read yourself" in rule
+    assert "NEVER from an `xas-app-mcp` tool" in rule
+    assert "never worked out by your own reading of the data" in rule
+    assert "The one file you re-read is the plan the helpers wrote." in rule
 
 
 def test_prompt_names_no_records_mount():
@@ -377,29 +385,33 @@ def test_reporting_skill_counts_with_totalcount_not_by_paging_records():
     assert 'paging: {"count": 1}' in skill
     assert "Never walk pages to compute an aggregate" in skill
     index = (setup_agent.REPORTING_SKILL_DIR / "index.md").read_text(encoding="utf-8")
-    assert "+03:00" in index, "the UTC/local boundary rule must be spelled out"
-    assert "index.md" in skill.split("## Getting the number")[1], (
-        "and the counting section must send the agent there before it builds a date filter"
+    assert "CreateDateTime" not in index, (
+        "index.md is generated taxonomy — date mechanics hand-maintained there are "
+        "dropped by the next dump_taxonomy run, and cost two round trips to find"
+    )
+    assert "index.md" not in skill.split("## Getting the number")[1], (
+        "and nothing about a date may send the agent to the taxonomy to look it up"
     )
 
 
-def test_reporting_skill_does_not_probe_then_refetch_the_same_filter():
-    """Observed 2026-08-23: "job cards opened last Thursday as a chart" sent the
-    same filter twice — `count: 1` for totalCount (3), then `count: 3` for the rows
-    it needed to split by type. `totalCount` rides on every response, so the first
-    call was the second call with the rows thrown away.
+def test_reporting_skill_does_not_probe_for_its_own_sake():
+    """REVERSED AGAIN 2026-08-27, and this time on measurement. The probe was
+    prescribed for every question, naming "the columns you are CONSIDERING". Both
+    halves fail: `totalCount` rides on every response, so a card list gets the count
+    free from the call it was making anyway; and one row cannot establish field
+    presence, because presence varies per card — `PlateNo` was absent from one sales
+    order and present on 40 of 40 cards sampled across types, so the probe that
+    "discovered" it learned something false.
 
-    Simplified 2026-08-23: the fix was first a cost rule (tally one page when the
-    population is smaller than the bucket list), which took three paragraphs and a
-    threshold to state. It is now a question-shape rule — a count question gets
-    `count: 1`, a "show me the cards" question gets the rows — and the no-refetch
-    line rides on the second one."""
+    What survives is the one case a round trip buys something: you cannot bound the
+    page without knowing the size, and 20 rows is a list where 2,000 is a summary.
+    Then the key alone, no columns."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "same query twice" in skill
-    assert "rides on every response" in skill
-    assert '"Show me the cards that' in skill, "the rows case must have its own heading"
-    assert "Up to 5 buckets" in skill, "the bucket threshold, or a breakdown has no rule"
-    assert "More than 5" in skill
+    assert "there is no separate probe to run first" in skill
+    assert "cannot bound the page without" in skill
+    assert "never candidate columns" in skill
+    assert "has bought nothing" in skill, "a pure duplicate is still waste"
+    assert '"Show me the cards that' in skill, "the rows case keeps its heading"
 
 
 def test_reporting_skill_sends_the_agent_to_the_mcp_not_to_a_file():
@@ -474,9 +486,13 @@ def test_between_tool_calls_the_agent_says_nothing():
     """Observed 2026-08-23: the reply was clean, but the turn still shipped
     "Let me check the timeframe first", "28 Service cards — small", and "all 16
     buckets sum to 28 — the split is clean". Every line between tool calls reaches
-    the planner, so the rule has to cover the whole turn, not just the answer."""
+    the planner, so the rule has to cover the whole turn, not just the answer.
+
+    Moved 2026-08-27 into its own `## The channel` block ahead of the work, after
+    the same rule was broken twice more from under the "Presenting the answer"
+    heading — see test_reporting_skill_states_the_channel_before_the_output_contract."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Everything you type is the reply." in skill
+    assert "Every character you emit reaches the planner" in skill
     prompt = setup_agent.SYSTEM_PROMPT
     assert "there is no working-notes channel" in prompt
     for banned in ("running totals", "point at your own output"):
@@ -568,6 +584,101 @@ def test_html_charts_are_framed_not_trusted():
     frame = ui[ui.index('<iframe class="output-frame"') :][:200]
     assert 'sandbox="allow-scripts"' in frame
     assert "allow-same-origin" not in frame
+
+
+def test_reporting_skill_sends_fields_on_every_call():
+    """The MCP renamed its six tools on 2026-08-27 and documents `fields` itself:
+    a response carries its salient fields whether the answer uses them or not, and
+    they stay in context for the session. Prose alone did not hold — the agent
+    copies the calls table — so the table itself carries `fields`, and a count asks
+    for the key alone because it only ever reads `totalCount`."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Every row sends `fields`" in skill
+    assert 'fields: ["DMSJCEntry"]' in skill, "the count row must ask for the key alone"
+    assert "A count needs no fields" in skill
+
+
+def test_reporting_skill_says_an_absent_field_is_not_an_empty_value():
+    """`fields` NARROWS and cannot widen: a name the tool does not return is
+    dropped in silence — no error, no empty value. Verified live 2026-08-27, asking
+    11 vehicle fields and getting 2 back. Without this rule the agent reports "no
+    promised date" as a business fact when the field was simply never projected —
+    the reporting-side twin of `meta.projection_gaps`."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "narrows; it cannot widen" in skill
+    assert "an absent field is not an empty value" in skill.lower()
+    assert "NEVER a business fact" in skill
+
+
+def test_reporting_skill_states_the_channel_before_the_output_contract():
+    """Observed 2026-08-27: two mid-turn messages reached the planner — "Let me find
+    those tied to Daniil" and "Let me confirm the account filter actually works" —
+    naming an internal code and a filter. The rule existed, filed under "Presenting
+    the answer", which is not what the agent believes it is doing two calls deep. It
+    is now a standing fact about the channel, stated before any of the work."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "## The channel" in skill
+    head = skill.split("## Getting the number", 1)[0]
+    assert "## The channel" in head, "it must come before the work, not after it"
+    assert "It is talking" in skill
+
+
+def test_reporting_skill_keeps_a_stored_name_whole():
+    """Observed 2026-08-27: the account `Daniil123` was reported as "Daniil (account
+    123)" — a name nobody stored beside a code the planner may not see. It started a
+    turn earlier with a table column of account codes, which is the same rule broken
+    as a column rather than a sentence."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "A stored name is ONE string" in skill
+    assert "Daniil123" in skill, "name the observed failure, not the abstraction"
+    assert 'A column headed\n  "Code" breaks this' in skill
+
+
+def test_reporting_skill_establishes_before_it_narrows():
+    """Observed 2026-08-27: "find all service leads of Daniil" cost five calls and
+    three rounds. Two unproven clauses went out together, both returned 0, and the
+    rest of the turn worked out which clause was responsible — two control calls
+    pulling 50 rows each to read a number off totalCount.
+
+    The ordering is steps 1-2 of one numbered procedure rather than its own heading,
+    so nothing has to say how the two compose."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    steps = [
+        line for line in skill.splitlines() if line.startswith(("**1. ", "**2. ", "**3. ", "**4. "))
+    ]
+    assert len(steps) == 4, f"the procedure must stay four ordered steps, saw {steps}"
+    assert "Pin down what the question is about" in skill
+    assert "carries NO information" in skill
+    assert "ONE control call" in skill
+    assert "get_account_list" in skill, "a fresh name resolves as an account"
+
+
+def test_reporting_skill_does_not_demand_a_classification_with_a_status():
+    """Checked against all 109 STATUS entries on 2026-08-27: no id carries more than
+    one name and no name maps to more than one id, so a status id is unambiguous on
+    its own. Rule 4 used to say "always send the classification with it", which
+    contradicted rule 5 ("never a call per classification") and would have turned one
+    call for "how many open cards" into eight. What is true is that one id SPANS
+    classifications, so the count covers every card type and the answer must say so."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "always send the classification with it" not in skill
+    assert "an id and its name are 1:1" in skill
+    assert "classification only when the planner asked for one" in skill
+
+
+def test_reporting_skill_translates_codes_on_the_way_out():
+    """Observed 2026-08-27: a card table reached the planner reading VRV / VSO /
+    Service. The agent had never run phrasebook.py — neither question needed a term
+    resolved going IN, and the skill framed the taxonomy as an input tool only, so
+    step 0 had no trigger and the procedure ended at fetching rows. The taxonomy is
+    now stated as bidirectional, step 0 is unconditional, and translation is step 4:
+    a code that will not resolve is named as unresolved, never printed bare."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "in BOTH directions" in skill
+    assert "Build it whether or not the question has a term in it" in skill
+    assert "Translate every code before you print it" in skill
+    assert "NAMED as unresolved" in skill
+    assert "once per session" not in skill, "step 0 must not read as conditional"
 
 
 def test_skill_requires_the_exclusion_census_on_turn_one():
