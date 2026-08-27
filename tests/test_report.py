@@ -21,7 +21,7 @@ from xas_allocation.session import (
     repair_and_report,
     run_cycle,
 )
-from xas_allocation.snapshot import Order, Snapshot, Unit
+from xas_allocation.snapshot import Order, Snapshot, Vehicle
 
 NOW = date(2026, 8, 3)
 # MOV:  promised far out, car late -> repaired.
@@ -34,7 +34,7 @@ UT_PROMISED = date(2026, 9, 30)
 
 # Anything the report might legitimately print is fine; these are the tokens that
 # would mean solver internals leaked into a planner reply.
-JARGON = ["λ", "lambda", "objective", "pareto", "incumbent", "min-cost", "arc", "sweep"]
+JARGON = ["λ", "lambda", "objective", "pareto", "allocations", "min-cost", "arc", "sweep"]
 
 
 def _order(oid: str, model: str, promised: date) -> Order:
@@ -53,8 +53,8 @@ def _order(oid: str, model: str, promised: date) -> Order:
     )
 
 
-def _unit(vid: str, model: str, planned: date) -> Unit:
-    return Unit(
+def _vehicle(vid: str, model: str, planned: date) -> Vehicle:
+    return Vehicle(
         vehicle_id=vid,
         vehicle_classification="Vehicle",
         sales_model=model,
@@ -70,14 +70,14 @@ def _snapshot() -> Snapshot:
             _order("KEPT-1", "SM4", KEPT_PROMISED),  # settled and on time -> untouched
             _order("UT-1", "SM3", UT_PROMISED),  # settled and on time -> untouched
         ],
-        units=[
-            _unit("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # MOV's late incumbent
-            _unit("VEH-GOOD", "SM1", date(2026, 9, 14)),  # a spare that rescues MOV
-            _unit("VEH-NEAR-LATE", "SM2", date(2026, 8, 25)),  # NEAR's late incumbent
-            _unit("VEH-KEPT-OK", "SM4", date(2026, 8, 10)),  # KEPT's on-time car — hands off
-            _unit("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
+        vehicles=[
+            _vehicle("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # the late car MOV holds
+            _vehicle("VEH-GOOD", "SM1", date(2026, 9, 14)),  # a spare that rescues MOV
+            _vehicle("VEH-NEAR-LATE", "SM2", date(2026, 8, 25)),  # the late car NEAR holds
+            _vehicle("VEH-KEPT-OK", "SM4", date(2026, 8, 10)),  # KEPT's on-time car — hands off
+            _vehicle("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
         ],
-        incumbent={
+        allocations={
             "MOV-1": "VEH-MOV-LATE",
             "NEAR-1": "VEH-NEAR-LATE",
             "KEPT-1": "VEH-KEPT-OK",
@@ -145,7 +145,7 @@ def test_a_late_order_on_a_real_car_is_moved_not_walled_off():
     """DECIDE-3: a broken order riding a REAL (hard) vehicle is expensive to move,
     never impossible — and its promise is already broken, so here it is free."""
     snap = _snapshot()
-    assert snap.unit_by_id()["VEH-MOV-LATE"].is_hard
+    assert snap.vehicle_by_id()["VEH-MOV-LATE"].is_hard
     assert run_cycle(snap).chosen.plan["MOV-1"] == "VEH-GOOD"
 
 
@@ -161,11 +161,11 @@ def _moved_but_late_snapshot() -> Snapshot:
     """One disrupted order whose best free car is an improvement and still late."""
     return Snapshot(
         orders=[_order("MOV-1", "SM1", date(2026, 9, 1))],
-        units=[
-            _unit("VEH-VERY-LATE", "SM1", date(2026, 10, 20)),
-            _unit("VEH-LESS-LATE", "SM1", date(2026, 9, 20)),
+        vehicles=[
+            _vehicle("VEH-VERY-LATE", "SM1", date(2026, 10, 20)),
+            _vehicle("VEH-LESS-LATE", "SM1", date(2026, 9, 20)),
         ],
-        incumbent={"MOV-1": "VEH-VERY-LATE"},
+        allocations={"MOV-1": "VEH-VERY-LATE"},
         disruption={
             "delay_days": 30,
             "delayed_vehicles": ["VEH-VERY-LATE"],
@@ -203,9 +203,9 @@ EXCLUDED_META = {
         "orders_seen": 25,
         "orders_kept": 1,
         "order_drops": {"no_model_on_the_order": 23, "no_promised_date": 1},
-        "units_seen": 432,
-        "units_kept": 10,
-        "unit_drops": {"no_arrival_date": 21},
+        "vehicles_seen": 432,
+        "vehicles_kept": 10,
+        "vehicle_drops": {"no_arrival_date": 21},
         "orders_with_no_eligible_car": ["502391-1"],
     },
     "conflicts": [{"vehicle": "10831", "orders": ["502323", "502324", "502325"]}],
@@ -223,7 +223,7 @@ def _snapshot_with(meta: dict) -> Snapshot:
         delivery_date=MOV_PROMISED,
         price=0.0,
     )
-    unit = Unit(
+    vehicle = Vehicle(
         vehicle_id="930103",
         vehicle_classification="Vehicle",
         sales_model="T5040UECLMQ0009",
@@ -231,8 +231,8 @@ def _snapshot_with(meta: dict) -> Snapshot:
     )
     return Snapshot(
         orders=[order],
-        units=[unit],
-        incumbent={order.key: unit.vehicle_id},
+        vehicles=[vehicle],
+        allocations={order.key: vehicle.vehicle_id},
         disruption={},
         now=NOW,
         meta=meta,
@@ -331,7 +331,7 @@ def test_a_bump_is_only_ever_offered_on_a_settled_order():
     for c in bump_candidates(snap, cyc.chosen):
         victim, target = c["row"], c["would_rescue"]
         assert victim not in snap.disruption["disrupted_orders"]
-        assert snap.incumbent.get(victim), f"{victim} has no car to give up"
+        assert snap.allocations.get(victim), f"{victim} has no car to give up"
         assert target != victim
 
 

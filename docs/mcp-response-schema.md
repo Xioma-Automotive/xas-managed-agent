@@ -35,7 +35,7 @@ A **list of job cards**, each carrying its own **list of jobitems**.
           "JobItemStatus": "Open",                // per-line status
           "Label": "JAECOO7 4WD Exclusive - 4WD Carbon crystal green2025",
           "Quantity":     3,                      // n cars of demand on this line
-          "AllocType":    "Soft",                 // the incumbent: pulls from a VPO
+          "AllocType":    "Soft",                 // the allocation: pulls from a VPO
           "AllocQty":     3,
           "AllocSourceJobNum":  "105992",         // the VPO it pulls from
           "AllocSourceLineNum": 5,
@@ -98,7 +98,7 @@ why.
   "total": 432,
   "records": [
     {
-      "VehicleCode":  "909007",                   // unit id
+      "VehicleCode":  "909007",                   // the vehicle id
       "SalesModel":   "T5040UECLMQ0009",          // eligibility key, car's side
       "Status":       { "Code": "01", "Name": "Ordered", "Color": "Ordered" },
       "AvailableBy":  "2026-09-27T00:00:00.000Z", // the arrival date
@@ -123,11 +123,11 @@ solver only ever displayed it.
 
 ## Open questions — for Eyal
 
-1. **How does an allocation resolve to a vehicle?** The solver's incumbent is
+1. **How does an allocation resolve to a vehicle?** The solver's `allocations` map is
    `order_key → vehicle_id`, but a line gives `AllocSourceJobNum` — a **VPO line,
    not a car**. No `VehicleId` on any line, `VehicleDMSCode` null on the card.
    Resolving it needs the VPO hop (`VPO.VehicleDMSCode`, populated 4/27).
-   **Without it there is no incumbent, so nothing is ever "disrupted" and repair
+   **Without it there is no allocation, so nothing is ever "disrupted" and repair
    becomes full rebuild.** And if the hard link only ever lives on the card, a
    multi-line VSO cannot express more than one allocation.
 2. **Where do the escalation inputs come from?** The solver weights an order by

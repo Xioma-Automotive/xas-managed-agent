@@ -22,10 +22,10 @@ Model (the real-XAS vocabulary, minus the jobcard types we don't need):
 Supply is ONE ``vehicles`` list (no VPO/VGR jobcards, no PO-line slots, no
 qty-expansion). Every car line is on-time in the good world; the disruption slips
 ``EtaDealer`` on a coherent batch of vehicles — one model's worth of INBOUND
-incumbent cars — which breaks the lines riding them (their allocated car now
+allocated cars — which breaks the lines riding them (their allocated car now
 arrives past the VSO's promised date). That is the repair the agent performs.
 Only inbound cars can slip: a car already on the lot has ``eta == now`` by
-definition (``datasource.unit_eta``), so delaying it could never make it late.
+definition (``datasource.vehicle_eta``), so delaying it could never make it late.
 
 Emits the app MCP's own response shapes (`docs/mcp-response-schema.md`):
 
@@ -100,7 +100,7 @@ STATUS_BY_BUCKET = {
 # still get the right answer here.
 XAS_CLASSIFICATIONS = ("Vehicle", "Truck", "InventoryVehicles")
 
-# How often an incumbent car is still inbound. Deliberately future-heavy: a
+# How often an allocated car is still inbound. Deliberately future-heavy: a
 # forward order book allocates against supply that has not landed yet, and only
 # an inbound car can be made late (see the module docstring).
 INBOUND_INCUMBENT_WEIGHTS = {"future": 70, "real": 30}
@@ -153,7 +153,7 @@ def _make_vehicle(rng: random.Random, model: str, eta: date, code: int, bucket: 
     ``ModelId.Code`` here, so both readings of the fake agree; on real data the
     two differ and only ``SalesModel`` ever matches. ``AvailableBy`` is emitted
     equal to ``EtaDealer`` — the tenant fills the former, the schema prefers the
-    latter, and ``datasource.unit_eta`` reads EtaDealer first.
+    latter, and ``datasource.vehicle_eta`` reads EtaDealer first.
     """
     is_real = bucket == "real"
     return {
@@ -188,7 +188,7 @@ def _car_line(
     so a second car on it could never be linked to anything — and the fake matches
     it rather than fabricating demand the pull cannot represent.
 
-    The incumbent link is where the fake is deliberately kinder than dev: a car
+    The allocation link is where the fake is deliberately kinder than dev: a car
     on the lot is a hard binding the line states outright (``VehicleId.Code``),
     and an inbound one gets ``AllocatedVehicleCode`` — the fake's direct stand-in
     for the Alloc block whose VPO hop the real pull cannot make yet
@@ -287,10 +287,10 @@ def generate(
         return v
 
     # --- Demand: VSO jobcards, each with 1-3 car lines; one on-time vehicle
-    #     built per car (the incumbent), on the lot or inbound. ----------------
+    #     built per car (the allocation), on the lot or inbound. ---------------
     cards: list[dict] = []
     # order_key -> VehicleCode, for the disruption logic below.
-    incumbent: dict[str, str] = {}
+    allocations: dict[str, str] = {}
     n_rows = 0
     vso_num = FIRST_VSO
     for _ in range(n_vsos):
@@ -308,10 +308,10 @@ def generate(
         for line in range(1, n_lines + 1):
             model = rng.choice(SALES_MODELS)
             bucket = _pick_bucket(rng, INBOUND_INCUMBENT_WEIGHTS)
-            # ONE car per line, ONE vehicle per line. The incumbent car is on time
+            # ONE car per line, ONE vehicle per line. The allocated car is on time
             # in the good world: EtaDealer == promise.
             veh = new_vehicle(model, delivery, bucket)
-            incumbent[f"{job_key}-{line}"] = veh["VehicleCode"]
+            allocations[f"{job_key}-{line}"] = veh["VehicleCode"]
             items.append(_car_line(rng, line, model, veh, bucket))
             n_rows += 1
         # Car lines keep 1..n so an order key reads VSO-4000-1; the config line
@@ -357,7 +357,7 @@ def generate(
     # --- Disruption: slip the INBOUND cars that orders are counting on, by
     #     several different amounts. Only inbound cars are eligible — a car
     #     already on the lot has its eta pinned to `now`, so moving its EtaDealer
-    #     changes nothing. Their incumbents were on time (eta == promise), so any
+    #     changes nothing. Their cars were on time (eta == promise), so any
     #     slip puts them past it and the repair is meaningful.
     #
     #     Cars are dealt round-robin into the tiers after a deterministic
@@ -365,7 +365,7 @@ def generate(
     #     one shipment's worth. That matters: a disruption where every 30-day slip
     #     lands on one model is a much easier problem than a mixed one.
     candidates = sorted(
-        code for code in set(incumbent.values()) if bucket_by_code[code] == "future"
+        code for code in set(allocations.values()) if bucket_by_code[code] == "future"
     )
     rng.shuffle(candidates)
     tiers = tuple(delay_tiers) or (0,)

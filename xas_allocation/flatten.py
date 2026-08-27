@@ -8,8 +8,8 @@ makes zero model calls — the old fuzzy spec-match residual is gone.
 
 Input: the rich XAS-shaped pull ``{meta, vsos, vehicles, disruption}`` the data
 source returns (VSO jobcards + a flat vehicle pool + a disruption manifest).
-Output: an ``xas_allocation.snapshot.Snapshot`` — the ``orders[] / units[] /
-incumbent[]`` arrays the solver reads, in one shared vocabulary with the API.
+Output: an ``xas_allocation.snapshot.Snapshot`` — the ``orders[] / vehicles[] /
+allocations[]`` arrays the solver reads, in one shared vocabulary with the API.
 
 Field mapping (real XAS → solver):
   * order = one car line, ONE CAR; key = ``{JobKey}-{LineNum}``. A jobitem's
@@ -20,16 +20,16 @@ Field mapping (real XAS → solver):
   * ``JobPriority`` is NOT read. Priority is a per-turn planner lever now
     (``solver._combined_priority``), not a letter on the record — see the
     ``Order`` docstring in ``snapshot.py``.
-  * ``AvailableBy``, else ``EtaDealer`` (vehicle) → ``Unit.eta_dealer`` (the
+  * ``AvailableBy``, else ``EtaDealer`` (vehicle) → ``Vehicle.eta_dealer`` (the
     mutable delivery date).
-  * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Unit.vehicle_classification``.
+  * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Vehicle.vehicle_classification``.
   * eligibility: jobitem ``SalesModelCode`` == vehicle ``SalesModel`` — the full
     trim/colour code (``T5040UECLMQ0009``), NOT ``ModelId.Code`` (``T5040``),
     which is the model and matches no order. ``ModelId.Code`` is kept only as a
     fallback for a vehicle that has no ``SalesModel``.
-  * incumbent (current allocation): HARD via jobitem ``VehicleId.Code`` ↔
+  * allocations (the car each line holds today): HARD via jobitem ``VehicleId.Code`` ↔
     ``VehicleCode``; SOFT via the jobitem's Alloc link to a Future vehicle (in the
-    mock, resolved straight to that vehicle's code — see ``_incumbent_of``). It
+    mock, resolved straight to that vehicle's code — see ``_allocated_vehicle_of``). It
     covers ONE car of the line: a line resolves to a single vehicle code, and one
     car cannot serve two orders. A line claiming ``AllocQty > 1`` therefore has
     committed cars this pull cannot identify — counted, never invented.
@@ -44,14 +44,14 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from .snapshot import Order, Snapshot, Unit, parse_date
+from .snapshot import Order, Snapshot, Vehicle, parse_date
 
 # The bundled dataset. Relative to this file so it resolves both in the repo
 # (repo/data/pull.json) and in the skill bundle (<skill>/data/pull.json).
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "pull.json"
 
 
-def _incumbent_of(item: dict) -> str | None:
+def _allocated_vehicle_of(item: dict) -> str | None:
     """The vehicle a VSO jobitem is currently allocated to, or None.
 
     HARD side: ``VehicleId.Code`` points at a concrete vehicle
@@ -67,7 +67,7 @@ def _incumbent_of(item: dict) -> str | None:
     return None
 
 
-def _unit_model(vehicle: dict) -> str:
+def _vehicle_model(vehicle: dict) -> str:
     """A vehicle's eligibility key: ``SalesModel``, else ``ModelId.Code``.
 
     An order names a full trim/colour code, which is what ``SalesModel`` holds;
@@ -82,7 +82,7 @@ def flatten(rich: dict) -> Snapshot:
     """Rich XAS pull -> flattened Snapshot. Pure, deterministic.
 
     Explodes each VSO into its jobitem car lines (the allocatable orders) and
-    reads the flat vehicle pool into ``units``. Incumbent comes from each
+    reads the flat vehicle pool into ``vehicles``. The allocations come from each
     jobitem's current allocation link (hard ``VehicleId`` or soft Alloc).
 
     A row missing the field that makes it solvable — a VSO with no promised date,
@@ -101,7 +101,7 @@ def flatten(rich: dict) -> Snapshot:
             skips[reason] += n
 
     orders: list[Order] = []
-    incumbent: dict[str, str] = {}
+    allocations: dict[str, str] = {}
     for vso in rich["vsos"]:
         so_id = str(vso.get("JobKey") or vso.get("DMSJCEntry"))
         owner = (vso.get("Accounts") or {}).get("Owner") or {}
@@ -132,21 +132,21 @@ def flatten(rich: dict) -> Snapshot:
                 price=price,
             )
             orders.append(order)
-            inc = _incumbent_of(item)
+            inc = _allocated_vehicle_of(item)
             if inc:
-                incumbent[order.key] = inc
+                allocations[order.key] = inc
 
-    units: list[Unit] = []
+    vehicles: list[Vehicle] = []
     for v in rich["vehicles"]:
-        model = _unit_model(v)
+        model = _vehicle_model(v)
         if not model:
             skip("vehicle_without_a_model")
             continue
         if not v.get("EtaDealer"):
             skip("vehicle_without_an_arrival_date")
             continue
-        units.append(
-            Unit(
+        vehicles.append(
+            Vehicle(
                 vehicle_id=str(v["VehicleCode"]),
                 vehicle_classification=v["VehicleClassification"],
                 sales_model=model,
@@ -154,10 +154,10 @@ def flatten(rich: dict) -> Snapshot:
             )
         )
 
-    # An incumbent pointing at a vehicle that did not survive is no incumbent.
-    unit_ids = {u.vehicle_id for u in units}
-    for key in [k for k, uid in incumbent.items() if uid not in unit_ids]:
-        del incumbent[key]
+    # An allocation pointing at a vehicle that did not survive is no allocation.
+    vehicle_ids = {u.vehicle_id for u in vehicles}
+    for key in [k for k, vid in allocations.items() if vid not in vehicle_ids]:
+        del allocations[key]
         skip("allocation_to_a_dropped_vehicle")
 
     # --- the disruption is DERIVED, and it has to be --------------------------
@@ -167,11 +167,11 @@ def flatten(rich: dict) -> Snapshot:
     # here rather than read. The rich pull carries a preview of the same thing;
     # this is the authoritative version and replaces it, so the solver's free set
     # is exactly the orders whose own vehicle is late.
-    eta_of = {u.vehicle_id: u.eta_dealer for u in units}
+    eta_of = {u.vehicle_id: u.eta_dealer for u in vehicles}
     promise_of = {o.key: o.delivery_date for o in orders}
     disruption = dict(rich.get("disruption") or {})
     disruption["disrupted_orders"] = sorted(
-        key for key, uid in incumbent.items() if eta_of[uid] > promise_of[key]
+        key for key, vid in allocations.items() if eta_of[vid] > promise_of[key]
     )
 
     meta = dict(rich.get("meta") or {})
@@ -182,8 +182,8 @@ def flatten(rich: dict) -> Snapshot:
 
     return Snapshot(
         orders=orders,
-        units=units,
-        incumbent=incumbent,
+        vehicles=vehicles,
+        allocations=allocations,
         disruption=disruption,
         now=parse_date(rich["meta"]["now"]),
         meta=meta,
@@ -205,8 +205,8 @@ def flatten_default() -> Snapshot:
 if __name__ == "__main__":
     snap = flatten_default()
     print(
-        f"flattened: {len(snap.orders)} orders, {len(snap.units)} units, "
-        f"{len(snap.incumbent)} allocations; now={snap.now}"
+        f"flattened: {len(snap.orders)} orders, {len(snap.vehicles)} vehicles, "
+        f"{len(snap.allocations)} allocations; now={snap.now}"
     )
     d = snap.disruption
     print(

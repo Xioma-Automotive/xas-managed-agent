@@ -86,7 +86,7 @@ def test_scenario_source_returns_the_rich_contract():
     assert CONTRACT_KEYS <= set(rich), "scenario pull is missing contract keys"
     # and it is actually flatten-able into a non-empty snapshot
     snap = flatten(rich)
-    assert snap.orders and snap.units and snap.incumbent
+    assert snap.orders and snap.vehicles and snap.allocations
 
 
 def test_scenario_source_matches_committed_dataset():
@@ -190,10 +190,10 @@ def test_mapped_pull_satisfies_the_rich_contract_and_flattens():
     rich = _mapped()
     assert CONTRACT_KEYS <= set(rich)
     snap = flatten(rich)
-    # every surviving order carries a promise and a model; every unit a date
+    # every surviving order carries a promise and a model; every vehicle a date
     assert snap.orders, "the sample should still yield at least one order"
     assert all(o.sales_model and o.delivery_date for o in snap.orders)
-    assert all(u.sales_model and u.eta_dealer for u in snap.units)
+    assert all(u.sales_model and u.eta_dealer for u in snap.vehicles)
 
 
 def test_the_join_key_is_SalesModel_not_ModelId():
@@ -203,7 +203,7 @@ def test_the_join_key_is_SalesModel_not_ModelId():
     rich = _mapped()
     wanted = {item["SalesModelCode"] for v in rich["vsos"] for item in v["JobItems"]}
     assert wanted, "the hand-built cards must name a model"
-    # the pull keeps only cars some order wants, so every unit matches by key
+    # the pull keeps only cars some order wants, so every vehicle matches by key
     assert {u["SalesModel"] for u in rich["vehicles"]} <= wanted
     # and those matched on SalesModel, not on the ModelId fallback
     assert any(datasource._text(v.get("SalesModel")) in wanted for v in vehicles)
@@ -225,20 +225,22 @@ def test_status_splits_future_from_real_by_name_not_code():
 
 
 def test_a_real_car_is_available_now_and_a_future_one_needs_a_date():
-    assert datasource.unit_eta({}, NOW, "real") == NOW.isoformat()
+    assert datasource.vehicle_eta({}, NOW, "real") == NOW.isoformat()
     # AvailableBy is the PRIMARY source: it is the field the tenant fills (19
     # vehicles fleet-wide vs 3 for EtaDealer), so preferring the schema's nominal
     # field left nearly every future car undateable and therefore dropped.
-    assert datasource.unit_eta({"AvailableBy": "2026-09-30T00:00:00.000Z"}, NOW, "future") == (
+    assert datasource.vehicle_eta({"AvailableBy": "2026-09-30T00:00:00.000Z"}, NOW, "future") == (
         "2026-09-30"
     )
     # EtaDealer is the fallback, still read when AvailableBy is blank.
-    assert datasource.unit_eta({"EtaDealer": "2026-10-01T00:00:00Z"}, NOW, "future") == "2026-10-01"
+    assert (
+        datasource.vehicle_eta({"EtaDealer": "2026-10-01T00:00:00Z"}, NOW, "future") == "2026-10-01"
+    )
     # Both set: AvailableBy wins. This is the assertion that pins the precedence
     # — either field alone passes whichever way round the code reads them.
     both = {"AvailableBy": "2026-09-30T00:00:00.000Z", "EtaDealer": "2026-10-01T00:00:00Z"}
-    assert datasource.unit_eta(both, NOW, "future") == "2026-09-30"
-    assert datasource.unit_eta({}, NOW, "future") == ""
+    assert datasource.vehicle_eta(both, NOW, "future") == "2026-09-30"
+    assert datasource.vehicle_eta({}, NOW, "future") == ""
 
 
 # --- the grain: one ModelItem line is one order -------------------------------
@@ -313,11 +315,11 @@ def test_a_cancelled_card_is_dropped():
     assert rich["meta"]["excluded"]["order_drops"]["cancelled"] == 1
 
 
-# --- the incumbent ------------------------------------------------------------
+# --- the allocations ----------------------------------------------------------
 
 
-def test_a_double_booked_vehicle_yields_no_incumbent_for_anyone():
-    """Vehicle 10831 is claimed by three VSOs in dev. An incumbent that
+def test_a_double_booked_vehicle_yields_no_allocation_for_anyone():
+    """Vehicle 10831 is claimed by three VSOs in dev. An allocation that
     double-books is not a valid matching; the solver would trip on its input.
 
     The claim arrives the only way the live MCP offers one — the CARD's
@@ -332,7 +334,7 @@ def test_a_double_booked_vehicle_yields_no_incumbent_for_anyone():
     vehicles = [{"VehicleCode": "10831", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
     rich = datasource.map_response(orders, vehicles, NOW)
     assert rich["meta"]["conflicts"] == [{"vehicle": "10831", "orders": ["1-1", "2-1"]}]
-    assert flatten(rich).incumbent == {}
+    assert flatten(rich).allocations == {}
     assert rich["meta"]["excluded"]["link_drops"]["double_booked_vehicle"] == 2
 
 
@@ -342,8 +344,8 @@ def test_the_card_fallback_needs_a_single_car_line():
     two = [_card("1", [_car(1, "SM"), _car(2, "SM")], VehicleDMSCode="V1")]
     one = [_card("1", [_car(1, "SM"), _config(9)], VehicleDMSCode="V1")]
     vehicles = [{"VehicleCode": "V1", "SalesModel": "SM", "Status": {"Name": "In Stock"}}]
-    assert flatten(datasource.map_response(two, vehicles, NOW)).incumbent == {}
-    assert flatten(datasource.map_response(one, vehicles, NOW)).incumbent == {"1-1": "V1"}
+    assert flatten(datasource.map_response(two, vehicles, NOW)).allocations == {}
+    assert flatten(datasource.map_response(one, vehicles, NOW)).allocations == {"1-1": "V1"}
 
 
 def test_the_line_link_beats_the_card_fallback():
@@ -364,7 +366,7 @@ def test_the_line_link_beats_the_card_fallback():
         },
     ]
     rich = datasource.map_response(orders, vehicles, NOW)
-    assert flatten(rich).incumbent == {"1-1": "V1", "1-2": "V2"}
+    assert flatten(rich).allocations == {"1-1": "V1", "1-2": "V2"}
 
 
 def test_the_disruption_is_derived_not_declared():
@@ -409,7 +411,7 @@ def test_a_car_no_order_wants_is_pruned():
     ]
     rich = datasource.map_response(orders, vehicles, NOW)
     assert [u["VehicleCode"] for u in rich["vehicles"]] == ["A"]
-    assert rich["meta"]["excluded"]["unit_drops"]["no_order_wants_this_model"] == 1
+    assert rich["meta"]["excluded"]["vehicle_drops"]["no_order_wants_this_model"] == 1
 
 
 def test_an_order_with_no_matching_car_is_kept_and_named():

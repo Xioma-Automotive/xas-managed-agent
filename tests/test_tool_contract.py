@@ -106,7 +106,7 @@ def test_flatten_command_reproduces_the_snapshot(tmp_path):
     assert written.exists()
     snapshot = json.loads(written.read_text())
     assert len(snapshot["orders"]) == summary["orders"]
-    assert len(snapshot["units"]) == summary["supply"]
+    assert len(snapshot["vehicles"]) == summary["supply"]
     assert snapshot["disruption"]["disrupted_orders"] == summary["disrupted_order_ids"]
 
 

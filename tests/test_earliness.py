@@ -13,7 +13,7 @@ indifferent between a 2-days-early and a 40-days-early car. Now:
 from datetime import date
 
 from xas_allocation.session import _result_phrase
-from xas_allocation.snapshot import Order, Snapshot, Unit
+from xas_allocation.snapshot import Order, Snapshot, Vehicle
 from xas_allocation.solver import solve
 
 NOW = date(2026, 8, 3)
@@ -32,8 +32,8 @@ def _order() -> Order:
     )
 
 
-def _unit(vid: str, planned: date) -> Unit:
-    return Unit(
+def _vehicle(vid: str, planned: date) -> Vehicle:
+    return Vehicle(
         vehicle_id=vid,
         vehicle_classification="Vehicle",
         sales_model="SM1",
@@ -41,32 +41,32 @@ def _unit(vid: str, planned: date) -> Unit:
     )
 
 
-def _snap(units: list[Unit]) -> Snapshot:
+def _snap(vehicles: list[Vehicle]) -> Snapshot:
     # The disrupted order's ORIGINAL car slipped badly (VEH-INC, far late), so its
     # binding is already broken -> free to leave (break cost 0, DECIDE-3). Both
     # cars under test are replacements, so the break cost cancels and the pure
     # earliness/lateness cost model decides — which is what these tests exercise.
-    inc = _unit("VEH-INC", date(2027, 3, 1))
+    inc = _vehicle("VEH-INC", date(2027, 3, 1))
     return Snapshot(
         orders=[_order()],
-        units=[*units, inc],
-        incumbent={"SO-1-1": "VEH-INC"},
+        vehicles=[*vehicles, inc],
+        allocations={"SO-1-1": "VEH-INC"},
         disruption={"disrupted_orders": ["SO-1-1"]},  # free to re-allocate
         now=NOW,
     )
 
 
 def test_closer_early_car_preferred():
-    near = _unit("VEH-NEAR", date(2026, 10, 30))  # 2 days early
-    far = _unit("VEH-FAR", date(2026, 9, 22))  # 40 days early
+    near = _vehicle("VEH-NEAR", date(2026, 10, 30))  # 2 days early
+    far = _vehicle("VEH-FAR", date(2026, 9, 22))  # 40 days early
     snap = _snap([near, far])
     result = solve(snap, {}, churn_price=0)
     assert result.plan["SO-1-1"] == "VEH-NEAR", "should prefer the less-early car"
 
 
 def test_slightly_early_beats_slightly_late():
-    early = _unit("VEH-EARLY", date(2026, 10, 31))  # 1 day early
-    late = _unit("VEH-LATE", date(2026, 11, 2))  # 1 day late
+    early = _vehicle("VEH-EARLY", date(2026, 10, 31))  # 1 day early
+    late = _vehicle("VEH-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([early, late])
     result = solve(snap, {}, churn_price=0)
     assert result.plan["SO-1-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
@@ -75,8 +75,8 @@ def test_slightly_early_beats_slightly_late():
 def test_extreme_early_can_lose_to_slight_late():
     """The documented crossover (DECIDE-15): a car 40 days early costs more than one
     1 day late, so the solver takes the slightly-late car. Intended, not a bug."""
-    far_early = _unit("VEH-FAR-EARLY", date(2026, 9, 22))  # 40 days early
-    slight_late = _unit("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
+    far_early = _vehicle("VEH-FAR-EARLY", date(2026, 9, 22))  # 40 days early
+    slight_late = _vehicle("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([far_early, slight_late])
     result = solve(snap, {}, churn_price=0)
     assert result.plan["SO-1-1"] == "VEH-SLIGHT-LATE", (
@@ -86,8 +86,8 @@ def test_extreme_early_can_lose_to_slight_late():
 
 def test_report_frames_earliness_as_a_caveat_not_a_win():
     o = _order()
-    very_early = _unit("VEH-X", date(2026, 10, 1))  # 31 days early
-    a_bit_early = _unit("VEH-Y", date(2026, 10, 28))  # 4 days early, under the flag
+    very_early = _vehicle("VEH-X", date(2026, 10, 1))  # 31 days early
+    a_bit_early = _vehicle("VEH-Y", date(2026, 10, 28))  # 4 days early, under the flag
     phrase = _result_phrase(o, very_early)
     assert "early" in phrase and "ties a car up" in phrase and "✅" not in phrase
     # a couple of days early isn't nagged about

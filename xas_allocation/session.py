@@ -2,7 +2,7 @@
 
 Each turn (there is no liveness-check step — DECIDE-6 settled as NOT APPLICABLE,
 since the pull happens host-side before the session exists):
-  1. Pull the rich dataset and ``flatten`` it -> the orders/units/incumbent
+  1. Pull the rich dataset and ``flatten`` it -> the orders/vehicles/allocations
      snapshot (pure code; see flatten.py).
   2. Map the discrepancies — which orders the disruption broke — BEFORE solving
      (`discrepancy_report`). Every one of them is repairable now: the time fence
@@ -81,19 +81,19 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
     trying — whether a re-allocation actually helps is the solver's answer, not
     a property of the order."""
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
+    vehicles = snapshot.vehicle_by_id()
     out = [
         Discrepancy(
             order_key=oid,
             customer=orders[oid].customer,
             sales_model=orders[oid].sales_model,
-            vehicle_id=uid,
+            vehicle_id=vid,
             promised=orders[oid].delivery_date,
-            now_arriving=units[uid].eta_dealer,
-            days_late=tardiness(orders[oid], units[uid]),
+            now_arriving=vehicles[vid].eta_dealer,
+            days_late=tardiness(orders[oid], vehicles[vid]),
         )
-        for oid, uid in snapshot.incumbent.items()
-        if tardiness(orders[oid], units[uid]) > 0
+        for oid, vid in snapshot.allocations.items()
+        if tardiness(orders[oid], vehicles[vid]) > 0
     ]
     out.sort(key=lambda d: (-d.days_late, d.order_key))
     return out
@@ -171,10 +171,10 @@ def exclusion_note(snapshot: Snapshot) -> str:
         lines.append(
             f"{len(no_car)} order(s) have no compatible car in stock or on order: {shown}."
         )
-    units_seen, units_kept = excluded.get("units_seen"), excluded.get("units_kept")
-    if units_seen and units_kept is not None:
+    vehicles_seen, vehicles_kept = excluded.get("vehicles_seen"), excluded.get("vehicles_kept")
+    if vehicles_seen and vehicles_kept is not None:
         lines.append(
-            f"Car pool: {units_kept} of {units_seen} cars in stock or on order match "
+            f"Car pool: {vehicles_kept} of {vehicles_seen} cars in stock or on order match "
             "something someone has ordered."
         )
     return "\n\n".join(lines)
@@ -219,14 +219,14 @@ def bump_candidates(
     that made a target unable to accept a different car is gone, which is what made
     three authorized bumps no-op on 2026-08-25."""
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
+    vehicles = snapshot.vehicle_by_id()
     disrupted = disrupted_order_keys(snapshot)
     priority = partition(snapshot, override or {}).priority
 
     still_late = [
         oid
         for oid in disrupted
-        if result.plan.get(oid) and tardiness(orders[oid], units[result.plan[oid]]) > 0
+        if result.plan.get(oid) and tardiness(orders[oid], vehicles[result.plan[oid]]) > 0
     ]
     cands: dict[str, dict] = {}
     for lid in sorted(still_late):
@@ -234,10 +234,10 @@ def bump_candidates(
         for oid, o in orders.items():
             if oid in disrupted or oid in cands:
                 continue
-            uid = snapshot.incumbent.get(oid)
-            if not uid:
+            vid = snapshot.allocations.get(oid)
+            if not vid:
                 continue
-            u = units[uid]
+            u = vehicles[vid]
             if u.sales_model != lo.sales_model:
                 continue
             if u.eta_dealer <= lo.delivery_date:
@@ -245,7 +245,7 @@ def bump_candidates(
                     "row": oid,
                     "customer": o.customer,
                     "priority": priority.get(oid, DEFAULT_STEP),
-                    "vehicle": uid,
+                    "vehicle": vid,
                     "arrives": date_label(u.eta_dealer),
                     "would_rescue": lid,
                     "rescue_customer": lo.customer,
@@ -261,10 +261,10 @@ def bump_candidates(
 def data_prep_flowchart(snapshot: Snapshot) -> str:
     """Mermaid of how the rich pull became solver inputs — the data-prep hop."""
     n_orders = len(snapshot.orders)
-    n_units = len(snapshot.units)
-    n_incumbent = len(snapshot.incumbent)
-    n_real = sum(1 for u in snapshot.units if u.is_hard)
-    n_future = n_units - n_real
+    n_vehicles = len(snapshot.vehicles)
+    n_allocations = len(snapshot.allocations)
+    n_real = sum(1 for u in snapshot.vehicles if u.is_hard)
+    n_future = n_vehicles - n_real
     n_models = len({o.sales_model for o in snapshot.orders})
     d = snapshot.disruption
     n_disrupted = len(d.get("disrupted_orders", []))
@@ -284,8 +284,8 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
             ),
             '  FL["flatten + freeze<br/>(pure code, no model judgment)"]',
             f'  ORD["orders[]<br/>{n_orders} rows"]',
-            f'  UNI["units[]<br/>{n_units} rows"]',
-            f'  INC["incumbent[]<br/>{n_incumbent} pairs"]',
+            f'  VEH["vehicles[]<br/>{n_vehicles} rows"]',
+            f'  ALC["allocations[]<br/>{n_allocations} pairs"]',
             (
                 f'  ARC["eligibility arcs<br/>sales_model equality · {n_models} models<br/>'
                 '(computed, never stored)"]'
@@ -294,11 +294,11 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
             "  SRC --> FL",
             "  DIS --> FL",
             "  FL --> ORD",
-            "  FL --> UNI",
-            "  FL --> INC",
+            "  FL --> VEH",
+            "  FL --> ALC",
             "  ORD --> ARC",
-            "  UNI --> ARC",
-            "  INC --> SOLVE",
+            "  VEH --> ARC",
+            "  ALC --> SOLVE",
             "  ARC --> SOLVE",
             "```",
         ]
@@ -371,11 +371,11 @@ def _steering_summary(override: dict, cid_to_name: dict[str, str]) -> str:
     return "; ".join(parts) if parts else "default repair"
 
 
-def _result_phrase(order: Order, unit) -> str:
-    late = tardiness(order, unit)
+def _result_phrase(order: Order, vehicle) -> str:
+    late = tardiness(order, vehicle)
     if late > 0:
         return f"{_dur(late)} late"
-    early = (order.delivery_date - unit.eta_dealer).days
+    early = (order.delivery_date - vehicle.eta_dealer).days
     if early > EARLY_FLAG_DAYS:
         return f"on time, but {_dur(early)} early (ties a car up sooner than needed)"
     return "on time"
@@ -392,24 +392,24 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     still late, unchanged count, one caveat."""
     override = override or {}
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
-    incumbent = snapshot.incumbent
+    vehicles = snapshot.vehicle_by_id()
+    allocations = snapshot.allocations
     disrupted = disrupted_order_keys(snapshot)
     cid_to_name = _cid_to_name(snapshot)
     priority = partition(snapshot, override).priority
     plan = result.plan
 
     # `disrupted` is a set — sort every derived list so the report is byte-stable.
-    def late_by(oid: str, uid: str | None) -> int:
+    def late_by(oid: str, vid: str | None) -> int:
         """Days the order runs late on vehicle ``uid``; 0 if it has none."""
-        return tardiness(orders[oid], units[uid]) if uid else 0
+        return tardiness(orders[oid], vehicles[vid]) if vid else 0
 
-    broken = sorted(oid for oid in disrupted if late_by(oid, incumbent.get(oid)))
+    broken = sorted(oid for oid in disrupted if late_by(oid, allocations.get(oid)))
     n_fixed = sum(1 for oid in broken if plan.get(oid) and not late_by(oid, plan[oid]))
     changed = [
         oid
         for oid in sorted(orders)
-        if oid not in result.unfilled and plan.get(oid) and plan[oid] != incumbent.get(oid)
+        if oid not in result.unfilled and plan.get(oid) and plan[oid] != allocations.get(oid)
     ]
     still_late = [oid for oid in sorted(orders) if late_by(oid, plan.get(oid))]
 
@@ -434,13 +434,13 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
         lines.append("|---|---|---|---|---|---|---|")
 
         for oid in changed:
-            o, was_id, u = orders[oid], incumbent.get(oid), units[plan[oid]]
+            o, was_id, u = orders[oid], allocations.get(oid), vehicles[plan[oid]]
             res = _result_phrase(o, u)
             if was_id is not None and oid not in disrupted:
                 res += " — **bumped**"
             kind = "future" if not u.is_hard else "car"
             alloc = f"`{plan[oid]}` [{kind}]" + (f" (was `{was_id}`)" if was_id else "")
-            was = date_label(units[was_id].eta_dealer) if was_id else "—"
+            was = date_label(vehicles[was_id].eta_dealer) if was_id else "—"
             lines.append(
                 f"| {oid} | {o.customer} | {was} "
                 f"| **{date_label(u.eta_dealer)}** | {date_label(o.delivery_date)} "
@@ -455,7 +455,7 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
         lines.append("|---|---|---|---|---|---|")
 
         for oid in still_late:
-            o, u = orders[oid], units[plan[oid]]
+            o, u = orders[oid], vehicles[plan[oid]]
             label = oid + (" ↑moved" if oid in moved_and_late else "")
             lines.append(
                 f"| {label} | {o.customer} | {date_label(u.eta_dealer)} "
@@ -515,16 +515,16 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
     """
     override = override or {}
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
-    incumbent = snapshot.incumbent
+    vehicles = snapshot.vehicle_by_id()
+    allocations = snapshot.allocations
     disrupted = disrupted_order_keys(snapshot)
     priority = partition(snapshot, override).priority
     rows: list[dict] = []
     for oid in sorted(orders):
         o = orders[oid]
-        was_id = incumbent.get(oid)
+        was_id = allocations.get(oid)
         now_id = result.plan.get(oid)
-        was, now = units.get(was_id or ""), units.get(now_id or "")
+        was, now = vehicles.get(was_id or ""), vehicles.get(now_id or "")
         late = tardiness(o, now) if now else None
         if oid in result.unfilled:
             status = "no_car"
@@ -621,7 +621,7 @@ def main() -> None:
     d = snap.disruption
     print(
         f"\nsnapshot now={date_label(snap.now)}: {len(snap.orders)} orders, "
-        f"{len(snap.units)} vehicles. Disruption: {len(d.get('delayed_vehicles', []))} vehicles "
+        f"{len(snap.vehicles)} vehicles. Disruption: {len(d.get('delayed_vehicles', []))} vehicles "
         f"delayed {d.get('delay_label') or str(d.get('delay_days')) + ' days'}, "
         f"{len(d.get('disrupted_orders', []))} orders to repair."
     )

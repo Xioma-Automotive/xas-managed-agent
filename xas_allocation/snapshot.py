@@ -106,7 +106,7 @@ class Order:
 
 
 @dataclass(frozen=True)
-class Unit:
+class Vehicle:
     """One supply item — a vehicle in the pool, real or future.
 
     ``vehicle_classification == "Vehicle"`` is a concrete car (a VIN) and a
@@ -117,7 +117,7 @@ class Unit:
     single bit that drives that, derived from the classification.
     """
 
-    vehicle_id: str  # VehicleCode — the supply id the incumbent/plan keys on
+    vehicle_id: str  # VehicleCode — the supply id allocations and the plan key on
     vehicle_classification: str  # "Vehicle" (real, hard) | "Future" (future, soft)
     sales_model: str  # SalesModel — the trim/colour eligibility key
     eta_dealer: date  # EtaDealer — the ONE mutable field disruptions write
@@ -137,7 +137,7 @@ class Unit:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> Unit:
+    def from_dict(cls, d: dict) -> Vehicle:
         return cls(
             vehicle_id=str(d["vehicle_id"]),
             vehicle_classification=d["vehicle_classification"],
@@ -151,8 +151,8 @@ class Snapshot:
     """Everything one solve consumes — the flattened, frozen pull."""
 
     orders: list[Order]  # one per wanted CAR (a qty-3 line contributes 3)
-    units: list[Unit]  # the vehicle pool: real ∪ future
-    incumbent: dict[str, str]  # order_key -> vehicle_id (current allocation)
+    vehicles: list[Vehicle]  # the vehicle pool: real ∪ future
+    allocations: dict[str, str]  # order_key -> vehicle_id (current allocation)
     disruption: dict  # the delayed vehicles + who they touched
     now: date  # the pull date this picture was frozen at (provenance, not a cost input)
     # The pull's own provenance, carried through so the sandbox can report it:
@@ -176,14 +176,14 @@ class Snapshot:
             raise ValueError(f"duplicate order keys — demand would be lost: {dupes}")
         return by_key
 
-    def unit_by_id(self) -> dict[str, Unit]:
-        return {u.vehicle_id: u for u in self.units}
+    def vehicle_by_id(self) -> dict[str, Vehicle]:
+        return {u.vehicle_id: u for u in self.vehicles}
 
     def as_dict(self) -> dict:
         return {
             "orders": [o.to_dict() for o in self.orders],
-            "units": [u.to_dict() for u in self.units],
-            "incumbent": self.incumbent,
+            "vehicles": [u.to_dict() for u in self.vehicles],
+            "allocations": self.allocations,
             "disruption": self.disruption,
             "now": date_label(self.now),
             "meta": self.meta,
@@ -193,8 +193,8 @@ class Snapshot:
     def from_dict(cls, d: dict) -> Snapshot:
         return cls(
             orders=[Order.from_dict(o) for o in d["orders"]],
-            units=[Unit.from_dict(u) for u in d["units"]],
-            incumbent={str(k): str(v) for k, v in d["incumbent"].items()},
+            vehicles=[Vehicle.from_dict(u) for u in d["vehicles"]],
+            allocations={str(k): str(v) for k, v in d["allocations"].items()},
             disruption=d.get("disruption", {}),
             now=parse_date(d["now"]),
             meta=d.get("meta", {}),

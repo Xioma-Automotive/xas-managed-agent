@@ -2,7 +2,7 @@
 
 The invariant needs it to be deterministic code, not model judgment. These tests
 pin that: same rich input -> byte-identical snapshot; VSOs explode into car
-lines; supply is one vehicle pool of real + future vehicles; the incumbent comes
+lines; supply is one vehicle pool of real + future vehicles; the allocations come
 from each jobitem's allocation link (hard `VehicleId.Code` / soft Alloc); and
 every order the disruption manifest names as broken really does run late in the
 snapshot. One case feeds hand-written real-XAS-shaped records and asserts the
@@ -85,21 +85,21 @@ def test_a_multi_car_line_is_read_as_one_car():
     # Quantity 3 on the line, and it reads as ONE order: the extra cars are not
     # represented at all, which is the accepted cost of the one-car assumption.
     assert [o.key for o in snap.orders] == ["VSO-9-4"]
-    assert snap.incumbent == {"VSO-9-4": "V1"}
+    assert snap.allocations == {"VSO-9-4": "V1"}
     # The line total is the order's price — nothing is divided any more.
     assert [o.price for o in snap.orders] == [90000.0]
 
 
 def test_supply_is_one_pool_of_both_classifications():
     snap = flatten(_rich())
-    classes = {u.vehicle_classification for u in snap.units}
+    classes = {u.vehicle_classification for u in snap.vehicles}
     assert "Vehicle" in classes and "Future" in classes
     # is_hard tracks the classification exactly.
-    for u in snap.units:
+    for u in snap.vehicles:
         assert u.is_hard == (u.vehicle_classification == "Vehicle"), u.vehicle_id
 
 
-def test_incumbent_comes_from_allocation_links():
+def test_allocations_come_from_allocation_links():
     rich = _rich()
     snap = flatten(rich)
     expected: dict[str, str] = {}
@@ -113,7 +113,7 @@ def test_incumbent_comes_from_allocation_links():
                 expected[key] = hard
             elif soft:
                 expected[key] = soft
-    assert snap.incumbent == expected
+    assert snap.allocations == expected
 
 
 def test_disrupted_orders_are_actually_late():
@@ -121,24 +121,24 @@ def test_disrupted_orders_are_actually_late():
     disruption the engine claims and the snapshot the solver sees disagree."""
     snap = flatten(_rich())
     orders = snap.order_by_key()
-    units = snap.unit_by_id()
+    vehicles = snap.vehicle_by_id()
     disrupted = snap.disruption["disrupted_orders"]
     assert disrupted, "the scenario should break at least one order"
     # Named per CAR: what slips is a vehicle, and only the car riding it is late.
     for key in disrupted:
-        assert tardiness(orders[key], units[snap.incumbent[key]]) > 0, key
+        assert tardiness(orders[key], vehicles[snap.allocations[key]]) > 0, key
     # and every car whose own vehicle is late is named — no silent omissions
-    late = {k for k, uid in snap.incumbent.items() if tardiness(orders[k], units[uid]) > 0}
+    late = {k for k, vid in snap.allocations.items() if tardiness(orders[k], vehicles[vid]) > 0}
     assert set(disrupted) == late
 
 
 def test_flatten_default_reads_the_bundled_dataset():
     snap = flatten_default()
-    assert snap.orders and snap.units and snap.incumbent
+    assert snap.orders and snap.vehicles and snap.allocations
 
 
 def test_flatten_maps_real_xas_shaped_records():
-    """Hand-built real-XAS records map 1:1 onto Order/Unit fields — the seam
+    """Hand-built real-XAS records map 1:1 onto Order/Vehicle fields — the seam
     between the API vocabulary and the solver's."""
     rich = {
         "meta": {"now": "2026-08-03", "sales_models": ["T5040"]},
@@ -216,7 +216,7 @@ def test_flatten_maps_real_xas_shaped_records():
     }
     snap = flatten(rich)
     orders = snap.order_by_key()
-    units = snap.unit_by_id()
+    vehicles = snap.vehicle_by_id()
 
     o1 = orders["VSO-77-1"]
     assert (o1.so_id, o1.line) == ("VSO-77", 1)
@@ -228,15 +228,15 @@ def test_flatten_maps_real_xas_shaped_records():
     assert o1.delivery_date.isoformat() == "2026-09-14"  # from DeliveryDate
     assert o1.price == 45000.0  # Σ Prices[].GrossTotal
 
-    # Hard incumbent via VehicleId.Code ↔ VehicleCode; soft via Alloc link.
-    assert snap.incumbent["VSO-77-1"] == "11317"
-    assert snap.incumbent["VSO-77-2"] == "FUT-9"
+    # A hard allocation via VehicleId.Code ↔ VehicleCode; soft via Alloc link.
+    assert snap.allocations["VSO-77-1"] == "11317"
+    assert snap.allocations["VSO-77-2"] == "FUT-9"
 
-    real = units["11317"]
+    real = vehicles["11317"]
     assert real.vehicle_classification == "Vehicle" and real.is_hard
     assert real.sales_model == "T5040"  # from ModelId.Code
     assert real.eta_dealer.isoformat() == "2026-09-10"  # from EtaDealer
 
-    future = units["FUT-9"]
+    future = vehicles["FUT-9"]
     assert future.vehicle_classification == "Future" and not future.is_hard
     assert future.eta_dealer.isoformat() == "2026-10-01"

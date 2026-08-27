@@ -107,7 +107,7 @@ before real dealer data (DECIDE-9).
 | ------ | ----------- | ---- |
 | `decisions.py`   | —      | Every `DECIDE-1..16` — default, rationale and STATUS — surfaced at runtime. One is still OPEN, five are RETIRED. Decisions only: the numbers live in the config. |
 | `solver_config.yaml` | — | **Every parameter the solver prices with**, in one file: the lateness exponent, the earliness weight, break cost, the priority steps, the churn sweep, the no-car cost and the version stamped on a saved plan. Read by `solver.py` alone. Editing it means re-running `setup_agent.py`. |
-| `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/units/incumbent`) + JSON (de)serialization. |
+| `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/vehicles/allocations`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure rich-pull → snapshot mapping (the "flatten + freeze" hop). Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, the free/pinned partition (§5), the **churn-price sweep**, deterministic read-back. Two halves — `partition` (who may move, no maths) and `_solve_one` (the arithmetic). |
 | `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |

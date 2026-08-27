@@ -59,7 +59,7 @@ TOOL_NAME = "pull_allocation_snapshot"
 
 TOOL_DESCRIPTION = (
     "Pull the current allocation snapshot: sales orders, the pool of planned "
-    "vehicles, the complete incumbent allocation, and the disruption to repair. "
+    "vehicles, the complete current allocation, and the disruption to repair. "
     "Returns a summary plus the exact `flatten` command to materialize the full "
     "snapshot as snapshot.json in your sandbox — run that command before solving, "
     "then read the file from your solver code, never into this conversation. Call "
@@ -128,12 +128,12 @@ def flatten_command(pull_path: str = MOUNT_PATH) -> str:
     )
 
 
-def _incumbent_count(item: dict) -> int:
+def _allocated_count(item: dict) -> int:
     """How many of a jobitem's cars have a vehicle: 1 if it is allocated, else 0.
 
     In CARS, to match what `flatten` builds. A line resolves to one vehicle code
     and one car cannot serve two orders, so an `AllocQty` above 1 does not add
-    incumbents here — those committed cars are unidentifiable from this pull, and
+    allocations here — those committed cars are unidentifiable from this pull, and
     `flatten` counts them rather than inventing them."""
     linked = (item.get("VehicleId") or {}).get("Code") or item.get("AllocatedVehicleCode")
     return 1 if linked else 0
@@ -184,7 +184,7 @@ def summarize(rich: dict) -> dict[str, Any]:
         "orders": cars,  # one wanted CAR — the allocatable grain (Σ Quantity)
         "supply": len(vehicles),  # the vehicle pool: real ∪ future
         "supply_by_classification": dict(sorted(by_class.items())),
-        "incumbent_assignments": sum(_incumbent_count(r) for r in rows),
+        "existing_allocations": sum(_allocated_count(r) for r in rows),
         "sales_models": meta.get("sales_models", []),
         "disruption": {
             "delay_days": disruption.get("delay_days"),

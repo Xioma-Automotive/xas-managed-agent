@@ -132,9 +132,9 @@ ORDER_CLASSIFICATION = "VSO"
 # exact confusion this function exists to prevent.
 REQUIRED_CARD_FIELDS = ("DueDateTime", "EntryDateTime", "jobitems")
 REQUIRED_LINE_FIELDS = ("JobItemCode", "JobItemType", "LineNum")
-# `AvailableBy`, not `EtaDealer`: it is the arrival date `unit_eta` reads first,
+# `AvailableBy`, not `EtaDealer`: it is the arrival date `vehicle_eta` reads first,
 # so it is the one whose absence empties the vehicle pool.
-REQUIRED_UNIT_FIELDS = ("SalesModel", "AvailableBy")
+REQUIRED_VEHICLE_FIELDS = ("SalesModel", "AvailableBy")
 
 # The jobitem type that is a CAR. A VSO's lines also carry configuration and
 # parts rows, and the line's own type is the only thing that separates them —
@@ -197,7 +197,7 @@ def join_key(vehicle: dict) -> str:
     return _text(vehicle.get("SalesModel")) or _text((vehicle.get("ModelId") or {}).get("Code"))
 
 
-def unit_eta(vehicle: dict, now: date, bucket: str) -> str:
+def vehicle_eta(vehicle: dict, now: date, bucket: str) -> str:
     """When this car is available to hand over.
 
     A real car is on the lot, so its eta is ``now``. A future car needs a real
@@ -207,7 +207,7 @@ def unit_eta(vehicle: dict, now: date, bucket: str) -> str:
     undateable and therefore dropped. ``EtaDealer`` stays as the fallback — it
     is the field a delay is expected to move, so a car that carries it is read
     from it when ``AvailableBy`` is blank. No date at all means the car cannot be
-    scheduled, so the unit is dropped rather than guessed at — a fabricated eta
+    scheduled, so the vehicle is dropped rather than guessed at — a fabricated eta
     would move the plan.
     """
     if bucket == "real":
@@ -268,7 +268,7 @@ def car_lines_kept(card: dict) -> tuple[list[tuple[int, str, dict]], list[str]]:
     ``VehicleDMSCode`` only for a single-car card, so counting a Configuration
     row as a car line would suppress that fallback in one place and not the
     other. The result: a double-booked vehicle invisible to ``meta.conflicts``
-    but still linked as an incumbent, which trips the solver's self-check on its
+    but still linked as an allocation, which trips the solver's self-check on its
     own input.
     """
     kept: list[tuple[int, str, dict]] = []
@@ -296,7 +296,7 @@ def car_lines_kept(card: dict) -> tuple[list[tuple[int, str, dict]], list[str]]:
 
 def _claimed_vehicles(card: dict) -> list[tuple[int, str]]:
     """(LineNum, VehicleCode) for every allocation this card asserts — used to
-    find a car two orders both claim, which is not a valid incumbent."""
+    find a car two orders both claim, which is not a valid allocation."""
     lines, _ = car_lines_kept(card)
     out: list[tuple[int, str]] = []
     for num, _code, line in lines:
@@ -307,12 +307,12 @@ def _claimed_vehicles(card: dict) -> list[tuple[int, str]]:
 
 
 def map_response(
-    orders: list[dict], vehicles: list[dict], now: date, disruption: dict | None = None
+    orders: list[dict], vehicle_rows: list[dict], now: date, disruption: dict | None = None
 ) -> dict:
     """Raw XAS rows -> the rich pull contract. PURE: no network, no clock.
 
     ``orders`` is a list of VSO **job cards**, each carrying its own list of
-    ``jobitems``; ``vehicles`` is the flat supply pool. Both shapes are the app
+    ``jobitems``; ``vehicle_rows`` is the flat supply pool. Both shapes are the app
     MCP's, and the fake fabricates the same shapes, so this is the ONE mapping
     both sources run through (`docs/mcp-response-schema.md`).
 
@@ -334,25 +334,25 @@ def map_response(
     """
     order_drops: collections.Counter = collections.Counter()
     line_drops: collections.Counter = collections.Counter()
-    unit_drops: collections.Counter = collections.Counter()
+    vehicle_drops: collections.Counter = collections.Counter()
     link_drops: collections.Counter = collections.Counter()
 
-    # --- units: in-scope status, a join key, and a date it can be counted on ---
-    units: list[dict] = []
-    for vehicle in vehicles:
+    # --- vehicles: in-scope status, a join key, and a date it can be counted on -
+    vehicles: list[dict] = []
+    for vehicle in vehicle_rows:
         bucket = status_bucket(vehicle)
         if bucket is None:
-            unit_drops["out_of_scope_status"] += 1
+            vehicle_drops["out_of_scope_status"] += 1
             continue
         key = join_key(vehicle)
         if not key:
-            unit_drops["no_model"] += 1
+            vehicle_drops["no_model"] += 1
             continue
-        eta = unit_eta(vehicle, now, bucket)
+        eta = vehicle_eta(vehicle, now, bucket)
         if not eta:
-            unit_drops["no_arrival_date"] += 1
+            vehicle_drops["no_arrival_date"] += 1
             continue
-        units.append(
+        vehicles.append(
             {
                 "VehicleCode": _text(vehicle.get("VehicleCode")),
                 # The solver's binding, NOT the XAS field of the same name:
@@ -396,8 +396,8 @@ def map_response(
     # equality), so dropping it is lossless and keeps the mounted file small.
     # If eligibility ever stops being equality, this pruning has to go.
     wanted = {code for _, _, lines in kept for _, code, _ in lines}
-    reachable = [u for u in units if u["SalesModel"] in wanted]
-    unit_drops["no_order_wants_this_model"] = len(units) - len(reachable)
+    reachable = [u for u in vehicles if u["SalesModel"] in wanted]
+    vehicle_drops["no_order_wants_this_model"] = len(vehicles) - len(reachable)
     have = {u["SalesModel"] for u in reachable}
     # NOT a drop: an order with no matching car is real unfilled demand, and the
     # solver surfaces it as a backorder. Named so the agent can say which.
@@ -408,10 +408,10 @@ def map_response(
         if code not in have
     )
 
-    # --- incumbent conflicts, over EVERY card, not just the kept ones ---------
+    # --- allocation conflicts, over EVERY card, not just the kept ones --------
     # A vehicle claimed by two orders is not a valid matching and would trip the
     # solver's self-check on its INPUT, so a contested vehicle yields no
-    # incumbent for anyone; those orders become unallocated demand, which is what
+    # allocation for anyone; those orders become unallocated demand, which is what
     # they effectively are. The conflict is a finding a planner wants, so it
     # rides in meta rather than being swallowed.
     claims: dict[str, list[str]] = collections.defaultdict(list)
@@ -424,7 +424,7 @@ def map_response(
         if len(ids) > 1
     ]
     contested = {c["vehicle"] for c in conflicts}
-    unit_ids = {u["VehicleCode"] for u in reachable}
+    vehicle_ids = {u["VehicleCode"] for u in reachable}
     real_ids = {u["VehicleCode"] for u in reachable if u["VehicleClassification"] == "Vehicle"}
 
     # --- translate ------------------------------------------------------------
@@ -437,7 +437,7 @@ def map_response(
             if link and link in contested:
                 link = None
                 link_drops["double_booked_vehicle"] += 1
-            elif link and link not in unit_ids:
+            elif link and link not in vehicle_ids:
                 link = None
                 link_drops["vehicle_out_of_scope"] += 1
             # A received car is a hard binding (VGR); one still on order is soft (VPO).
@@ -504,9 +504,9 @@ def map_response(
                 # a qty-heavy book silently under-reports what it owes.
                 "order_drops": dict(sorted(order_drops.items())),
                 "line_drops": dict(sorted(line_drops.items())),
-                "units_seen": len(vehicles),
-                "units_kept": len(reachable),
-                "unit_drops": {k: v for k, v in sorted(unit_drops.items()) if v},
+                "vehicles_seen": len(vehicle_rows),
+                "vehicles_kept": len(reachable),
+                "vehicle_drops": {k: v for k, v in sorted(vehicle_drops.items()) if v},
                 "link_drops": dict(sorted(link_drops.items())),
                 "orders_with_no_eligible_car": unmatched,
             },
@@ -610,7 +610,7 @@ class AppMcpSource:
         gaps = {
             APPMCP_TOOL_ORDERS: missing_projection(orders, REQUIRED_CARD_FIELDS),
             f"{APPMCP_TOOL_ORDERS}.jobitems": missing_projection(lines, REQUIRED_LINE_FIELDS),
-            APPMCP_TOOL_VEHICLES: missing_projection(vehicles, REQUIRED_UNIT_FIELDS),
+            APPMCP_TOOL_VEHICLES: missing_projection(vehicles, REQUIRED_VEHICLE_FIELDS),
         }
         rich = map_response(orders, vehicles, datetime.now(tz=TENANT_TZ).date())
         if any(gaps.values()):
@@ -727,8 +727,8 @@ def census(rich: dict) -> str:
     ex = meta.get("excluded", {})
     seen_o = ex.get("orders_seen", len(rich.get("vsos", [])))
     kept_o = ex.get("orders_kept", len(rich.get("vsos", [])))
-    seen_u = ex.get("units_seen", len(rich.get("vehicles", [])))
-    kept_u = ex.get("units_kept", len(rich.get("vehicles", [])))
+    seen_u = ex.get("vehicles_seen", len(rich.get("vehicles", [])))
+    kept_u = ex.get("vehicles_kept", len(rich.get("vehicles", [])))
     lines = [f"pull date {meta.get('now')}  source={meta.get('source', 'scenario')}"]
     for tool, names in (meta.get("projection_gaps") or {}).items():
         lines.append(f"!! {tool} does not return: {', '.join(names)}  (widen the MCP)")
@@ -736,7 +736,7 @@ def census(rich: dict) -> str:
     for reason, n in (ex.get("order_drops") or {}).items():
         lines.append(f"           -{n:<5} {reason}")
     lines.append(f"vehicles {seen_u} collected  ->  {kept_u} usable")
-    for reason, n in (ex.get("unit_drops") or {}).items():
+    for reason, n in (ex.get("vehicle_drops") or {}).items():
         lines.append(f"           -{n:<5} {reason}")
     for reason, n in (ex.get("link_drops") or {}).items():
         lines.append(f"links      -{n:<5} {reason}")

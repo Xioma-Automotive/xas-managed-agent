@@ -16,7 +16,7 @@ orders nobody had authorised anyone to touch.
 
 from datetime import date
 
-from xas_allocation.snapshot import Order, Snapshot, Unit
+from xas_allocation.snapshot import Order, Snapshot, Vehicle
 from xas_allocation.solver import solve
 
 NOW = date(2026, 8, 3)
@@ -39,8 +39,8 @@ def _order(oid: str, customer_id: str) -> Order:
     )
 
 
-def _unit(vid: str, planned: date) -> Unit:
-    return Unit(
+def _vehicle(vid: str, planned: date) -> Vehicle:
+    return Vehicle(
         vehicle_id=vid,
         vehicle_classification="Vehicle",
         sales_model="SM1",
@@ -49,16 +49,16 @@ def _unit(vid: str, planned: date) -> Unit:
 
 
 def _snapshot() -> Snapshot:
-    """Two customers, both LATE on their incumbent; two on-time spares exist."""
+    """Two customers, both LATE on the car they hold; two on-time spares exist."""
     return Snapshot(
         orders=[_order("SO-A-1", "CUST-001"), _order("SO-B-1", "CUST-002")],
-        units=[
-            _unit("VEH-LATE-A", LATE),
-            _unit("VEH-LATE-B", LATE),
-            _unit("VEH-GOOD-1", ON_TIME),
-            _unit("VEH-GOOD-2", ON_TIME),
+        vehicles=[
+            _vehicle("VEH-LATE-A", LATE),
+            _vehicle("VEH-LATE-B", LATE),
+            _vehicle("VEH-GOOD-1", ON_TIME),
+            _vehicle("VEH-GOOD-2", ON_TIME),
         ],
-        incumbent={"SO-A-1": "VEH-LATE-A", "SO-B-1": "VEH-LATE-B"},
+        allocations={"SO-A-1": "VEH-LATE-A", "SO-B-1": "VEH-LATE-B"},
         disruption={"disrupted_orders": ["SO-A-1", "SO-B-1"]},
         now=NOW,
     )
@@ -67,12 +67,12 @@ def _snapshot() -> Snapshot:
 def _settled_snapshot() -> Snapshot:
     """Nobody needs help: both orders hold an on-time car. A spare sits unused."""
     snap = _snapshot()
-    snap.units = [
-        _unit("VEH-OK-A", ON_TIME),
-        _unit("VEH-OK-B", ON_TIME),
-        _unit("VEH-SPARE", date(2026, 9, 1)),  # earlier, so churn would be tempting
+    snap.vehicles = [
+        _vehicle("VEH-OK-A", ON_TIME),
+        _vehicle("VEH-OK-B", ON_TIME),
+        _vehicle("VEH-SPARE", date(2026, 9, 1)),  # earlier, so churn would be tempting
     ]
-    snap.incumbent = {"SO-A-1": "VEH-OK-A", "SO-B-1": "VEH-OK-B"}
+    snap.allocations = {"SO-A-1": "VEH-OK-A", "SO-B-1": "VEH-OK-B"}
     snap.disruption = {"disrupted_orders": []}
     return snap
 
@@ -89,7 +89,7 @@ def test_a_settled_book_is_left_alone_with_no_steering():
     snap = _settled_snapshot()
     result = solve(snap, {}, churn_price=0)
     assert result.n_changes == 0
-    assert result.plan == snap.incumbent
+    assert result.plan == snap.allocations
 
 
 def test_only_narrows_the_default_it_does_not_replace_it():
@@ -100,7 +100,7 @@ def test_only_narrows_the_default_it_does_not_replace_it():
     snap = _settled_snapshot()
     result = solve(snap, {"may_move": {"only": {"customers": ["CUST-001"]}}}, churn_price=0)
     assert result.n_changes == 0, "narrowing must never free an order nobody authorised"
-    assert result.plan == snap.incumbent
+    assert result.plan == snap.allocations
 
 
 def test_only_holds_everyone_outside_it_even_when_they_need_help():

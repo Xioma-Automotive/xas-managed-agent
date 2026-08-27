@@ -17,7 +17,7 @@ from datetime import date
 import pytest
 
 from xas_allocation.session import bump_candidates
-from xas_allocation.snapshot import Order, Snapshot, Unit
+from xas_allocation.snapshot import Order, Snapshot, Vehicle
 from xas_allocation.solver import CFG, solve, tardiness
 
 NOW = date(2026, 8, 3)
@@ -41,8 +41,8 @@ def _order(oid: str, customer_id: str, promised: date = PROMISED) -> Order:
     )
 
 
-def _unit(vid: str, planned: date) -> Unit:
-    return Unit(
+def _vehicle(vid: str, planned: date) -> Vehicle:
+    return Vehicle(
         vehicle_id=vid,
         vehicle_classification="Vehicle",
         sales_model="SM1",
@@ -55,12 +55,12 @@ def _snapshot(promised: date = PROMISED) -> Snapshot:
     late car exists for LO to fall back to."""
     return Snapshot(
         orders=[_order("SO-HI-1", "CUST-001", promised), _order("SO-LO-1", "CUST-002", promised)],
-        units=[
-            _unit("VEH-HI-LATE", LATE),
-            _unit("VEH-LO-GOOD", promised),  # lands exactly on the promise
-            _unit("VEH-SPARE-LATE", LATE),
+        vehicles=[
+            _vehicle("VEH-HI-LATE", LATE),
+            _vehicle("VEH-LO-GOOD", promised),  # lands exactly on the promise
+            _vehicle("VEH-SPARE-LATE", LATE),
         ],
-        incumbent={"SO-HI-1": "VEH-HI-LATE", "SO-LO-1": "VEH-LO-GOOD"},
+        allocations={"SO-HI-1": "VEH-HI-LATE", "SO-LO-1": "VEH-LO-GOOD"},
         disruption={"disrupted_orders": ["SO-HI-1"]},
         now=NOW,
     )
@@ -77,9 +77,9 @@ AUTH = {**URGENT_HI, "may_move": {"also": {"orders": ["SO-LO-1"]}}}
 def test_without_authorization_no_bump_and_the_late_order_stays_late():
     snap = _snapshot()
     result = solve(snap, {}, churn_price=0)
-    units = snap.unit_by_id()
+    vehicles = snap.vehicle_by_id()
     assert result.plan["SO-LO-1"] == "VEH-LO-GOOD", "untouched order must not move uninvited"
-    assert tardiness(snap.order_by_key()["SO-HI-1"], units[result.plan["SO-HI-1"]]) > 0
+    assert tardiness(snap.order_by_key()["SO-HI-1"], vehicles[result.plan["SO-HI-1"]]) > 0
     # ...and the agent can see the bump it would need to propose.
     assert any(c["row"] == "SO-LO-1" for c in bump_candidates(snap, result))
 
@@ -106,9 +106,9 @@ def test_an_authorized_bump_is_declined_when_it_buys_nothing():
 def test_authorized_bump_rescues_the_order_that_needs_help():
     snap = _snapshot()
     result = solve(snap, AUTH, churn_price=0)
-    units = snap.unit_by_id()
+    vehicles = snap.vehicle_by_id()
     assert result.plan["SO-HI-1"] == "VEH-LO-GOOD", "the late order should get the good car"
-    assert tardiness(snap.order_by_key()["SO-HI-1"], units[result.plan["SO-HI-1"]]) == 0
+    assert tardiness(snap.order_by_key()["SO-HI-1"], vehicles[result.plan["SO-HI-1"]]) == 0
     assert result.plan["SO-LO-1"] != "VEH-LO-GOOD", "the authorized order was bumped off it"
 
 
@@ -148,4 +148,6 @@ def test_break_cost_can_block_an_authorized_bump(monkeypatch):
     monkeypatch.setitem(CFG["break_cost"], "hard", 100_000.0)
     blocked = solve(snap, AUTH, churn_price=0)
     assert blocked.plan["SO-LO-1"] == "VEH-LO-GOOD", "on-time hard allocation kept"
-    assert tardiness(snap.order_by_key()["SO-HI-1"], snap.unit_by_id()[blocked.plan["SO-HI-1"]]) > 0
+    assert (
+        tardiness(snap.order_by_key()["SO-HI-1"], snap.vehicle_by_id()[blocked.plan["SO-HI-1"]]) > 0
+    )

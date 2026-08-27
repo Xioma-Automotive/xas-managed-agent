@@ -102,9 +102,9 @@
       "orders_kept": 20,
       "orders_seen": 20,
       "orders_with_no_eligible_car": [],
-      "unit_drops": {},
-      "units_kept": 55,
-      "units_seen": 55
+      "vehicle_drops": {},
+      "vehicles_kept": 55,
+      "vehicles_seen": 55
     },
     "now": "2026-08-03",
     "sales_models": [

@@ -27,7 +27,7 @@ wins.
 
 ## 1. The snapshot contract, mapped to real fields
 
-Our snapshot is `orders / units / incumbent`. Here is what fills each, and how
+Our snapshot is `orders / vehicles / allocations`. Here is what fills each, and how
 confident we can be:
 
 | Snapshot field | Real source | Status |
@@ -36,13 +36,13 @@ confident we can be:
 | order customer | `VSO.Accounts.Owner.AccountDMSCode` + `AccountName` | ✅ |
 | order promised date | **`VSO.DueDateTime`** | ✅ 13 of 25 populated |
 | order requested spec | **`VSO.SalesModelCode`** (header, e.g. `T5040UECLMQ0009`) | ⚠️ only 2 of 25 — and it is the binding filter |
-| order → allocated unit | **`VSO.VehicleDMSCode`** / `VehicleUUID` | ✅ 9 of 25 |
-| unit id | `vehicle.VehicleCode` | ✅ |
-| unit spec | **`vehicle.SalesModel`** | ⚠️ 0 of 14 future Trucks, 10 of 29 in stock |
-| unit real vs future | `vehicle.Status` — see §2 | ⚠️ ambiguous codes |
-| unit arrival date (future) | **`VPO.ShippingETA`** | ✅ 20 of 27 VPOs |
+| order → allocated vehicle | **`VSO.VehicleDMSCode`** / `VehicleUUID` | ✅ 9 of 25 |
+| vehicle id | `vehicle.VehicleCode` | ✅ |
+| vehicle spec | **`vehicle.SalesModel`** | ⚠️ 0 of 14 future Trucks, 10 of 29 in stock |
+| vehicle real vs future | `vehicle.Status` — see §2 | ⚠️ ambiguous codes |
+| vehicle arrival date (future) | **`VPO.ShippingETA`** | ✅ 20 of 27 VPOs |
 | supply order identity | `VPO.JobEntryNum`, `VPO.VehicleDMSCode` | ⚠️ link works, data thin |
-| incumbent allocation | `VSO.VehicleDMSCode` (an order that already has a car) | ✅ |
+| current allocation | `VSO.VehicleDMSCode` (an order that already has a car) | ✅ |
 | frozen fence input | `VSO.DeliveryDate`, `VPO.LogisticsStatus`, `CustomsClearanceDate` | ❓ semantics unknown |
 
 **Everything the solver needs exists.** Two things are genuinely undecided (§3,
@@ -119,7 +119,7 @@ equality — **at trim/colour grain** (`T5040` + `UECL` + …), not model grain.
 
 | Grain | Field | Effect on allocation |
 | --- | --- | --- |
-| Trim/colour | `SalesModel` / `JobItemCode` | Few eligible units per order; plans are tight, infeasibility likelier |
+| Trim/colour | `SalesModel` / `JobItemCode` | Few eligible vehicles per order; plans are tight, infeasibility likelier |
 | Model | `ServiceModelDMSCode` / `ModelCode` (`T5040`), `BaseModelId` | Wider pools, more substitutions, may propose cars a customer did not order |
 
 **Resolved: trim grain, and it was not a choice.** VSO 502361 wants
@@ -282,8 +282,8 @@ Three mappings that are not obvious and are each a silent failure if wrong:
   `disruption.disrupted_orders`. So it is computed: an allocated order whose car
   now lands past its promise. An order with no car needs nothing — `partition`
   already frees anything unassigned.
-- **The incumbent is not always a matching.** Vehicle `10831` is allocated to
-  VSOs 502323, 502324 **and** 502325. A contested vehicle yields no incumbent for
+- **The allocations are not always a matching.** Vehicle `10831` is allocated to
+  VSOs 502323, 502324 **and** 502325. A contested vehicle yields no allocation for
   anyone (those orders become unallocated demand, which is what they are) and the
   conflict rides in `meta.conflicts` — otherwise the solver's own self-check fires
   on its input.

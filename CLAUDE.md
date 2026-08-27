@@ -36,7 +36,7 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   real by config (DECIDE-7). Either way `map_response` maps them to the rich pull
   — ONE mapping, both sources. `web.py` fetches it and mounts it into the sandbox
   as a file; `flatten` explodes each card into its `ModelItem` car lines and reads
-  the vehicle pool into the `orders/units/incumbent` snapshot, expanding each
+  the vehicle pool into the `orders/vehicles/allocations` snapshot, expanding each
   card into its `ModelItem` car lines, one order each. The *same* pull
   backs every turn of a repair cycle — re-applying the same override against a
   different pull is not the same turn.
@@ -181,13 +181,13 @@ XAS endpoint and its credential never touch the sandbox.
   irreproducible answer — `tests/test_agent_contract.py` pins the RULE's
   presence, and nothing pins that the agent follows it. Verify by hand: ask for a
   count over "late orders" and check the answer came from the solver.
-- **The disruption is derived, and the incumbent may be invalid.** XAS records no
+- **The disruption is derived, and the allocations may not be a matching.** XAS records no
   "this shipment slipped 21 days" manifest, but `solver.partition` builds the free
   set from `disruption.disrupted_orders`, so `map_response` derives it: an
   allocated order whose car now lands past its promise. (An order with no car
   needs no help — `partition` already frees anything unassigned.) And the live
-  incumbent is not always a matching: vehicle `10831` is allocated to three VSOs
-  at once, so a contested vehicle yields **no** incumbent for anyone and the
+  live allocation is not always a matching: vehicle `10831` is allocated to three
+  VSOs at once, so a contested vehicle yields **no** allocation for anyone and the
   conflict rides in `meta.conflicts` — otherwise the solver's own self-check
   fires on its input.
 - **ONE CAR PER LINE, and `Quantity` is not read at all.** One car line is one
@@ -230,7 +230,7 @@ XAS endpoint and its credential never touch the sandbox.
   98.9% of eligible pairings — and only inside the fence's 15–42d band, so the
   trade-off curve came back flat (193.0 weighted late-days at every price from 0
   to 100). It is now added once, in `_solve_one`, to every arc where the vehicle
-  differs from the incumbent, beside the break cost. The fabricated book now
+  differs from the one the order held, beside the break cost. The fabricated book now
   sweeps 25 changes/0 weighted late-days at price 0 → 8 changes/233 at 100, and
   `run_cycle` presents the middle price, 25 (16 changes/63).
 - **Priority is a planner LEVER, not a column.** Every order starts at the
@@ -265,9 +265,9 @@ XAS endpoint and its credential never touch the sandbox.
   `_line_vehicle` falls back to the card's single `VehicleDMSCode` only for a
   ONE-car card, so counting a `Configuration` row as a car line suppresses that
   fallback in one place and not the other. The result was a double-booked vehicle
-  invisible to `meta.conflicts` yet still linked as an incumbent, which trips the
+  invisible to `meta.conflicts` yet still linked as an allocation, which trips the
   solver's self-check on its own input. Fixed 2026-08-24; pinned by
-  `test_a_double_booked_vehicle_yields_no_incumbent_for_anyone` and
+  `test_a_double_booked_vehicle_yields_no_allocation_for_anyone` and
   `test_the_card_fallback_needs_a_single_car_line`.
 - **In the real export, a car's status IS its allocation state.** `data/vehicles.csv`
   + `data/orders.csv` (3523 cars, 1641 orders) hold a perfect 1:1 matching: every

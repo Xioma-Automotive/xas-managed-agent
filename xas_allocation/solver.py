@@ -17,7 +17,7 @@ Two halves, and only the second is arithmetic:
 Design highlights, mapped to the spec:
 - §4  Integer node positions from a FIXED sort (order key / vehicle_id asc); real
       keys recovered through explicit lookup tables before anything leaves here.
-- §1  Repair, don't re-solve: pin the whole incumbent, free ONLY the orders that
+- §1  Repair, don't re-solve: pin the whole current allocation, free ONLY the orders that
       need help, re-match just those. Change count is structural.
 - §2  cost(o->u) = W(o)·late^e + early_weight·W(o)·early, plus churn_price and
       BREAK_COST once each if this pairing changes the order's car.
@@ -57,7 +57,7 @@ from pathlib import Path
 import yaml
 from ortools.graph.python import min_cost_flow
 
-from .snapshot import Order, Snapshot, Unit, parse_date
+from .snapshot import Order, Snapshot, Vehicle, parse_date
 
 # Every solver parameter, read ONCE at import. Loading it per solve would let two
 # turns of one conversation price the same override differently — the quiet way
@@ -96,18 +96,18 @@ def effective_weight(order: Order, priority: dict[str, str]) -> float:
     return weight_of_step(priority.get(order.key, DEFAULT_STEP))
 
 
-def tardiness(order: Order, unit: Unit) -> int:
+def tardiness(order: Order, vehicle: Vehicle) -> int:
     """Days late = how far the vehicle's ETA runs past the promise (0 if on/before)."""
-    return max(0, (unit.eta_dealer - order.delivery_date).days)
+    return max(0, (vehicle.eta_dealer - order.delivery_date).days)
 
 
-def earliness(order: Order, unit: Unit) -> int:
+def earliness(order: Order, vehicle: Vehicle) -> int:
     """Days early = how far the delivery lands before the promise (0 if on/after)."""
-    return max(0, (order.delivery_date - unit.eta_dealer).days)
+    return max(0, (order.delivery_date - vehicle.eta_dealer).days)
 
 
-def arc_cost_float(order: Order, unit: Unit, priority: dict[str, str]) -> float:
-    """§2 cost for one order->unit pairing, in float space (scaled to int later).
+def arc_cost_float(order: Order, vehicle: Vehicle, priority: dict[str, str]) -> float:
+    """§2 cost for one order->vehicle pairing, in float space (scaled to int later).
 
     Lateness dominates and curves upward, so two orders four days late cost less
     than one order eight days late — that is "spread the pain" in arithmetic.
@@ -118,12 +118,12 @@ def arc_cost_float(order: Order, unit: Unit, priority: dict[str, str]) -> float:
     what the order already had, not on the pairing, so ``_solve_one`` adds them
     once to the arcs that actually move a car."""
     w = effective_weight(order, priority)
-    cost = w * (tardiness(order, unit) ** CFG["convex_exponent"])
-    cost += CFG["early_weight"] * w * earliness(order, unit)
+    cost = w * (tardiness(order, vehicle) ** CFG["convex_exponent"])
+    cost += CFG["early_weight"] * w * earliness(order, vehicle)
     return cost
 
 
-def break_cost_of(order: Order, incumbent_unit: Unit | None) -> float:
+def break_cost_of(order: Order, allocated_vehicle: Vehicle | None) -> float:
     """Cost to move ``order`` OFF its current binding.
 
     Zero when it has no binding, OR when that binding is already LATE — a broken
@@ -132,19 +132,19 @@ def break_cost_of(order: Order, incumbent_unit: Unit | None) -> float:
     real vehicle, ``soft`` for a future one. This is what makes "bump someone for
     the sake of another" price the *victim* (whose kept promise is disturbed),
     not the order being rescued."""
-    if incumbent_unit is None or tardiness(order, incumbent_unit) > 0:
+    if allocated_vehicle is None or tardiness(order, allocated_vehicle) > 0:
         return 0.0
-    return CFG["break_cost"]["hard" if incumbent_unit.is_hard else "soft"]
+    return CFG["break_cost"]["hard" if allocated_vehicle.is_hard else "soft"]
 
 
-def eligible(order: Order, unit: Unit) -> bool:
+def eligible(order: Order, vehicle: Vehicle) -> bool:
     """The sparse arc rule (computed, never stored): hard sales_model equality.
 
     DECIDE-10: a reserved_for_customer term would AND in here once modelled.
     Lateness is NOT a feasibility gate — it is priced in ``arc_cost_float`` so a
     slightly-late vehicle can still be placed instead of leaving an order with
     no car at all."""
-    return order.sales_model == unit.sales_model
+    return order.sales_model == vehicle.sales_model
 
 
 # --- Repair problem partition (§1, §5) ---------------------------------------
@@ -156,7 +156,7 @@ class RepairPlan:
 
     pinned: dict[str, str]  # order_key -> vehicle_id (kept as-is)
     free_orders: list[str]  # order_keys to (re)match
-    free_units: list[str]  # vehicle_ids available to the free orders
+    free_vehicles: list[str]  # vehicle_ids available to the free orders
     priority: dict[str, str]  # order_key -> named priority step, from the override
     churn_default: int | None  # override-supplied churn price (sweep still explores all)
 
@@ -267,8 +267,8 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
       explicit permission granted in the same breath.
     """
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
-    incumbent = dict(snapshot.incumbent)
+    vehicles = snapshot.vehicle_by_id()
+    allocations = dict(snapshot.allocations)
     disrupted = disrupted_order_keys(snapshot)
 
     may_move = override.get("may_move") or {}
@@ -282,7 +282,7 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     for oid, o in orders.items():
         if names_order(o, never):
             continue
-        needs_help = (oid in disrupted) or (incumbent.get(oid) is None)
+        needs_help = (oid in disrupted) or (allocations.get(oid) is None)
         if not (needs_help or (widened and _matches(o, also))):
             continue
         if narrowed and not _matches(o, only):
@@ -291,19 +291,19 @@ def partition(snapshot: Snapshot, override: dict) -> RepairPlan:
     free_orders.sort()  # §4 fixed key
 
     free_set = set(free_orders)
-    # Pinned = everyone else keeps their incumbent vehicle (if any).
-    pinned = {oid: uid for oid, uid in incumbent.items() if oid not in free_set}
+    # Pinned = everyone else keeps the vehicle they already hold (if any).
+    pinned = {oid: vid for oid, vid in allocations.items() if oid not in free_set}
 
     # Free vehicles: any not consumed by a pinned assignment. A real (hard)
     # vehicle is NOT walled off — freeing its order (above) frees it here too, so
     # it can be reassigned at break_cost['hard'].
     consumed = set(pinned.values())
-    free_units = sorted(uid for uid in units if uid not in consumed)  # §4 fixed key
+    free_vehicles = sorted(vid for vid in vehicles if vid not in consumed)  # §4 fixed key
 
     return RepairPlan(
         pinned=pinned,
         free_orders=free_orders,
-        free_units=free_units,
+        free_vehicles=free_vehicles,
         priority=_combined_priority(snapshot, override),
         churn_default=override.get("churn_price"),
     )
@@ -317,7 +317,7 @@ class SolveResult:
     churn_price: int
     plan: dict[str, str]  # order_key -> vehicle_id (full: pinned+free)
     unfilled: list[str]  # free orders that ended with no car
-    n_changes: int  # free orders whose vehicle differs from incumbent
+    n_changes: int  # free orders whose vehicle differs from the one they held
     weighted_late_days: float  # Σ W(o)·tardiness over ALL orders
     objective_micro: int  # solver objective in scaled int space
     self_check: dict
@@ -325,14 +325,14 @@ class SolveResult:
 
 def _solve_one(snapshot: Snapshot, rp: RepairPlan, churn_price: int) -> SolveResult:
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
+    vehicles = snapshot.vehicle_by_id()
     scale = CFG["cost_scale"]
 
     # §4 integer node positions from the fixed sort already applied to rp.
-    # 0=S, 1=T, 2=D(no car); orders then units follow.
+    # 0=S, 1=T, 2=D(no car); orders then vehicles follow.
     S, T, DUMMY = 0, 1, 2
     order_pos = {oid: 3 + i for i, oid in enumerate(rp.free_orders)}
-    unit_pos = {uid: 3 + len(order_pos) + i for i, uid in enumerate(rp.free_units)}
+    vehicle_pos = {vid: 3 + len(order_pos) + i for i, vid in enumerate(rp.free_vehicles)}
 
     smcf = min_cost_flow.SimpleMinCostFlow()
     N = len(rp.free_orders)
@@ -354,29 +354,31 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, churn_price: int) -> SolveRes
         # be charged whenever the car's date differed from the PROMISED date,
         # true of 98.9% of eligible pairings, so it was a near-constant added to
         # almost every option and could not steer a choice.
-        inc_uid = snapshot.incumbent.get(oid)
-        move_cost = churn_price + break_cost_of(o, units.get(inc_uid) if inc_uid else None)
-        for uid in rp.free_units:
-            u = units[uid]
+        allocated_vid = snapshot.allocations.get(oid)
+        move_cost = churn_price + break_cost_of(
+            o, vehicles.get(allocated_vid) if allocated_vid else None
+        )
+        for vid in rp.free_vehicles:
+            u = vehicles[vid]
             if not eligible(o, u):
                 continue  # incompatible -> no arc (keeps graph sparse, §4)
             c = arc_cost_float(o, u, rp.priority)
-            if uid != inc_uid:
+            if vid != allocated_vid:
                 c += move_cost
             arc = smcf.add_arc_with_capacity_and_unit_cost(
-                order_pos[oid], unit_pos[uid], 1, round(c * scale)
+                order_pos[oid], vehicle_pos[vid], 1, round(c * scale)
             )
-            choice_of[arc] = (oid, uid)
+            choice_of[arc] = (oid, vid)
         # Ending with no car. An order that HAD a car and loses it also changes,
         # so it pays the move; one that never had a car changes nothing by
         # staying without one.
-        c = CFG["no_car_cost"] + (move_cost if inc_uid else 0.0)
+        c = CFG["no_car_cost"] + (move_cost if allocated_vid else 0.0)
         arc = smcf.add_arc_with_capacity_and_unit_cost(order_pos[oid], DUMMY, 1, round(c * scale))
         choice_of[arc] = (oid, None)
 
     # free vehicle -> T (cap 1) ; no-car dummy -> T (cap N)
-    for uid in rp.free_units:
-        smcf.add_arc_with_capacity_and_unit_cost(unit_pos[uid], T, 1, 0)
+    for vid in rp.free_vehicles:
+        smcf.add_arc_with_capacity_and_unit_cost(vehicle_pos[vid], T, 1, 0)
     smcf.add_arc_with_capacity_and_unit_cost(DUMMY, T, N, 0)
 
     smcf.set_node_supply(S, N)
@@ -389,19 +391,19 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, churn_price: int) -> SolveRes
     # Read back flow -> real keys (§4), straight off the arc tags.
     plan: dict[str, str] = dict(rp.pinned)
     unfilled: list[str] = []
-    for arc, (oid, uid) in choice_of.items():
+    for arc, (oid, vid) in choice_of.items():
         if smcf.flow(arc) <= 0:
             continue
-        if uid is None:
+        if vid is None:
             unfilled.append(oid)
         else:
-            plan[oid] = uid
+            plan[oid] = vid
     unfilled.sort()
 
-    n_changes = sum(1 for oid in rp.free_orders if snapshot.incumbent.get(oid) != plan.get(oid))
+    n_changes = sum(1 for oid in rp.free_orders if snapshot.allocations.get(oid) != plan.get(oid))
 
     weighted_late = sum(
-        effective_weight(o, rp.priority) * tardiness(o, units[plan[oid]])
+        effective_weight(o, rp.priority) * tardiness(o, vehicles[plan[oid]])
         for oid, o in orders.items()
         if oid in plan
     )
@@ -419,13 +421,13 @@ def _solve_one(snapshot: Snapshot, rp: RepairPlan, churn_price: int) -> SolveRes
 def _self_check(snapshot: Snapshot, plan: dict, unfilled: list) -> dict:
     """§8.5 hard-constraint self-check. Returns findings; never silently relaxes."""
     orders = snapshot.order_by_key()
-    units = snapshot.unit_by_id()
+    vehicles = snapshot.vehicle_by_id()
     violations: list[str] = []
 
     # No sales_model violation on any assignment.
-    for oid, uid in plan.items():
-        if not eligible(orders[oid], units[uid]):
-            violations.append(f"order {oid} assigned incompatible vehicle {uid}")
+    for oid, vid in plan.items():
+        if not eligible(orders[oid], vehicles[vid]):
+            violations.append(f"order {oid} assigned incompatible vehicle {vid}")
     # Every order has exactly one vehicle (or is a surfaced no-car order).
     every_order_placed = all((oid in plan) or (oid in unfilled) for oid in orders)
     # No vehicle double-booked.
