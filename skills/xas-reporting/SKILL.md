@@ -175,19 +175,25 @@ the string anywhere on a card, so a hit is not proof of ownership and a miss is 
 proof of absence: the same account came back as 18 cards by name search and 336 by
 owner id.
 
-**2. Probe — ONE call, `paging: {"count": 1}`, naming the columns you are
-CONSIDERING.** One cheap row answers two things you cannot know in advance:
-`totalCount`, how many MATCHED the filter rather than how many came back in the
-page; and which of those columns this data actually carries, since a field the tool
-does not return is dropped in silence. The probe reveals only the columns it named,
-so a field you did not ask for tells you nothing. A pure count needs no columns —
-ask for the key alone.
+**2. Send the call you actually need — there is no separate probe to run first.**
+`totalCount` rides on EVERY response, so it costs nothing extra: a count question
+is one call, and a card list is one call that returns the count with the rows.
+Bound `paging.count` to what you will show, and name only the columns you will
+print. Add ONE narrowing clause at a time — never send two clauses you have not
+proven, because a 0 from `A AND B` where neither is established
+carries NO information, and working out afterwards which one killed it costs more
+calls than doing it in order.
 
-Add ONE narrowing clause at a time. Never send two clauses you have not proven: a 0
-from `A AND B` where neither is established carries NO information, and working out
-afterwards which one killed it costs more calls than doing it in order.
+Send a bare `count: 1` FIRST in one case only: **you cannot bound the page without
+knowing the size** — "all of X", where 20 is a list and 2,000 is a different answer
+altogether, and pulling 50 rows would present a truncated page as though it were
+all of them. Then ask for the key alone and nothing else. Not candidate columns: a
+single row cannot tell you which fields this data carries, because presence varies
+per card — `PlateNo` was missing from one sales order and present on 40 of 40 cards
+sampled across types. A probe that names columns to "discover" them learns
+something false and costs a round trip to do it.
 
-**3. Answer, or ask for the rows.**
+**3. Read what came back.**
 
 - **A count is already answered** — `totalCount` IS the number. Stop.
 - **A 0 buys exactly ONE control call.** Re-send with only the clause you GUESSED
@@ -201,12 +207,16 @@ afterwards which one killed it costs more calls than doing it in order.
   against what came back: more than you were given means the set is too big to
   tally, so loop the buckets after all.
 - **"Show me the cards that …"** — ids, statuses, customers, dates, the cards behind
-  a chart need the records themselves. Ask once, `paging.count` bounded, only the
-  columns you will print, and name the ones you show. What the probe already told
-  you does not need asking again: a call repeating the first filter AND the first
-  field list has bought nothing. (A tool result big enough to be offloaded to a file
-  is a symptom: you asked for cards you did not need, and the tokens are spent by
-  the time you read the file.)
+  a chart need the records themselves, so this is the case where you ask for rows
+  and name the ones you show. Asking twice buys nothing: a second call repeating the
+  first filter AND the first field list has bought nothing. (A tool result big enough
+  to be offloaded to a file is a symptom: you asked for cards you did not need, and
+  the tokens are spent by the time you read the file.)
+
+**Never walk pages to compute an aggregate.** Paging and adding up costs roughly
+forty times as much: every card you pull stays in this conversation and is re-read
+on every later turn. And a card arrives padded — eleven account-role objects, the
+owner's whole contact list — so name the columns you want. A count needs none.
 
 **4. Translate every code before you print it.** The records answer in codes —
 `VRV`, `VSO`, `Service` — and the planner reads names, so reverse-look up each one
@@ -218,11 +228,6 @@ could not identify" — never printed bare as though it were a name. On 2026-08-
 three codes reached the planner untranslated, because step 0 had been skipped and
 there was nothing to look them up in.
 
-**Never walk pages to compute an aggregate.** Paging and adding up costs roughly
-forty times as much: every card you pull stays in this conversation and is re-read
-on every later turn. And a card arrives padded — eleven account-role objects, the
-owner's whole contact list — so name the columns you want. A count needs none.
-
 ### The calls
 
 Every row sends `fields`. See below for why, and what to put in it.
@@ -230,7 +235,7 @@ Every row sends `fields`. See below for why, and what to put in it.
 | Goal | Call |
 | --- | --- |
 | A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
-| A probe before asking for cards | the same call, `fields:` the columns you are considering |
+| A size check before "all of X" | the same call — the key ALONE, never candidate columns |
 | Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
 | Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |

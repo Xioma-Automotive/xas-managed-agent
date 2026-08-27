@@ -386,27 +386,24 @@ def test_reporting_skill_counts_with_totalcount_not_by_paging_records():
     )
 
 
-def test_reporting_skill_probes_once_before_shaping_the_real_call():
-    """REVERSED 2026-08-27. The old rule forbade a `count: 1` probe followed by a
-    real call as "the same query twice". It cannot hold: the probe returns the two
-    things that DECIDE the real call — `totalCount`, and which fields this data
-    actually carries, which `fields` is silent about. Forbidding it also
-    contradicted "count the buckets before the first call", which needs a
-    population size the agent has no way to know in advance; the 2026-08-27 trace
-    shows the agent probing anyway, against the rule.
+def test_reporting_skill_does_not_probe_for_its_own_sake():
+    """REVERSED AGAIN 2026-08-27, and this time on measurement. The probe was
+    prescribed for every question, naming "the columns you are CONSIDERING". Both
+    halves fail: `totalCount` rides on every response, so a card list gets the count
+    free from the call it was making anyway; and one row cannot establish field
+    presence, because presence varies per card — `PlateNo` was absent from one sales
+    order and present on 40 of 40 cards sampled across types, so the probe that
+    "discovered" it learned something false.
 
-    What survives is the narrow version: a second call repeating BOTH the first
-    filter and the first field list has bought nothing.
-
-    Merged 2026-08-27 into the three-step procedure: the probe is step 2, so it can
-    no longer be read as licence to send clauses step 1 has not established."""
+    What survives is the one case a round trip buys something: you cannot bound the
+    page without knowing the size, and 20 rows is a list where 2,000 is a summary.
+    Then the key alone, no columns."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "**2. Probe" in skill
-    assert "same query twice" not in skill, "the contradicting prohibition must be gone"
-    assert "has bought nothing" in skill, "but a pure duplicate is still waste"
-    assert '"Show me the cards that' in skill, "the rows case must have its own heading"
-    assert "Up to 5 buckets" in skill, "the bucket threshold, or a breakdown has no rule"
-    assert "More than 5" in skill
+    assert "there is no separate probe to run first" in skill
+    assert "cannot bound the page without" in skill
+    assert "never candidate columns" in skill
+    assert "has bought nothing" in skill, "a pure duplicate is still waste"
+    assert '"Show me the cards that' in skill, "the rows case keeps its heading"
 
 
 def test_reporting_skill_sends_the_agent_to_the_mcp_not_to_a_file():
