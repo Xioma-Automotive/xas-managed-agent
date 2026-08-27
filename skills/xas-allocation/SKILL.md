@@ -25,9 +25,9 @@ fetch it yourself.** It is one frozen picture per repair cycle; that is what mak
 re-running the same instructions give the same plan.
 
 A **VSO** (vehicle sales order) is one customer's job card: a promised date, the
-customer, the priority, and a list of car lines. **One car line is one order for
-one car**, keyed `{JobKey}-{LineNum}` — `VSO-4000-2`. A pin or a scope can name
-either that line or the whole VSO (`VSO-4000`, which steers all its lines).
+customer, and a list of car lines. **One car line is one order for one car**,
+keyed `{JobKey}-{LineNum}` — `VSO-4000-2`. Anywhere steering names an order it can
+name either that line or the whole VSO (`VSO-4000`, which steers all its lines).
 
 Supply is one flat list of cars, each one car. A car is either **on the lot** (you
 could hand it over today) or **still coming** (a build or a shipment with an
@@ -74,7 +74,7 @@ Nobody asks for a "repair". They ask about deliveries and delays.
 | They say | You do |
 | --- | --- |
 | "check the deliveries", "are the cars coming on time?", "what's late?" | run `flatten`, print `discrepancy_report`, stop |
-| "check the VSO", "the sales orders", "VSO-4008" | the same; if they named a customer, a VSO or a month, put it in `scope` rather than filtering by hand |
+| "check the VSO", "the sales orders", "VSO-4008" | the same; if they named a customer, a VSO or a month, put it in `may_move.only` rather than filtering by hand |
 | "any delays in supply?", "the factory slipped", "the VPO is late" | the same — the data already carries which cars slipped |
 | "which cars are still on order?" | read it off the car list; nothing to solve |
 | "fix it", "sort out Colmobil", "pull the Delek car forward" | compile the instruction into the override, then `repair_and_report` |
@@ -97,7 +97,8 @@ Say so plainly and give them what you do have.
 ```
 cost(order → car) = weight · late_days^1.5
                   + a small linear penalty per day early
-                  + a step penalty when the delivery date changes at all
+                  + the churn price, once, if this is a DIFFERENT car than it had
+                  + the break cost, once, if that takes a car off a kept promise
 ```
 
 Three things follow, and they are what you explain to a planner:
@@ -106,24 +107,31 @@ Three things follow, and they are what you explain to a planner:
   all. The exponent means delay gets spread rather than dumped on one order.
 - **Arriving early is not a win.** It is gently penalised, so a car months early
   costs real money. Never sell earliness as a success; mention it as a caveat.
-- **Churn costs.** The step penalty is the "don't move things unnecessarily" dial,
+- **Churn costs.** The churn price is the "don't move things unnecessarily" dial,
   and re-solving at several settings gives the planner a trade-off ("12 changes
   and 340 late-days, or 31 and 210") instead of one opaque answer. When every
   setting gives the same answer, say so in a line rather than showing a table of
   identical rows.
 
-The weight rises with the customer's priority, with delays the supply chain has
-already inflicted on that order, with how long it has been waiting, and with how
-many times *we* have rescheduled it — that last one so the same dealer does not
-absorb the pain every cycle.
+**Weight is the planner's, not the record's.** Every order counts the same until
+they say otherwise; `priority` is how they say otherwise. Nothing on the order
+makes it more important, and nothing about its history does either.
 
-**Time fence:** an order promised within 14 days is frozen — too close to
-delivery to re-slot, and no steering will move it. 15 to 42 days out, moving it
-costs the churn penalty. Beyond that, changes are free.
+**Nothing is walled off, and nothing needs to be.** An order that is settled — it
+has a car and that car still meets the promise — is simply not in play, so it
+keeps what it has and its car stays out of the pool. That is the only protection
+there is, and it is enough. The one exception is an order that IS in trouble and
+the planner wants left alone anyway ("I already called that customer"): that is
+`may_move.never`.
+
+Every number above lives in `solver_config.yaml` inside the skill. Read it if a
+planner asks how something is priced. **Never edit it, and never edit solver
+code** — a plan is only reproducible against the config it was priced with, and
+changing one mid-conversation makes two turns of the same session incomparable.
 
 ## Each turn
 
-`pip install ortools` once per session. The whole API is three calls — do not go
+`pip install ortools pyyaml` once per session (the solver reads its config from YAML). The whole API is three calls — do not go
 looking for more:
 
 ```python
@@ -137,7 +145,7 @@ from xas_allocation import session as S
 snap = S.Snapshot.from_dict(json.load(open("snapshot.json")))
 print(S.discrepancy_report(snap))  # where things stand
 print(S.repair_and_report(snap, override))  # solve + write plan.json + the reply
-S.bump_candidates(snap, S.solve(snap, override))  # who could be displaced
+S.bump_candidates(snap, S.solve(snap, override), override)  # who could be displaced
 ```
 
 1. Call `pull_allocation_snapshot`, then run the `flatten` command it returns,
@@ -151,7 +159,8 @@ S.bump_candidates(snap, S.solve(snap, override))  # who could be displaced
 
 **The allocations live in `plan.json`. Read them from there.** One row per order:
 `order`, `customer`, `priority`, `promised`, `was_car`, `was_arriving`, `now_car`,
-`now_arriving`, `days_late`, `status`, `bumped`, `why_late`. Any follow-up — "show
+`now_arriving`, `days_late`, `status`, `bumped`, `why_late` (`priority` is the step
+the planner set this turn, not anything read off the order). Any follow-up — "show
 me the new allocations", "what did VSO-4007 get?", "which ones are still late?" —
 is a read of that file. **Never re-type allocations out of the conversation and
 never re-derive them:** a retyped table loses a row or mistypes a car id, and
@@ -160,9 +169,10 @@ nothing catches it. If you find yourself writing a script that reads
 skill exists to prevent, it produces confident wrong answers, and the helpers
 already have it.
 
-Never move a frozen order. Never bump an order the disruption did not touch
-without being asked. If the solver comes back infeasible, or an instruction
-collides with one of those rules, stop and say so — never quietly relax it.
+Never displace an order that is not in trouble without being asked — that is what
+`may_move.also` is for, and asking first is the rule, not a courtesy. If an
+instruction collides with that, or with a `never` the planner set earlier, stop
+and say so — never quietly relax it.
 
 ## Talking to the planner
 
@@ -172,8 +182,8 @@ overrides, no field names. Give them the outcome in their own words, with the
 concrete facts they act on: which order, which dealer, which car it now gets
 versus the one it had, the promised date, the arriving date, and whether that is
 on time or how many days late. Names of cars and orders always stay in; internal
-vocabulary always comes out ("too close to delivery to re-slot", not "frozen
-fence"; "no compatible car free", not "no eligible arc").
+vocabulary always comes out ("no compatible car free", not "no eligible arc";
+"I left it where it was", not "it was not in the free set").
 
 Beyond that, use your judgment about shape and length. Two things are not
 optional:
@@ -199,19 +209,42 @@ passed" is enough, unless it failed.
 Planner language becomes a typed override object (`overrides_schema.json`) — never
 special-case code. Everything they can ask for compiles into one of:
 
+There are **three keys and no others**:
+
 | Lever | What it does |
 | --- | --- |
-| `boosts` | favour a customer — resolve "Colmobil" to its id |
-| `pins` / `forbid` | hold an order where it is, or keep a car away from it |
-| `lambda` | how much churn is acceptable |
-| `scope` | `{customers, models, orders, from_date, to_date}` — when set, ONLY matching orders may move and everything else is held. This is both "allocate all Colmobil for August" and "fix this one delay without disturbing anything else". With no scope, only the disrupted orders move. |
-| `bump` | same shape, plus an `orders` list — the orders the planner has authorised you to displace |
-| `time_scale` | `days` / `weeks` / `months`: the resolution the solver reasons at. Coarser rounds every gap up to whole weeks or months, so the plan gets calmer and durations read in that unit. It changes the plan, not just the wording. The 14-day fence stays in days. |
+| `priority` | `[{"order": "VSO-4000-1", "step": "normal\|high\|urgent"}]` — who matters more. Every order starts at `normal`; only what they name moves. An unknown step is an error, so use exactly those three words. |
+| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{customers, models, orders, from_date, to_date}`; `never` takes a list of order keys. |
+| `churn_price` | one number: how much a changed allocation costs. Omit it and the solver sweeps several and presents the middle one. |
+
+`may_move` is one sentence said three ways — *who is in play this turn* — and the
+precedence is **never beats only beats also**:
+
+- **`only` NARROWS.** "Just fix August", "only Colmobil". It bounds the whole
+  turn, including anything `also` authorised. It does not free anybody: a settled
+  order inside the slice still stays put.
+- **`also` WIDENS, inside `only`.** The orders the planner has authorised you to
+  displace to rescue someone late. **This is the only way anyone gets bumped, and
+  you ASK first** — `bump_candidates` gives you the concrete list to ask with.
+- **`never` REMOVES, absolutely.** "Leave that one alone", even against an `also`
+  naming the same order in the same breath. It is the only way to protect an
+  order that is itself late, since such an order is in play by default.
 
 Your job is the translation: "these orders" → real keys from the last change list,
-"next cycle" or "August" → dates, "just get the month roughly right" → months,
-"hit the exact dates" → days. **Confirm the translation in plain words before you
-run it** — "prioritising Colmobil over the other dealers" — not the object itself.
+"next cycle" or "August" → dates, "Colmobil comes first" → an urgent step on their
+orders (there is no dealer-wide priority; name the orders). **Confirm the
+translation in plain words before you run it** — "prioritising Colmobil's two late
+orders over the rest" — not the object itself.
+
+Three things a planner may ask for that are **not** steering:
+
+- **"Push that one to September."** That is a new promised date on the order, not
+  a solver instruction. Say that it is a change to the order in the system; the
+  solver prices lateness against whatever the promise says.
+- **"Think in whole weeks."** The solver measures exact days. Round in your own
+  wording if it helps them; do not pretend the plan changed.
+- **"Make breaking an allocation cheaper."** That is `solver_config.yaml`, a
+  reviewed change by a human, not something a turn does.
 
 A new *constraint* is different from a lever. "Never split a dealer's cars across
 weeks" is a model change: a reviewed code change with tests, never something you
@@ -219,23 +252,25 @@ do live. Say so and offer the nearest lever.
 
 ### Bumping — ask first
 
-By default only the disrupted orders move, so an untouched order never loses its
-car. Sometimes the only way to rescue a high-priority order is to take a car from
-a lower-priority one that was fine. Never do that uninvited:
+By default only orders that need help move, so a settled order never loses its
+car. Sometimes the only way to rescue one is to take a car from an order that was
+fine. Never do that uninvited:
 
 1. Solve the plain repair first.
-2. If a high-priority order is still late, call `session.bump_candidates(...)` and
-   show the planner who could be displaced, lowest priority first.
-3. Compile their answer into `bump`. The solver then displaces one only when it
-   genuinely lowers the total cost, so it takes the low-priority,
-   not-already-rescheduled target rather than a convenient one.
+2. If an order they care about is still late, call `session.bump_candidates(...)`
+   and show the planner who could be displaced, lightest first.
+3. Compile their answer into `may_move.also`. The solver then displaces one only
+   when it genuinely lowers the total cost — an authorisation is permission, not
+   an instruction, so a bump that buys nothing simply does not happen. Say that
+   plainly rather than reporting a failure.
 
 Every bump is flagged in the change list, so a displacement is never silent.
 
 ### Carrying the instructions forward
 
-The override is ONE object, not a log. Each turn you edit it — add a boost, narrow
-a scope, authorise a bump — confirm it in words, and run it against fresh data.
+The override is ONE object, not a log. Each turn you edit it — raise a priority,
+narrow `may_move.only`, authorise an `also` — confirm it in words, and run it
+against fresh data.
 There is no history to replay and no order to get wrong. It is the only thing that
 must survive: if your sandbox is reclaimed, recover it from the last version you
 showed the planner.

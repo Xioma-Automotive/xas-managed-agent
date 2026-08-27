@@ -4,15 +4,22 @@ Each one carries a DEFAULT, a rationale, and a STATUS, and all three are
 surfaced at runtime via ``format_decisions()`` (printed at the top of a
 ``session.py`` run) so nothing is silently assumed.
 
-Reviewed 2026-08-25. The statuses are not decoration — read them:
+Reviewed 2026-08-26. The statuses are not decoration — read them:
 
 * ``SETTLED`` — decided. The mechanism is the answer, not a placeholder.
 * ``SETTLED (mechanism) — VALUE tuned but unvalidated`` — the shape is decided,
-  the NUMBER is not. No planner has ever seen these five values (DECIDE-1, -2,
-  -3, -11, -15); they are tuned against the fabricated dataset alone and are
-  reviewed at first real dealer data.
+  the NUMBER is not. No planner has ever seen these values (DECIDE-3, -15); they
+  are tuned against the fabricated dataset alone and are reviewed at first real
+  dealer data.
+* ``RETIRED`` — the mechanism was built, reviewed and REMOVED. Kept in the
+  register with what went wrong, because a decision that reads as merely absent
+  invites someone to make it again.
 * ``DEFERRED`` — recorded, deliberately not built.
 * ``OPEN`` — still needs human sign-off. One left: DECIDE-5.
+
+This file holds the DECISIONS, never the numbers. Every parameter the solver
+prices with lives in ``solver_config.yaml``; a value quoted in a status line
+below is a note about that config, not the thing the code reads.
 
 Keeping them in ONE place is what makes them auditable rather than scattered
 through the solver.
@@ -36,37 +43,48 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-1",
         status=(
-            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (ALPHA=0.5, BETA=0.1)"
+            "RETIRED 2026-08-26 — the whole aging term is deleted, so there is nothing left to be additive or multiplicative. Not parked: rebuilt only if a real column ever carries an order's age."
         ),
         title="Aging term: additive vs multiplicative on the effective weight W(o)",
-        default="additive",
+        default="deleted — W(o) is the planner's priority step and nothing else",
         rationale=(
-            "W(o) = priority · (1+alpha·n_prior_delays) + beta·days_backordered. "
-            "Additive keeps an old back-order from compounding with high priority into a "
-            "runaway weight. Flip AGING_MODE to 'multiplicative' to make age and priority "
-            "reinforce."
+            "W(o) used to read three escalation fields: n_prior_delays (supply-side "
+            "history), days_backordered (queue fairness) and times_rescheduled "
+            "(DECIDE-11). Every one is zero on every row of real data. The intended "
+            "derivation of days_backordered — the order's age since it was entered — was "
+            "never wired up, and only the fabricated generator ever set any of them, at "
+            "random. A switch (additive vs multiplicative) on a term that is always zero "
+            "is a knob on nothing, so the term, the switch and the three snapshot fields "
+            "all went together."
         ),
     ),
     Decision(
         key="DECIDE-2",
         status=(
-            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (FROZEN_MAX_DAYS=14, SLUSHY_MAX_DAYS=42)"
+            "RETIRED 2026-08-26 — the fence is deleted outright and nothing replaces it. Removing it is what makes bump authorisation work."
         ),
         title="Time-fence boundaries (days from the pull date)",
-        default="frozen <= 14d, slushy 15-42d, liquid > 42d",
+        default="deleted — an order is protected by not being in the free set, not by a wall",
         rationale=(
-            "Classic MPS split, restated in days now the model is date-based. Frozen = "
-            "hard pin, slushy = movable only at high lambda, liquid = free. Constants "
-            "FROZEN_MAX_DAYS / SLUSHY_MAX_DAYS."
+            "The fence froze any order promised within 14 days whose car was on time, with "
+            "a 15-42d middle band. Two faults. It fired BEFORE the authorisation check in "
+            "partition, so it silently cancelled displacements a planner had explicitly "
+            "authorised — three authorised bumps once no-oped for exactly this reason, the "
+            "freed cars sitting idle while the rescue targets stayed fence-locked. And what "
+            "it was believed to protect, a settled on-time order, is already protected by "
+            "the free-set rule: such an order is never freed, so there is nothing to churn. "
+            "The middle band also quietly gated the churn price, which is half of why that "
+            "came back flat (DECIDE-11's sibling fault). Removing the fence leaves the "
+            "no-bump default exactly as it was."
         ),
     ),
     Decision(
         key="DECIDE-3",
         status=(
-            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (BREAK_COST['hard']=200.0 — the 'days-late worth one hard break' ratio is the number a planner must own)"
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (break_cost.hard=200.0 in solver_config.yaml — the 'days-late worth one hard break' ratio is the number a planner must own)"
         ),
         title="Break cost: soft vs hard allocation (real vs future vehicle)",
-        default="hard (binding 'Vehicle') = expensive-but-movable; soft ('Future') = free; BREAK_COST",
+        default="hard (binding 'Vehicle') = expensive-but-movable; soft ('Future') = free; break_cost in solver_config.yaml",
         rationale=(
             "A VSO row bound to a REAL vehicle (the 'Vehicle' binding, a car on the lot) is a "
             "HARD allocation; one bound to a FUTURE vehicle (the 'Future' binding, still "
@@ -75,28 +93,37 @@ DECISIONS: list[Decision] = [
             "everything else (Customer, Reserved-*, Used, Demo, Disabled, no status) is out of "
             "the pool entirely; XAS's own VehicleClassification field is a different axis "
             "(Truck/Vehicle/InventoryVehicles) despite sharing a name and a value. Hard is NOT a wall — the repair loop may bump it 'for the "
-            "sake of another' order, it just pays a large finite BREAK_COST['hard'] to do so; "
-            "soft costs BREAK_COST['soft'] (0 by default). The cost applies only to displacing "
+            "sake of another' order, it just pays a large finite break_cost.hard to do so; "
+            "soft costs break_cost.soft (0 by default). The cost applies only to displacing "
             "an ON-TIME binding (a kept promise); an already-LATE binding protects nothing, so "
             "re-allocating a disrupted order is free — the break prices the bump VICTIM, not "
             "the disrupted order being rescued. There is NO location gradient: the real "
             "inventory-vehicle API carries no usable position (all location fields null), so "
             "hardness is the binary real-vs-future, keyed on Unit.vehicle_classification. "
-            "BREAK_COST['hard'] is the tunable ratio 'how many weighted late-days is breaking "
-            "one hard allocation worth'; it is a solver parameter the planner can override "
-            "per session. (Supersedes the retired committed-vehicle hard wall.)"
+            "break_cost.hard is the tunable ratio 'how many weighted late-days is breaking "
+            "one hard allocation worth'. It is CONFIG, not steering: it left the override "
+            "object on 2026-08-26 because it is a constant somebody exposed per session, "
+            "not a sentence a planner says. (Supersedes the retired committed-vehicle hard "
+            "wall.)"
         ),
     ),
     Decision(
         key="DECIDE-4",
-        status=("SETTLED 2026-08-25"),
+        status=(
+            "RETIRED 2026-08-26 — there are no instruction pins left to choose a mechanism for. What remains is pre-commit, and only pre-commit."
+        ),
         title="Pin mechanism: pre-commit-arc vs infinite-cost",
-        default="inf_cost (finite large penalty) for instruction pins; pre-commit (exclude) for data pins",
+        default="pre-commit — an order that may not move is excluded from the graph",
         rationale=(
-            "Instruction pins use a large finite penalty so the lambda sweep can re-run "
-            "without rebuilding the network and so conflicts surface as cost (DECIDE-8). "
-            "The frozen-fence data pin is pre-committed out of the graph entirely "
-            "(a real vehicle is NOT — it is priced via BREAK_COST, DECIDE-3)."
+            "Both mechanisms this decision chose between are gone. The finite-penalty side "
+            "priced the soft instruction pin ('do not deliver this before 14 September'), "
+            "cut on 2026-08-26: it was the only price on an INSTRUCTION rather than an "
+            "outcome, and deferring an order never moved its promised date, so a deferred "
+            "order paid a lateness charge and a pin charge at once. Pushing an order back "
+            "is a NEW PROMISED DATE, priced correctly by the lateness and earliness terms "
+            "with no extra machinery. The pre-commit side priced the frozen fence "
+            "(DECIDE-2), also gone. What is left needs no decision: `may_move.never` and "
+            "any order outside the free set are simply not in the graph."
         ),
     ),
     Decision(
@@ -163,15 +190,17 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-8",
-        status=("SETTLED 2026-08-25"),
+        status=("SETTLED 2026-08-26 — restated: the only large finite cost left is no_car_cost."),
         title="Infeasibility strategy",
-        default="high-cost soft pins (option 1)",
+        default="large finite costs, never hard walls — the solver always returns a plan",
         rationale=(
-            "Instruction pins run as large finite costs so the solver always returns "
-            "something; a violated pin shows up as a large cost line to surface ('honouring "
-            "this pin costs N extra changes'). CP-SAT assumption-literal minimal conflict "
-            "sets (option 2) are the more-honest upgrade, deferred with the CP-SAT escape "
-            "hatch."
+            "Nothing in the cost model is infinite, so the flow is always feasible and a "
+            "book with more orders than cars comes back as a plan naming who is unplaceable "
+            "rather than as a crash. Since the instruction pins went (DECIDE-4), the one "
+            "cost carrying this is `no_car_cost` (10,000,000 in solver_config.yaml): high "
+            "enough that a late car always beats no car, finite so 'no car' stays a "
+            "reportable outcome. CP-SAT assumption-literal minimal conflict sets are the "
+            "more-honest upgrade, deferred with the CP-SAT escape hatch."
         ),
     ),
     Decision(
@@ -180,11 +209,11 @@ DECISIONS: list[Decision] = [
             "SETTLED 2026-08-25 — stays in-repo under xas_allocation/, shipped in the skill bundle. Extraction to a version-pinned repo is triggered by the FIRST NON-DEV TENANT, not by a date; SOLVER_VERSION is the pin point."
         ),
         title="Solver repo location + versioning",
-        default="reference solver lives in-repo under xas_allocation/; skill pins SOLVER_VERSION",
+        default="reference solver lives in-repo under xas_allocation/; solver_config.yaml pins the version",
         rationale=(
             "Spec §10: the reference copy lives in the skill for day-one. Canonical version "
             "moves to a tested repo before real dealer data; the skill then pins a version. "
-            "SOLVER_VERSION is that pin point."
+            "The config's `version` is that pin point."
         ),
     ),
     Decision(
@@ -210,13 +239,16 @@ DECISIONS: list[Decision] = [
         key="DECIDE-13",
         status=("SETTLED 2026-08-25"),
         title="Bumping an untouched order requires explicit planner authorization",
-        default="never bump an untouched row unless the planner names who may be bumped (override 'bump')",
+        default="never bump an untouched row unless the planner names who may be bumped (override 'may_move.also')",
         rationale=(
-            "By default the repair frees only disrupted rows, so an untouched order is never "
-            "displaced. When a good fix requires bumping one, the agent must ASK the planner "
-            "which orders/customers/POs may be bumped and compile the answer into the 'bump' "
-            "filter; the solver then displaces one only if it lowers total cost (low-priority, "
-            "not-already-rescheduled targets first). No uninvited bumps."
+            "By default the repair frees only rows that need help — late, or with no car — "
+            "so an untouched order is never displaced. When a good fix requires bumping one, "
+            "the agent must ASK the planner who may be bumped and compile the answer into "
+            "`may_move.also`; the solver then displaces one only if it lowers total cost, "
+            "paying break_cost for the disturbed promise. No uninvited bumps. Renamed from "
+            "'bump' on 2026-08-26 when the three who-may-move keys merged into one: it is "
+            "still the ONE place permission to displace is granted, and it is now the only "
+            "key that can widen the set at all."
         ),
     ),
     Decision(
@@ -235,9 +267,11 @@ DECISIONS: list[Decision] = [
     ),
     Decision(
         key="DECIDE-14",
-        status=("SETTLED 2026-08-25"),
+        status=(
+            "RETIRED 2026-08-26 — cut unbuilt-for: no planner ever asked for it. Confirmed with Olga before removal."
+        ),
         title="Time-scale granularity: the resolution the solver reasons at",
-        default="planner knob time_scale (days|weeks|months); round day-deltas UP; default days",
+        default="deleted — the solver measures in exact days, and the report speaks days",
         rationale=(
             "A planner works at different horizons. time_scale sets the unit the solver "
             "measures every gap in: day-deltas are rounded UP to whole units (ceil) before "
@@ -245,17 +279,20 @@ DECISIONS: list[Decision] = [
             "fussing over a few days. Round-up is strict — any lateness is at least one unit, "
             "so a coarse view never under-states lateness. The hard time fence (DECIDE-2) "
             "stays in real days — it is physical, not a reasoning lens. "
-            "month = 30 days nominal (delta rounding, not calendar months). Default 'days' = "
-            "today's behaviour exactly. SCALE_DAYS / DEFAULT_TIME_SCALE."
+            "month = 30 days nominal (delta rounding, not calendar months). What it cost to "
+            "keep: a rounding helper, a resolver, an extra argument threaded through the "
+            "cost function, duration phrasing in every report and a 110-line test file — to "
+            "stop the solver distinguishing three days from six. Rebuild it the day a "
+            "planner asks to think in whole weeks."
         ),
     ),
     Decision(
         key="DECIDE-15",
         status=(
-            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (EARLY_WEIGHT=0.15)"
+            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (early_weight=0.15 in solver_config.yaml)"
         ),
         title="Earliness penalty: how hard to discourage arriving too early",
-        default="EARLY_WEIGHT = 0.15, linear; extreme earliness may lose to slight lateness (uncapped)",
+        default="early_weight = 0.15, linear; extreme earliness may lose to slight lateness (uncapped)",
         rationale=(
             "Only lateness used to be priced, so the solver grabbed wildly-early cars and sold "
             "them as wins. A linear, small early-side term (EARLY_WEIGHT · W(o) · early_units) "
@@ -268,17 +305,18 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-11",
         status=(
-            "SETTLED 2026-08-25 (mechanism) — VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (GAMMA=0.75)"
+            "RETIRED 2026-08-26 — deleted with the rest of the weight escalation (DECIDE-1). It never fired on anything real."
         ),
         title="Reschedule fairness: how hard to protect an already-bumped order",
-        default="GAMMA = 0.75 escalation on W(o) per times_rescheduled",
+        default="deleted — no term tracks how often an order has been rescheduled",
         rationale=(
-            "times_rescheduled counts reschedules OUR repair loop caused (distinct from "
-            "supply-side n_prior_delays). Folding it into the weight escalation makes a "
-            "repeatedly-bumped order heavier, so the solver protects it from being delayed "
-            "again and spreads the pain instead of hitting the same dealer every cycle. GAMMA "
-            "tunes the strength; 0 disables it. In production the field is incremented on "
-            "approved write-back and re-pulled, never mutated mid-session (the invariant)."
+            "The intent was sound: an order this system has already rescheduled gets "
+            "heavier, so the next slip lands on someone else. The mechanism never ran. "
+            "times_rescheduled was only ever written by a random draw in the fabricated "
+            "generator — the repair loop does not record a reschedule, and there is no "
+            "approved write-back to increment it — so the term was zero on every real row "
+            "from the day it was written. Rebuilding it needs the write-back first; the "
+            "field is the last step, not the first."
         ),
     ),
     Decision(
@@ -300,77 +338,31 @@ DECISIONS: list[Decision] = [
 ]
 
 
-# --- Load-bearing defaults referenced by the solver / session -----------------
-# These are the concrete values behind the decisions above. Change them HERE.
-
-# Customer priority letter -> multiplicative weight on W(o) (§2).
-PRIORITY_WEIGHT: dict[str, float] = {"A": 3.0, "B": 2.0, "C": 1.0}
-
-# DECIDE-1
-AGING_MODE = "additive"  # "additive" | "multiplicative"
-
-# DECIDE-2  (tardiness measured in whole days from the promised date)
-FROZEN_MAX_DAYS = 14
-SLUSHY_MAX_DAYS = 42
-
-# DECIDE-3  break cost: what it costs to move an allocation OFF its current
-# binding, keyed on the binding's flavor. A real vehicle is HARD (expensive but
-# movable); a future vehicle is SOFT (free to reshuffle). Two levels, no
-# gradient — hardness derives from Unit.vehicle_classification, not location.
-# BREAK_COST["hard"] is the load-bearing ratio (cost of breaking one hard
-# allocation, in the same scaled units as weighted lateness); the planner can
-# override it per session. STUB DEFAULT — the real "days-late worth one hard
-# break" ratio needs sign-off.
-BREAK_COST: dict[str, float] = {"hard": 200.0, "soft": 0.0}
-
-# DECIDE-4 / DECIDE-8
-# Large finite penalty used for soft instruction pins/forbids/defers. Big enough
-# to dominate any legitimate lateness cost, small enough that the min-cost-flow
-# stays well inside int range (no overflow) so a violated pin surfaces as a
-# visible, comparable cost line instead of an outright infeasibility.
-SOFT_PIN_COST = 1_000_000
-
-# DECIDE-9
-SOLVER_VERSION = "0.2.0-prototype"
-
-# Cost-model coefficients (§2). Fixed formula, tunable coefficients.
-CONVEX_EXPONENT = 1.5  # >1 so lateness never dumps entirely on one order
-ALPHA = 0.5  # supply-side prior-delay escalation: (1 + ALPHA * n_prior_delays)
-GAMMA = 0.75  # DECIDE-11 reschedule-fairness escalation: (+ GAMMA * times_rescheduled)
-BETA = 0.1  # back-order aging per day (see AGING_MODE)
-
-# DECIDE-15  earliness: price early arrivals so the solver stops grabbing
-# needlessly-early cars. LINEAR and small, so the convex lateness term always
-# dominates (a late car is never chosen over an on-time one to avoid earliness).
-# A little early costs almost nothing; a lot early costs real money.
-EARLY_WEIGHT = 0.15
-
-# DECIDE-14  time-scale granularity: the resolution the solver reasons at. Day
-# gaps (early/late) are rounded UP to whole units before costing, so differences
-# finer than a unit collapse. Nominal days-per-unit — month = 30d nominal, NOT
-# calendar months (we round day-deltas, never snap to a calendar boundary).
-SCALE_DAYS: dict[str, int] = {"days": 1, "weeks": 7, "months": 30}
-DEFAULT_TIME_SCALE = "days"  # no behaviour change unless the planner asks
-
-# The lambda sweep (§2, "highest-value output").
-LAMBDA_SWEEP = (0, 5, 10, 25, 50, 100)
+# The numbers are NOT here. Every parameter the solver prices with lives in
+# `solver_config.yaml` beside this file and is read by `solver.py` alone. This
+# module is the register of what was decided and why; putting a default back
+# here would give the same number two homes and one of them would go stale.
 
 
 def format_decisions() -> str:
     """Human-readable dump of every decision, its default and its status.
 
-    Printed at the top of a session run so no assumption is silent. OPEN and
-    value-unvalidated entries are counted in the header — a reader who stops at
-    the first line still learns how much is genuinely decided.
+    Printed at the top of a session run so no assumption is silent. OPEN,
+    value-unvalidated and RETIRED entries are counted in the header — a reader
+    who stops at the first line still learns how much is genuinely decided, and
+    how much was built and taken back out.
     """
     open_keys = [d.key for d in DECISIONS if d.status.startswith("OPEN")]
     unvalidated = [d.key for d in DECISIONS if "VALUE tuned but unvalidated" in d.status]
+    retired = [d.key for d in DECISIONS if d.status.startswith("RETIRED")]
     lines = [
         (
             f"DECISION REGISTER ({len(DECISIONS)} entries): "
             f"{len(open_keys)} OPEN ({', '.join(open_keys) or 'none'}); "
             f"{len(unvalidated)} settled in shape but carrying an UNVALIDATED VALUE "
-            f"({', '.join(unvalidated) or 'none'})."
+            f"({', '.join(unvalidated) or 'none'}); "
+            f"{len(retired)} RETIRED — built, then removed "
+            f"({', '.join(retired) or 'none'})."
         )
     ]
     for d in DECISIONS:

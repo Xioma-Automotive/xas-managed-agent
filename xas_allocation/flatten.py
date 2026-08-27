@@ -17,6 +17,9 @@ Field mapping (real XAS → solver):
     a line resolves to at most one vehicle code (see the module docstring in
     ``snapshot.py``).
   * ``DeliveryDate`` (VSO header) → ``Order.delivery_date`` (the promise).
+  * ``JobPriority`` is NOT read. Priority is a per-turn planner lever now
+    (``solver._combined_priority``), not a letter on the record — see the
+    ``Order`` docstring in ``snapshot.py``.
   * ``AvailableBy``, else ``EtaDealer`` (vehicle) → ``Unit.eta_dealer`` (the
     mutable delivery date).
   * ``VehicleClassification`` (``Vehicle``/``Future``) → ``Unit.vehicle_classification``.
@@ -104,7 +107,6 @@ def flatten(rich: dict) -> Snapshot:
         owner = (vso.get("Accounts") or {}).get("Owner") or {}
         customer = owner.get("AccountName", "")
         customer_id = owner.get("AccountUUID", "")
-        priority = (vso.get("JobPriority") or {}).get("Code", "C")
         if not vso.get("DeliveryDate"):
             skip("order_without_a_promised_date")
             continue
@@ -126,14 +128,8 @@ def flatten(rich: dict) -> Snapshot:
                 customer=customer,
                 customer_id=customer_id,
                 sales_model=item["SalesModelCode"],
-                priority=priority,
                 delivery_date=delivery_date,
                 price=price,
-                # Solver escalation fields; the real-data derivation is a TODO
-                # (see scenario_engine). Absent => 0.
-                n_prior_delays=int(item.get("n_prior_delays", 0)),
-                days_backordered=int(item.get("days_backordered", 0)),
-                times_rescheduled=int(item.get("times_rescheduled", 0)),
             )
             orders.append(order)
             inc = _incumbent_of(item)

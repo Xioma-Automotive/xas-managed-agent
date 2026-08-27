@@ -39,12 +39,12 @@ from xas_allocation.solver import solve
 
 SEED = 20
 
-# A representative steering override (defer + boost + λ). Just a dict — the whole
+# A representative steering override — all three keys. Just a dict; the whole
 # point is that the agent carries this object, not a log of how it was built.
 STEER = {
-    "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
-    "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
-    "lambda": 25,
+    "priority": [{"order": "VSO-4000-1", "step": "urgent"}],
+    "may_move": {"only": {"customers": ["CUST-001"]}, "never": ["VSO-4001-1"]},
+    "churn_price": 25,
 }
 
 
@@ -68,8 +68,8 @@ def test_snapshot_reproducible() -> None:
 
 def test_solve_deterministic() -> None:
     snap = flatten(datasource.map_world(generate(seed=SEED)["pull"]))
-    r1 = solve(snap, STEER, lam=25)
-    r2 = solve(snap, STEER, lam=25)
+    r1 = solve(snap, STEER, churn_price=25)
+    r2 = solve(snap, STEER, churn_price=25)
     assert _plan_json(r1.plan) == _plan_json(r2.plan)
     assert r1.self_check["ok"], r1.self_check["violations"]
 
@@ -81,7 +81,9 @@ def test_override_invariant_across_sandbox_discard() -> None:
         data_path = Path(d) / "pull.json"
 
         def frontier(cyc) -> list[tuple]:
-            return [(p.lam, p.n_changes, p.weighted_late_days, p.unfilled) for p in cyc.sweep]
+            return [
+                (p.churn_price, p.n_changes, p.weighted_late_days, p.unfilled) for p in cyc.sweep
+            ]
 
         # --- Run A: pull+flatten from disk, solve under the override. ---
         snapA = flatten(_pull_from_disk(data_path))
@@ -97,7 +99,7 @@ def test_override_invariant_across_sandbox_discard() -> None:
         planB, frontierB = _plan_json(cycB.chosen.plan), frontier(cycB)
 
         assert planA == planB, "plan changed after sandbox discard — state leaked"
-        assert frontierA == frontierB, "λ frontier changed after sandbox discard"
+        assert frontierA == frontierB, "the churn-price frontier changed after sandbox discard"
 
 
 def test_override_is_order_independent() -> None:
@@ -107,16 +109,18 @@ def test_override_is_order_independent() -> None:
     order to get wrong.)"""
     snap = flatten(datasource.map_world(generate(seed=SEED)["pull"]))
     a = {
-        "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
-        "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
-        "lambda": 25,
+        "priority": [{"order": "VSO-4000-1", "step": "urgent"}],
+        "may_move": {"never": ["VSO-4001-1"], "only": {"customers": ["CUST-001"]}},
+        "churn_price": 25,
     }
     b = {
-        "lambda": 25,
-        "pins": [{"order": "VSO-4000-1", "action": "defer", "not_before": "2026-09-21"}],
-        "boosts": [{"customer": "CUST-001", "weight_mult": 3.0}],
+        "churn_price": 25,
+        "may_move": {"only": {"customers": ["CUST-001"]}, "never": ["VSO-4001-1"]},
+        "priority": [{"order": "VSO-4000-1", "step": "urgent"}],
     }
-    assert _plan_json(solve(snap, a, lam=25).plan) == _plan_json(solve(snap, b, lam=25).plan)
+    assert _plan_json(solve(snap, a, churn_price=25).plan) == _plan_json(
+        solve(snap, b, churn_price=25).plan
+    )
 
 
 ALL_TESTS = [

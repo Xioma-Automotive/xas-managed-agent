@@ -221,7 +221,9 @@ def test_flatten_maps_real_xas_shaped_records():
     o1 = orders["VSO-77-1"]
     assert (o1.so_id, o1.line) == ("VSO-77", 1)
     assert o1.customer == "Colmobil" and o1.customer_id == "CUST-001"
-    assert o1.priority == "A"
+    assert not hasattr(o1, "priority"), (
+        "JobPriority is not read: priority is a planner lever on the override now"
+    )
     assert o1.sales_model == "T5040"
     assert o1.delivery_date.isoformat() == "2026-09-14"  # from DeliveryDate
     assert o1.price == 45000.0  # Σ Prices[].GrossTotal

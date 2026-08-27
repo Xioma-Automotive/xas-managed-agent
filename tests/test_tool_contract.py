@@ -61,7 +61,9 @@ def test_summary_carries_a_wellformed_customer_map():
     assert summary["customers"], "no customers surfaced for §6 resolution"
     for name, info in summary["customers"].items():
         assert info["customer_id"].startswith("CUST-"), name
-        assert info["priority"] in {"A", "B", "C"}, name
+        # No priority on the map: it is a step the planner names per order now,
+        # never a letter read off a dealer.
+        assert set(info) == {"customer_id"}, name
 
 
 def test_summary_stays_small():

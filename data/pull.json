@@ -4,28 +4,35 @@
     "delay_label": "7/21/30 days",
     "delay_tiers": {
       "21": [
-        "VEH-9001",
-        "VEH-9004",
-        "VEH-9006",
-        "VEH-9007",
-        "VEH-9010",
-        "VEH-9023"
+        "VEH-9008",
+        "VEH-9009",
+        "VEH-9017",
+        "VEH-9021",
+        "VEH-9023",
+        "VEH-9028",
+        "VEH-9029",
+        "VEH-9031"
       ],
       "30": [
+        "VEH-9001",
+        "VEH-9003",
         "VEH-9005",
-        "VEH-9013",
-        "VEH-9020",
-        "VEH-9021",
+        "VEH-9007",
+        "VEH-9011",
         "VEH-9024",
-        "VEH-9028"
+        "VEH-9026",
+        "VEH-9032"
       ],
       "7": [
         "VEH-9002",
-        "VEH-9003",
-        "VEH-9008",
-        "VEH-9015",
+        "VEH-9004",
+        "VEH-9006",
+        "VEH-9010",
+        "VEH-9013",
         "VEH-9022",
-        "VEH-9025"
+        "VEH-9025",
+        "VEH-9027",
+        "VEH-9030"
       ]
     },
     "delayed_vehicles": [
@@ -37,16 +44,23 @@
       "VEH-9006",
       "VEH-9007",
       "VEH-9008",
+      "VEH-9009",
       "VEH-9010",
+      "VEH-9011",
       "VEH-9013",
-      "VEH-9015",
-      "VEH-9020",
+      "VEH-9017",
       "VEH-9021",
       "VEH-9022",
       "VEH-9023",
       "VEH-9024",
       "VEH-9025",
-      "VEH-9028"
+      "VEH-9026",
+      "VEH-9027",
+      "VEH-9028",
+      "VEH-9029",
+      "VEH-9030",
+      "VEH-9031",
+      "VEH-9032"
     ],
     "disrupted_orders": [
       "VSO-4000-1",
@@ -54,19 +68,26 @@
       "VSO-4001-1",
       "VSO-4002-1",
       "VSO-4003-1",
-      "VSO-4003-2",
       "VSO-4004-1",
       "VSO-4004-2",
       "VSO-4005-1",
+      "VSO-4005-2",
+      "VSO-4006-1",
+      "VSO-4006-2",
       "VSO-4007-1",
-      "VSO-4009-1",
+      "VSO-4008-2",
+      "VSO-4012-1",
       "VSO-4013-1",
-      "VSO-4013-2",
-      "VSO-4013-3",
       "VSO-4014-1",
+      "VSO-4014-2",
       "VSO-4015-1",
-      "VSO-4015-2",
-      "VSO-4018-1"
+      "VSO-4016-1",
+      "VSO-4017-1",
+      "VSO-4017-2",
+      "VSO-4017-3",
+      "VSO-4018-1",
+      "VSO-4019-1",
+      "VSO-4019-2"
     ]
   },
   "meta": {
@@ -75,15 +96,15 @@
       "line_drops": {
         "not_a_car_line": 20
       },
-      "lines_kept": 29,
+      "lines_kept": 33,
       "link_drops": {},
       "order_drops": {},
       "orders_kept": 20,
       "orders_seen": 20,
       "orders_with_no_eligible_car": [],
       "unit_drops": {},
-      "units_kept": 48,
-      "units_seen": 48
+      "units_kept": 55,
+      "units_seen": 55
     },
     "now": "2026-08-03",
     "sales_models": [
@@ -98,7 +119,7 @@
   "vehicles": [
     {
       "Description": "JAECOO 7",
-      "EtaDealer": "2026-11-02",
+      "EtaDealer": "2026-11-11",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM2",
@@ -116,14 +137,14 @@
       "XasVehicleClassification": "InventoryVehicles"
     },
     {
-      "Description": "BYD Atto 3",
+      "Description": "Omoda 5",
       "EtaDealer": "2026-10-19",
       "Make": "Chery",
       "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
+        "Code": "SM3",
+        "Name": "Omoda 5"
       },
-      "SalesModel": "SM4",
+      "SalesModel": "SM3",
       "Status": {
         "Code": "01",
         "Color": "Ordered",
@@ -131,6 +152,63 @@
       },
       "VehicleClassification": "Future",
       "VehicleCode": "VEH-9002",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-10-14",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9003",
+      "Vin": "",
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-08-31",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9004",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-10-21",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9005",
       "Vin": "",
       "XasVehicleClassification": "Vehicle"
     },
@@ -149,76 +227,19 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9003",
-      "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-09-14",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9004",
-      "Vin": "",
-      "XasVehicleClassification": "InventoryVehicles"
-    },
-    {
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-09-02",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9005",
-      "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-08-24",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
       "VehicleCode": "VEH-9006",
       "Vin": "",
       "XasVehicleClassification": "Truck"
     },
     {
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-09-07",
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-09-23",
       "Make": "Chery",
       "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
+        "Code": "SM5",
+        "Name": "Geely Coolray"
       },
-      "SalesModel": "SM1",
+      "SalesModel": "SM5",
       "Status": {
         "Code": "01",
         "Color": "Ordered",
@@ -227,11 +248,11 @@
       "VehicleClassification": "Future",
       "VehicleCode": "VEH-9007",
       "Vin": "",
-      "XasVehicleClassification": "InventoryVehicles"
+      "XasVehicleClassification": "Vehicle"
     },
     {
       "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-24",
+      "EtaDealer": "2026-09-14",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM5",
@@ -249,84 +270,8 @@
       "XasVehicleClassification": "Vehicle"
     },
     {
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9009",
-      "Vin": "VIN00009009",
-      "XasVehicleClassification": "Truck"
-    },
-    {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-11-02",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9010",
-      "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
-      },
-      "SalesModel": "SM1",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9011",
-      "Vin": "VIN00009011",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9012",
-      "Vin": "VIN00009012",
-      "XasVehicleClassification": "Truck"
-    },
-    {
       "Description": "Omoda 5",
-      "EtaDealer": "2026-09-23",
+      "EtaDealer": "2026-09-14",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM3",
@@ -339,9 +284,104 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9009",
+      "Vin": "",
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-28",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9010",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-10-21",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9011",
+      "Vin": "",
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9012",
+      "Vin": "VIN00009012",
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-08-31",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
       "VehicleCode": "VEH-9013",
       "Vin": "",
       "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9014",
+      "Vin": "VIN00009014",
+      "XasVehicleClassification": "Vehicle"
     },
     {
       "Description": "Chery Tiggo 8",
@@ -358,27 +398,8 @@
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9014",
-      "Vin": "VIN00009014",
-      "XasVehicleClassification": "Truck"
-    },
-    {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-10",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
       "VehicleCode": "VEH-9015",
-      "Vin": "",
+      "Vin": "VIN00009015",
       "XasVehicleClassification": "Truck"
     },
     {
@@ -398,120 +419,6 @@
       "VehicleClassification": "Vehicle",
       "VehicleCode": "VEH-9016",
       "Vin": "VIN00009016",
-      "XasVehicleClassification": "InventoryVehicles"
-    },
-    {
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9017",
-      "Vin": "VIN00009017",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9018",
-      "Vin": "VIN00009018",
-      "XasVehicleClassification": "Truck"
-    },
-    {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9019",
-      "Vin": "VIN00009019",
-      "XasVehicleClassification": "InventoryVehicles"
-    },
-    {
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-09-09",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9020",
-      "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-09",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "SalesModel": "SM5",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9021",
-      "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-17",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9022",
-      "Vin": "",
       "XasVehicleClassification": "Vehicle"
     },
     {
@@ -529,47 +436,9 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9023",
+      "VehicleCode": "VEH-9017",
       "Vin": "",
       "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-09-30",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9024",
-      "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-09-07",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9025",
-      "Vin": "",
-      "XasVehicleClassification": "Truck"
     },
     {
       "Description": "Chery Tiggo 8",
@@ -586,9 +455,28 @@
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9026",
-      "Vin": "VIN00009026",
-      "XasVehicleClassification": "InventoryVehicles"
+      "VehicleCode": "VEH-9018",
+      "Vin": "VIN00009018",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9019",
+      "Vin": "VIN00009019",
+      "XasVehicleClassification": "Vehicle"
     },
     {
       "Description": "JAECOO 7",
@@ -605,13 +493,51 @@
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9027",
-      "Vin": "VIN00009027",
+      "VehicleCode": "VEH-9020",
+      "Vin": "VIN00009020",
       "XasVehicleClassification": "Vehicle"
     },
     {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-31",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9021",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-24",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9022",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
       "Description": "Omoda 5",
-      "EtaDealer": "2026-09-16",
+      "EtaDealer": "2026-09-07",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM3",
@@ -624,66 +550,28 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9028",
+      "VehicleCode": "VEH-9023",
       "Vin": "",
-      "XasVehicleClassification": "Truck"
+      "XasVehicleClassification": "Vehicle"
     },
     {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-03",
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-09-16",
       "Make": "Chery",
       "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
+        "Code": "SM2",
+        "Name": "JAECOO 7"
       },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9029",
-      "Vin": "VIN00009029",
-      "XasVehicleClassification": "InventoryVehicles"
-    },
-    {
-      "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-28",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM5",
-        "Name": "Geely Coolray"
-      },
-      "SalesModel": "SM5",
+      "SalesModel": "SM2",
       "Status": {
         "Code": "01",
         "Color": "Ordered",
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9030",
+      "VehicleCode": "VEH-9024",
       "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9031",
-      "Vin": "VIN00009031",
-      "XasVehicleClassification": "InventoryVehicles"
+      "XasVehicleClassification": "Truck"
     },
     {
       "Description": "BYD Atto 3",
@@ -700,51 +588,13 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9032",
+      "VehicleCode": "VEH-9025",
       "Vin": "",
-      "XasVehicleClassification": "Vehicle"
-    },
-    {
-      "Description": "Omoda 5",
-      "EtaDealer": "2026-08-10",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM3",
-        "Name": "Omoda 5"
-      },
-      "SalesModel": "SM3",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9033",
-      "Vin": "",
-      "XasVehicleClassification": "Truck"
-    },
-    {
-      "Description": "BYD Atto 3",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM4",
-        "Name": "BYD Atto 3"
-      },
-      "SalesModel": "SM4",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9034",
-      "Vin": "VIN00009034",
       "XasVehicleClassification": "Truck"
     },
     {
       "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-03",
+      "EtaDealer": "2026-10-21",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM5",
@@ -752,14 +602,52 @@
       },
       "SalesModel": "SM5",
       "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
       },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9035",
-      "Vin": "VIN00009035",
-      "XasVehicleClassification": "InventoryVehicles"
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9026",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-05",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9027",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-19",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9028",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
     },
     {
       "Description": "JAECOO 7",
@@ -776,13 +664,32 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9036",
+      "VehicleCode": "VEH-9029",
       "Vin": "",
-      "XasVehicleClassification": "Vehicle"
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-10-12",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9030",
+      "Vin": "",
+      "XasVehicleClassification": "InventoryVehicles"
     },
     {
       "Description": "Geely Coolray",
-      "EtaDealer": "2026-08-03",
+      "EtaDealer": "2026-10-26",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM5",
@@ -790,14 +697,128 @@
       },
       "SalesModel": "SM5",
       "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9031",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-11-04",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9032",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
         "Code": "03",
         "Color": "In Stock",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9037",
-      "Vin": "VIN00009037",
+      "VehicleCode": "VEH-9033",
+      "Vin": "VIN00009033",
       "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-09-14",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9034",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9035",
+      "Vin": "VIN00009035",
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9036",
+      "Vin": "VIN00009036",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-09-28",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9037",
+      "Vin": "",
+      "XasVehicleClassification": "InventoryVehicles"
     },
     {
       "Description": "Chery Tiggo 8",
@@ -816,87 +837,11 @@
       "VehicleClassification": "Vehicle",
       "VehicleCode": "VEH-9038",
       "Vin": "VIN00009038",
-      "XasVehicleClassification": "InventoryVehicles"
-    },
-    {
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9039",
-      "Vin": "VIN00009039",
       "XasVehicleClassification": "Truck"
-    },
-    {
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9040",
-      "Vin": "",
-      "XasVehicleClassification": "Truck"
-    },
-    {
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-08-03",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "03",
-        "Color": "In Stock",
-        "Name": "In Stock"
-      },
-      "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9041",
-      "Vin": "VIN00009041",
-      "XasVehicleClassification": "InventoryVehicles"
-    },
-    {
-      "Description": "JAECOO 7",
-      "EtaDealer": "2026-09-28",
-      "Make": "Chery",
-      "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
-      },
-      "SalesModel": "SM2",
-      "Status": {
-        "Code": "01",
-        "Color": "Ordered",
-        "Name": "Ordered"
-      },
-      "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9042",
-      "Vin": "",
-      "XasVehicleClassification": "InventoryVehicles"
     },
     {
       "Description": "Geely Coolray",
-      "EtaDealer": "2026-09-28",
+      "EtaDealer": "2026-08-17",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM5",
@@ -909,7 +854,26 @@
         "Name": "Ordered"
       },
       "VehicleClassification": "Future",
-      "VehicleCode": "VEH-9043",
+      "VehicleCode": "VEH-9039",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-09-21",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9040",
       "Vin": "",
       "XasVehicleClassification": "Truck"
     },
@@ -928,19 +892,76 @@
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9044",
-      "Vin": "VIN00009044",
+      "VehicleCode": "VEH-9041",
+      "Vin": "VIN00009041",
       "XasVehicleClassification": "InventoryVehicles"
     },
     {
-      "Description": "JAECOO 7",
+      "Description": "Omoda 5",
       "EtaDealer": "2026-08-03",
       "Make": "Chery",
       "ModelId": {
-        "Code": "SM2",
-        "Name": "JAECOO 7"
+        "Code": "SM3",
+        "Name": "Omoda 5"
       },
-      "SalesModel": "SM2",
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9042",
+      "Vin": "VIN00009042",
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Omoda 5",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM3",
+        "Name": "Omoda 5"
+      },
+      "SalesModel": "SM3",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9043",
+      "Vin": "VIN00009043",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-08-31",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9044",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "SalesModel": "SM4",
       "Status": {
         "Code": "03",
         "Color": "In Stock",
@@ -949,11 +970,11 @@
       "VehicleClassification": "Vehicle",
       "VehicleCode": "VEH-9045",
       "Vin": "VIN00009045",
-      "XasVehicleClassification": "InventoryVehicles"
+      "XasVehicleClassification": "Vehicle"
     },
     {
       "Description": "BYD Atto 3",
-      "EtaDealer": "2026-09-21",
+      "EtaDealer": "2026-08-17",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM4",
@@ -968,17 +989,17 @@
       "VehicleClassification": "Future",
       "VehicleCode": "VEH-9046",
       "Vin": "",
-      "XasVehicleClassification": "InventoryVehicles"
+      "XasVehicleClassification": "Truck"
     },
     {
-      "Description": "Chery Tiggo 8",
+      "Description": "Geely Coolray",
       "EtaDealer": "2026-08-03",
       "Make": "Chery",
       "ModelId": {
-        "Code": "SM1",
-        "Name": "Chery Tiggo 8"
+        "Code": "SM5",
+        "Name": "Geely Coolray"
       },
-      "SalesModel": "SM1",
+      "SalesModel": "SM5",
       "Status": {
         "Code": "03",
         "Color": "In Stock",
@@ -987,11 +1008,30 @@
       "VehicleClassification": "Vehicle",
       "VehicleCode": "VEH-9047",
       "Vin": "VIN00009047",
-      "XasVehicleClassification": "Vehicle"
+      "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Geely Coolray",
+      "EtaDealer": "2026-10-26",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM5",
+        "Name": "Geely Coolray"
+      },
+      "SalesModel": "SM5",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9048",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
     },
     {
       "Description": "Chery Tiggo 8",
-      "EtaDealer": "2026-08-03",
+      "EtaDealer": "2026-09-28",
       "Make": "Chery",
       "ModelId": {
         "Code": "SM1",
@@ -999,14 +1039,128 @@
       },
       "SalesModel": "SM1",
       "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9049",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
         "Code": "03",
         "Color": "In Stock",
         "Name": "In Stock"
       },
       "VehicleClassification": "Vehicle",
-      "VehicleCode": "VEH-9048",
-      "Vin": "VIN00009048",
+      "VehicleCode": "VEH-9050",
+      "Vin": "VIN00009050",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "BYD Atto 3",
+      "EtaDealer": "2026-10-12",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM4",
+        "Name": "BYD Atto 3"
+      },
+      "SalesModel": "SM4",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9051",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9052",
+      "Vin": "VIN00009052",
       "XasVehicleClassification": "InventoryVehicles"
+    },
+    {
+      "Description": "Chery Tiggo 8",
+      "EtaDealer": "2026-10-26",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM1",
+        "Name": "Chery Tiggo 8"
+      },
+      "SalesModel": "SM1",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9053",
+      "Vin": "",
+      "XasVehicleClassification": "Truck"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-03",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "03",
+        "Color": "In Stock",
+        "Name": "In Stock"
+      },
+      "VehicleClassification": "Vehicle",
+      "VehicleCode": "VEH-9054",
+      "Vin": "VIN00009054",
+      "XasVehicleClassification": "Vehicle"
+    },
+    {
+      "Description": "JAECOO 7",
+      "EtaDealer": "2026-08-31",
+      "Make": "Chery",
+      "ModelId": {
+        "Code": "SM2",
+        "Name": "JAECOO 7"
+      },
+      "SalesModel": "SM2",
+      "Status": {
+        "Code": "01",
+        "Color": "Ordered",
+        "Name": "Ordered"
+      },
+      "VehicleClassification": "Future",
+      "VehicleCode": "VEH-9055",
+      "Vin": "",
+      "XasVehicleClassification": "Vehicle"
     }
   ],
   "vsos": [
@@ -1035,34 +1189,25 @@
           "SalesModelCode": "SM2",
           "VehicleId": {
             "Code": "VEH-9001"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
+          }
         },
         {
           "AllocSourceClassification": "VPO",
           "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
+          "Label": "Omoda 5",
           "LineNum": 2,
           "Prices": [
             {
               "GrossTotal": 32000
             }
           ],
-          "SalesModelCode": "SM4",
+          "SalesModelCode": "SM3",
           "VehicleId": {
             "Code": "VEH-9002"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+          }
         }
       ],
       "JobKey": "VSO-4000",
-      "JobPriority": {
-        "Code": "C"
-      },
       "JobStatus": "Order"
     },
     {
@@ -1074,6 +1219,37 @@
         }
       },
       "DMSJCEntry": "502382",
+      "DeliveryDate": "2026-09-14",
+      "EntryDate": "2026-07-25",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "SalesModelCode": "SM3",
+          "VehicleId": {
+            "Code": "VEH-9003"
+          }
+        }
+      ],
+      "JobKey": "VSO-4001",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D014",
+          "AccountName": "Dealer 14",
+          "AccountUUID": "CUST-014"
+        }
+      },
+      "DMSJCEntry": "502383",
       "DeliveryDate": "2026-08-24",
       "EntryDate": "2026-07-17",
       "JobItems": [
@@ -1089,91 +1265,61 @@
           ],
           "SalesModelCode": "SM3",
           "VehicleId": {
-            "Code": "VEH-9003"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
-        }
-      ],
-      "JobKey": "VSO-4001",
-      "JobPriority": {
-        "Code": "A"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D019",
-          "AccountName": "Dealer 19",
-          "AccountUUID": "CUST-019"
-        }
-      },
-      "DMSJCEntry": "502383",
-      "DeliveryDate": "2026-08-24",
-      "EntryDate": "2026-07-27",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "Chery Tiggo 8",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 45000
-            }
-          ],
-          "SalesModelCode": "SM1",
-          "VehicleId": {
             "Code": "VEH-9004"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+          }
         }
       ],
       "JobKey": "VSO-4002",
-      "JobPriority": {
-        "Code": "A"
-      },
       "JobStatus": "Order"
     },
     {
       "Accounts": {
         "Owner": {
-          "AccountDMSCode": "D029",
-          "AccountName": "Dealer 29",
-          "AccountUUID": "CUST-029"
+          "AccountDMSCode": "D026",
+          "AccountName": "Dealer 26",
+          "AccountUUID": "CUST-026"
         }
       },
       "DMSJCEntry": "502384",
-      "DeliveryDate": "2026-08-03",
-      "EntryDate": "2026-07-12",
+      "DeliveryDate": "2026-09-21",
+      "EntryDate": "2026-07-04",
       "JobItems": [
         {
           "AllocSourceClassification": "VPO",
           "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
+          "Label": "Geely Coolray",
           "LineNum": 1,
           "Prices": [
             {
               "GrossTotal": 32000
             }
           ],
-          "SalesModelCode": "SM2",
+          "SalesModelCode": "SM5",
           "VehicleId": {
             "Code": "VEH-9005"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
-        },
+          }
+        }
+      ],
+      "JobKey": "VSO-4003",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D003",
+          "AccountName": "Champion",
+          "AccountUUID": "CUST-003"
+        }
+      },
+      "DMSJCEntry": "502385",
+      "DeliveryDate": "2026-08-24",
+      "EntryDate": "2026-07-13",
+      "JobItems": [
         {
           "AllocSourceClassification": "VPO",
           "JobItemType": "ModelItem",
           "Label": "Omoda 5",
-          "LineNum": 2,
+          "LineNum": 1,
           "Prices": [
             {
               "GrossTotal": 38000
@@ -1182,47 +1328,7 @@
           "SalesModelCode": "SM3",
           "VehicleId": {
             "Code": "VEH-9006"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 2,
-          "times_rescheduled": 1
-        }
-      ],
-      "JobKey": "VSO-4003",
-      "JobPriority": {
-        "Code": "C"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D006",
-          "AccountName": "Lubinski",
-          "AccountUUID": "CUST-006"
-        }
-      },
-      "DMSJCEntry": "502385",
-      "DeliveryDate": "2026-08-17",
-      "EntryDate": "2026-07-04",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "Chery Tiggo 8",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "SalesModelCode": "SM1",
-          "VehicleId": {
-            "Code": "VEH-9007"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+          }
         },
         {
           "AllocSourceClassification": "VPO",
@@ -1231,16 +1337,166 @@
           "LineNum": 2,
           "Prices": [
             {
-              "GrossTotal": 38000
+              "GrossTotal": 45000
+            }
+          ],
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9007"
+          }
+        }
+      ],
+      "JobKey": "VSO-4004",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D023",
+          "AccountName": "Dealer 23",
+          "AccountUUID": "CUST-023"
+        }
+      },
+      "DMSJCEntry": "502386",
+      "DeliveryDate": "2026-08-24",
+      "EntryDate": "2026-06-05",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 61000
             }
           ],
           "SalesModelCode": "SM5",
           "VehicleId": {
             "Code": "VEH-9008"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 1
+          }
+        },
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 45000
+            }
+          ],
+          "SalesModelCode": "SM3",
+          "VehicleId": {
+            "Code": "VEH-9009"
+          }
+        }
+      ],
+      "JobKey": "VSO-4005",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D020",
+          "AccountName": "Dealer 20",
+          "AccountUUID": "CUST-020"
+        }
+      },
+      "DMSJCEntry": "502387",
+      "DeliveryDate": "2026-09-21",
+      "EntryDate": "2026-07-20",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "SalesModelCode": "SM3",
+          "VehicleId": {
+            "Code": "VEH-9010"
+          }
+        },
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9011"
+          }
+        },
+        {
+          "AllocSourceClassification": "VGR",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 3,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9012"
+          }
+        }
+      ],
+      "JobKey": "VSO-4006",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D012",
+          "AccountName": "Dealer 12",
+          "AccountUUID": "CUST-012"
+        }
+      },
+      "DMSJCEntry": "502388",
+      "DeliveryDate": "2026-08-24",
+      "EntryDate": "2026-07-22",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9013"
+          }
+        },
+        {
+          "AllocSourceClassification": "VGR",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 45000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9014"
+          }
         },
         {
           "AllocSourceClassification": "VGR",
@@ -1254,233 +1510,24 @@
           ],
           "SalesModelCode": "SM1",
           "VehicleId": {
-            "Code": "VEH-9009"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 2,
-          "times_rescheduled": 1
-        }
-      ],
-      "JobKey": "VSO-4004",
-      "JobPriority": {
-        "Code": "C"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D002",
-          "AccountName": "Delek Motors",
-          "AccountUUID": "CUST-002"
-        }
-      },
-      "DMSJCEntry": "502386",
-      "DeliveryDate": "2026-10-12",
-      "EntryDate": "2026-07-19",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 32000
-            }
-          ],
-          "SalesModelCode": "SM4",
-          "VehicleId": {
-            "Code": "VEH-9010"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        }
-      ],
-      "JobKey": "VSO-4005",
-      "JobPriority": {
-        "Code": "A"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D021",
-          "AccountName": "Dealer 21",
-          "AccountUUID": "CUST-021"
-        }
-      },
-      "DMSJCEntry": "502387",
-      "DeliveryDate": "2026-08-10",
-      "EntryDate": "2026-06-17",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VGR",
-          "JobItemType": "ModelItem",
-          "Label": "Chery Tiggo 8",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "SalesModelCode": "SM1",
-          "VehicleId": {
-            "Code": "VEH-9011"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocSourceClassification": "VGR",
-          "JobItemType": "ModelItem",
-          "Label": "Geely Coolray",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "SalesModelCode": "SM5",
-          "VehicleId": {
-            "Code": "VEH-9012"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        }
-      ],
-      "JobKey": "VSO-4006",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D008",
-          "AccountName": "Dealer 08",
-          "AccountUUID": "CUST-008"
-        }
-      },
-      "DMSJCEntry": "502388",
-      "DeliveryDate": "2026-08-24",
-      "EntryDate": "2026-06-05",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "Omoda 5",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "SalesModelCode": "SM3",
-          "VehicleId": {
-            "Code": "VEH-9013"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+            "Code": "VEH-9015"
+          }
         }
       ],
       "JobKey": "VSO-4007",
-      "JobPriority": {
-        "Code": "A"
-      },
       "JobStatus": "Order"
     },
     {
       "Accounts": {
         "Owner": {
-          "AccountDMSCode": "D007",
-          "AccountName": "Dealer 07",
-          "AccountUUID": "CUST-007"
+          "AccountDMSCode": "D015",
+          "AccountName": "Dealer 15",
+          "AccountUUID": "CUST-015"
         }
       },
       "DMSJCEntry": "502389",
-      "DeliveryDate": "2026-10-12",
-      "EntryDate": "2026-07-10",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VGR",
-          "JobItemType": "ModelItem",
-          "Label": "Chery Tiggo 8",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 38000
-            }
-          ],
-          "SalesModelCode": "SM1",
-          "VehicleId": {
-            "Code": "VEH-9014"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        }
-      ],
-      "JobKey": "VSO-4008",
-      "JobPriority": {
-        "Code": "A"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D004",
-          "AccountName": "Talcar",
-          "AccountUUID": "CUST-004"
-        }
-      },
-      "DMSJCEntry": "502390",
-      "DeliveryDate": "2026-08-03",
-      "EntryDate": "2026-07-12",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "SalesModelCode": "SM4",
-          "VehicleId": {
-            "Code": "VEH-9015"
-          },
-          "days_backordered": 14,
-          "n_prior_delays": 3,
-          "times_rescheduled": 1
-        }
-      ],
-      "JobKey": "VSO-4009",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D003",
-          "AccountName": "Champion",
-          "AccountUUID": "CUST-003"
-        }
-      },
-      "DMSJCEntry": "502391",
-      "DeliveryDate": "2026-10-05",
-      "EntryDate": "2026-06-29",
+      "DeliveryDate": "2026-09-28",
+      "EntryDate": "2026-06-11",
       "JobItems": [
         {
           "AllocSourceClassification": "VGR",
@@ -1495,286 +1542,38 @@
           "SalesModelCode": "SM1",
           "VehicleId": {
             "Code": "VEH-9016"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 2,
-          "times_rescheduled": 2
-        }
-      ],
-      "JobKey": "VSO-4010",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D023",
-          "AccountName": "Dealer 23",
-          "AccountUUID": "CUST-023"
-        }
-      },
-      "DMSJCEntry": "502392",
-      "DeliveryDate": "2026-08-03",
-      "EntryDate": "2026-07-18",
-      "JobItems": [
+          }
+        },
         {
-          "AllocSourceClassification": "VGR",
+          "AllocSourceClassification": "VPO",
           "JobItemType": "ModelItem",
-          "Label": "Geely Coolray",
-          "LineNum": 1,
+          "Label": "BYD Atto 3",
+          "LineNum": 2,
           "Prices": [
             {
               "GrossTotal": 32000
             }
           ],
-          "SalesModelCode": "SM5",
+          "SalesModelCode": "SM4",
           "VehicleId": {
             "Code": "VEH-9017"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 3,
-          "times_rescheduled": 0
+          }
         }
       ],
-      "JobKey": "VSO-4011",
-      "JobPriority": {
-        "Code": "C"
-      },
+      "JobKey": "VSO-4008",
       "JobStatus": "Order"
     },
     {
       "Accounts": {
         "Owner": {
-          "AccountDMSCode": "D020",
-          "AccountName": "Dealer 20",
-          "AccountUUID": "CUST-020"
+          "AccountDMSCode": "D019",
+          "AccountName": "Dealer 19",
+          "AccountUUID": "CUST-019"
         }
       },
-      "DMSJCEntry": "502393",
-      "DeliveryDate": "2026-09-14",
-      "EntryDate": "2026-06-15",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VGR",
-          "JobItemType": "ModelItem",
-          "Label": "Geely Coolray",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "SalesModelCode": "SM5",
-          "VehicleId": {
-            "Code": "VEH-9018"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 1
-        },
-        {
-          "AllocSourceClassification": "VGR",
-          "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "SalesModelCode": "SM4",
-          "VehicleId": {
-            "Code": "VEH-9019"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 1
-        }
-      ],
-      "JobKey": "VSO-4012",
-      "JobPriority": {
-        "Code": "A"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D015",
-          "AccountName": "Dealer 15",
-          "AccountUUID": "CUST-015"
-        }
-      },
-      "DMSJCEntry": "502394",
+      "DMSJCEntry": "502390",
       "DeliveryDate": "2026-08-10",
-      "EntryDate": "2026-06-22",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "Omoda 5",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 45000
-            }
-          ],
-          "SalesModelCode": "SM3",
-          "VehicleId": {
-            "Code": "VEH-9020"
-          },
-          "days_backordered": 14,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "Geely Coolray",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 32000
-            }
-          ],
-          "SalesModelCode": "SM5",
-          "VehicleId": {
-            "Code": "VEH-9021"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 1
-        },
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
-          "LineNum": 3,
-          "Prices": [
-            {
-              "GrossTotal": 45000
-            }
-          ],
-          "SalesModelCode": "SM4",
-          "VehicleId": {
-            "Code": "VEH-9022"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 1,
-          "times_rescheduled": 0
-        }
-      ],
-      "JobKey": "VSO-4013",
-      "JobPriority": {
-        "Code": "B"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D012",
-          "AccountName": "Dealer 12",
-          "AccountUUID": "CUST-012"
-        }
-      },
-      "DMSJCEntry": "502395",
-      "DeliveryDate": "2026-09-28",
-      "EntryDate": "2026-07-20",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "SalesModelCode": "SM4",
-          "VehicleId": {
-            "Code": "VEH-9023"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 3,
-          "times_rescheduled": 1
-        }
-      ],
-      "JobKey": "VSO-4014",
-      "JobPriority": {
-        "Code": "C"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D030",
-          "AccountName": "Dealer 30",
-          "AccountUUID": "CUST-030"
-        }
-      },
-      "DMSJCEntry": "502396",
-      "DeliveryDate": "2026-08-31",
-      "EntryDate": "2026-06-27",
-      "JobItems": [
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "Omoda 5",
-          "LineNum": 1,
-          "Prices": [
-            {
-              "GrossTotal": 52000
-            }
-          ],
-          "SalesModelCode": "SM3",
-          "VehicleId": {
-            "Code": "VEH-9024"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
-        },
-        {
-          "AllocSourceClassification": "VPO",
-          "JobItemType": "ModelItem",
-          "Label": "JAECOO 7",
-          "LineNum": 2,
-          "Prices": [
-            {
-              "GrossTotal": 45000
-            }
-          ],
-          "SalesModelCode": "SM2",
-          "VehicleId": {
-            "Code": "VEH-9025"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 3,
-          "times_rescheduled": 0
-        }
-      ],
-      "JobKey": "VSO-4015",
-      "JobPriority": {
-        "Code": "C"
-      },
-      "JobStatus": "Order"
-    },
-    {
-      "Accounts": {
-        "Owner": {
-          "AccountDMSCode": "D021",
-          "AccountName": "Dealer 21",
-          "AccountUUID": "CUST-021"
-        }
-      },
-      "DMSJCEntry": "502397",
-      "DeliveryDate": "2026-10-12",
-      "EntryDate": "2026-06-16",
+      "EntryDate": "2026-07-24",
       "JobItems": [
         {
           "AllocSourceClassification": "VGR",
@@ -1788,30 +1587,55 @@
           ],
           "SalesModelCode": "SM1",
           "VehicleId": {
-            "Code": "VEH-9026"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+            "Code": "VEH-9018"
+          }
         }
       ],
-      "JobKey": "VSO-4016",
-      "JobPriority": {
-        "Code": "B"
-      },
+      "JobKey": "VSO-4009",
       "JobStatus": "Order"
     },
     {
       "Accounts": {
         "Owner": {
-          "AccountDMSCode": "D017",
-          "AccountName": "Dealer 17",
-          "AccountUUID": "CUST-017"
+          "AccountDMSCode": "D026",
+          "AccountName": "Dealer 26",
+          "AccountUUID": "CUST-026"
         }
       },
-      "DMSJCEntry": "502398",
-      "DeliveryDate": "2026-08-31",
-      "EntryDate": "2026-06-07",
+      "DMSJCEntry": "502391",
+      "DeliveryDate": "2026-08-03",
+      "EntryDate": "2026-07-17",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VGR",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9019"
+          }
+        }
+      ],
+      "JobKey": "VSO-4010",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D030",
+          "AccountName": "Dealer 30",
+          "AccountUUID": "CUST-030"
+        }
+      },
+      "DMSJCEntry": "502392",
+      "DeliveryDate": "2026-10-12",
+      "EntryDate": "2026-06-12",
       "JobItems": [
         {
           "AllocSourceClassification": "VGR",
@@ -1820,35 +1644,91 @@
           "LineNum": 1,
           "Prices": [
             {
-              "GrossTotal": 38000
+              "GrossTotal": 52000
             }
           ],
           "SalesModelCode": "SM2",
           "VehicleId": {
-            "Code": "VEH-9027"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+            "Code": "VEH-9020"
+          }
         }
       ],
-      "JobKey": "VSO-4017",
-      "JobPriority": {
-        "Code": "C"
-      },
+      "JobKey": "VSO-4011",
       "JobStatus": "Order"
     },
     {
       "Accounts": {
         "Owner": {
-          "AccountDMSCode": "D003",
-          "AccountName": "Champion",
-          "AccountUUID": "CUST-003"
+          "AccountDMSCode": "D009",
+          "AccountName": "Dealer 09",
+          "AccountUUID": "CUST-009"
         }
       },
-      "DMSJCEntry": "502399",
+      "DMSJCEntry": "502393",
+      "DeliveryDate": "2026-08-10",
+      "EntryDate": "2026-07-05",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 32000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9021"
+          }
+        }
+      ],
+      "JobKey": "VSO-4012",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D010",
+          "AccountName": "Dealer 10",
+          "AccountUUID": "CUST-010"
+        }
+      },
+      "DMSJCEntry": "502394",
       "DeliveryDate": "2026-08-17",
-      "EntryDate": "2026-07-08",
+      "EntryDate": "2026-06-24",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9022"
+          }
+        }
+      ],
+      "JobKey": "VSO-4013",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D001",
+          "AccountName": "Colmobil",
+          "AccountUUID": "CUST-001"
+        }
+      },
+      "DMSJCEntry": "502395",
+      "DeliveryDate": "2026-08-17",
+      "EntryDate": "2026-07-17",
       "JobItems": [
         {
           "AllocSourceClassification": "VPO",
@@ -1862,54 +1742,241 @@
           ],
           "SalesModelCode": "SM3",
           "VehicleId": {
-            "Code": "VEH-9028"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+            "Code": "VEH-9023"
+          }
+        },
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9024"
+          }
         }
       ],
-      "JobKey": "VSO-4018",
-      "JobPriority": {
-        "Code": "B"
-      },
+      "JobKey": "VSO-4014",
       "JobStatus": "Order"
     },
     {
       "Accounts": {
         "Owner": {
-          "AccountDMSCode": "D002",
-          "AccountName": "Delek Motors",
-          "AccountUUID": "CUST-002"
+          "AccountDMSCode": "D022",
+          "AccountName": "Dealer 22",
+          "AccountUUID": "CUST-022"
+        }
+      },
+      "DMSJCEntry": "502396",
+      "DeliveryDate": "2026-08-10",
+      "EntryDate": "2026-07-29",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "BYD Atto 3",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "SalesModelCode": "SM4",
+          "VehicleId": {
+            "Code": "VEH-9025"
+          }
+        }
+      ],
+      "JobKey": "VSO-4015",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D027",
+          "AccountName": "Dealer 27",
+          "AccountUUID": "CUST-027"
+        }
+      },
+      "DMSJCEntry": "502397",
+      "DeliveryDate": "2026-09-21",
+      "EntryDate": "2026-06-08",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Geely Coolray",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 61000
+            }
+          ],
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9026"
+          }
+        }
+      ],
+      "JobKey": "VSO-4016",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D003",
+          "AccountName": "Champion",
+          "AccountUUID": "CUST-003"
+        }
+      },
+      "DMSJCEntry": "502398",
+      "DeliveryDate": "2026-09-28",
+      "EntryDate": "2026-06-20",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 61000
+            }
+          ],
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9027"
+          }
+        },
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Chery Tiggo 8",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "SalesModelCode": "SM1",
+          "VehicleId": {
+            "Code": "VEH-9028"
+          }
+        },
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 3,
+          "Prices": [
+            {
+              "GrossTotal": 61000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9029"
+          }
+        }
+      ],
+      "JobKey": "VSO-4017",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D003",
+          "AccountName": "Champion",
+          "AccountUUID": "CUST-003"
+        }
+      },
+      "DMSJCEntry": "502399",
+      "DeliveryDate": "2026-10-05",
+      "EntryDate": "2026-06-05",
+      "JobItems": [
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "Omoda 5",
+          "LineNum": 1,
+          "Prices": [
+            {
+              "GrossTotal": 38000
+            }
+          ],
+          "SalesModelCode": "SM3",
+          "VehicleId": {
+            "Code": "VEH-9030"
+          }
+        }
+      ],
+      "JobKey": "VSO-4018",
+      "JobStatus": "Order"
+    },
+    {
+      "Accounts": {
+        "Owner": {
+          "AccountDMSCode": "D029",
+          "AccountName": "Dealer 29",
+          "AccountUUID": "CUST-029"
         }
       },
       "DMSJCEntry": "502400",
-      "DeliveryDate": "2026-09-28",
-      "EntryDate": "2026-07-27",
+      "DeliveryDate": "2026-10-05",
+      "EntryDate": "2026-07-05",
       "JobItems": [
         {
-          "AllocSourceClassification": "VGR",
+          "AllocSourceClassification": "VPO",
           "JobItemType": "ModelItem",
-          "Label": "BYD Atto 3",
+          "Label": "Geely Coolray",
           "LineNum": 1,
           "Prices": [
             {
               "GrossTotal": 32000
             }
           ],
+          "SalesModelCode": "SM5",
+          "VehicleId": {
+            "Code": "VEH-9031"
+          }
+        },
+        {
+          "AllocSourceClassification": "VPO",
+          "JobItemType": "ModelItem",
+          "Label": "BYD Atto 3",
+          "LineNum": 2,
+          "Prices": [
+            {
+              "GrossTotal": 45000
+            }
+          ],
           "SalesModelCode": "SM4",
           "VehicleId": {
-            "Code": "VEH-9029"
-          },
-          "days_backordered": 0,
-          "n_prior_delays": 0,
-          "times_rescheduled": 0
+            "Code": "VEH-9032"
+          }
+        },
+        {
+          "AllocSourceClassification": "VGR",
+          "JobItemType": "ModelItem",
+          "Label": "JAECOO 7",
+          "LineNum": 3,
+          "Prices": [
+            {
+              "GrossTotal": 52000
+            }
+          ],
+          "SalesModelCode": "SM2",
+          "VehicleId": {
+            "Code": "VEH-9033"
+          }
         }
       ],
       "JobKey": "VSO-4019",
-      "JobPriority": {
-        "Code": "A"
-      },
       "JobStatus": "Order"
     }
   ]

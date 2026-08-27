@@ -157,15 +157,16 @@ def summarize(rich: dict) -> dict[str, Any]:
         by_class[c] = by_class.get(c, 0) + 1
 
     # §6 steering contract: resolve a dealer name in the planner's instruction to
-    # the customer_id the override object carries. Built from the VSOs in play.
+    # the customer_id `may_move` carries. Built from the VSOs in play. No priority
+    # here any more — priority is a step the planner names per order, never
+    # something read off a dealer or a record.
     customers: dict[str, dict] = {}
     for vso in vsos:
         owner = (vso.get("Accounts") or {}).get("Owner") or {}
         name = owner.get("AccountName", "")
         cid = owner.get("AccountUUID", "")
-        prio = (vso.get("JobPriority") or {}).get("Code", "?")
         if name:
-            customers.setdefault(name, {"customer_id": cid, "priority": prio})
+            customers.setdefault(name, {"customer_id": cid})
 
     return {
         "flatten": flatten_command(),

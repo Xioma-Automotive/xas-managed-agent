@@ -28,7 +28,9 @@ a soft binding). The solver matches orders ↔ vehicles and only cares about the
 classification to price breaking a binding (DECIDE-3).
 
 Everything is keyed on **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
-`now` is the pull date, carried on the snapshot so the fence is pure.
+`now` is the pull date, carried on the snapshot as the provenance of the picture —
+nothing in the cost model reads it any more, since the time fence that did was
+removed on 2026-08-26.
 """
 
 from __future__ import annotations
@@ -56,19 +58,23 @@ def date_label(d: date) -> str:
 
 @dataclass(frozen=True)
 class Order:
-    """One VSO jobitem — one wanted car, the demand side of the match."""
+    """One VSO jobitem — one wanted car, the demand side of the match.
+
+    No priority, and no delay history. The record's priority letter was never a
+    planner's decision and the real export has no such column, so priority is a
+    per-turn LEVER on the override instead (``solver._combined_priority``). The
+    three escalation fields that used to ride here (prior delays, days
+    back-ordered, times rescheduled) were read only by weight terms deleted on
+    2026-08-26; every one of them was zero on every row of real data.
+    """
 
     so_id: str  # VSO JobKey / DMSJCEntry, e.g. "VSO-4000"
     line: int  # jobitem LineNum; (so_id, line) is the car line
     customer: str  # dealer display name (Accounts.Owner.AccountName)
     customer_id: str  # stable id the override object carries (Accounts.Owner.AccountUUID)
     sales_model: str  # the hard eligibility key (jobitem SalesModelCode, model-level)
-    priority: str  # "A" | "B" | "C" (JobPriority.Code)
     delivery_date: date  # DeliveryDate — the promise; tardiness is measured against it
     price: float  # display-only (Σ Prices[].GrossTotal; not a cost-model input, for now)
-    n_prior_delays: int  # supply-chain delays before us (escalates weight, §2)
-    days_backordered: int
-    times_rescheduled: int = 0  # reschedules OUR repair loop caused — fairness (DECIDE-11)
 
     @property
     def key(self) -> str:
@@ -82,12 +88,8 @@ class Order:
             "customer": self.customer,
             "customer_id": self.customer_id,
             "sales_model": self.sales_model,
-            "priority": self.priority,
             "delivery_date": date_label(self.delivery_date),
             "price": self.price,
-            "n_prior_delays": self.n_prior_delays,
-            "days_backordered": self.days_backordered,
-            "times_rescheduled": self.times_rescheduled,
         }
 
     @classmethod
@@ -98,12 +100,8 @@ class Order:
             customer=d["customer"],
             customer_id=d["customer_id"],
             sales_model=d["sales_model"],
-            priority=d["priority"],
             delivery_date=parse_date(d["delivery_date"]),
             price=float(d.get("price", 0.0)),
-            n_prior_delays=int(d.get("n_prior_delays", 0)),
-            days_backordered=int(d.get("days_backordered", 0)),
-            times_rescheduled=int(d.get("times_rescheduled", 0)),
         )
 
 
@@ -156,7 +154,7 @@ class Snapshot:
     units: list[Unit]  # the vehicle pool: real ∪ future
     incumbent: dict[str, str]  # order_key -> vehicle_id (current allocation)
     disruption: dict  # the delayed vehicles + who they touched
-    now: date  # the pull date; the time fence reads this
+    now: date  # the pull date this picture was frozen at (provenance, not a cost input)
     # The pull's own provenance, carried through so the sandbox can report it:
     # `meta["excluded"]` is what the source filtered out and why, which the turn-1
     # reply MUST say — a plan over 1 of 25 sales orders that doesn't mention the

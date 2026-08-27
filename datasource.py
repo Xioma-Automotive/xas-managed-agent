@@ -130,7 +130,7 @@ ORDER_CLASSIFICATION = "VSO"
 # so a projection that returns no jobitems at all reports no line gap while every
 # card drops for `no_car_line` — "0 usable orders" with no reason attached, the
 # exact confusion this function exists to prevent.
-REQUIRED_CARD_FIELDS = ("DueDateTime", "EntryDateTime", "JobPriority", "jobitems")
+REQUIRED_CARD_FIELDS = ("DueDateTime", "EntryDateTime", "jobitems")
 REQUIRED_LINE_FIELDS = ("JobItemCode", "JobItemType", "LineNum")
 # `AvailableBy`, not `EtaDealer`: it is the arrival date `unit_eta` reads first,
 # so it is the one whose absence empties the vehicle pool.
@@ -323,7 +323,7 @@ def map_response(
     agent's context.
 
     Grain: **one jobitem is one order**, keyed ``{JobKey}-{LineNum}``. The card
-    supplies the promise, the customer and the priority; the LINE supplies the
+    supplies the promise and the customer; the LINE supplies the
     eligibility key (``JobItemCode``). The header's own ``SalesModelCode`` is not
     read — it disagrees with the line on real data, and the detail shape does not
     carry it at all.
@@ -449,12 +449,6 @@ def map_response(
                 "JobItemType": CAR_ITEM_TYPE,
                 "Prices": list(line.get("Prices") or []),
             }
-            # Escalation inputs have no XAS source yet (open question in
-            # docs/mcp-response-schema.md); the fake carries them, the real
-            # source does not, and flatten defaults an absent one to 0.
-            for extra in ("n_prior_delays", "days_backordered", "times_rescheduled"):
-                if extra in line:
-                    item[extra] = int(line[extra])
             if link:
                 item["VehicleId"] = {"Code": link}
                 item["AllocSourceClassification"] = alloc_source
@@ -465,7 +459,6 @@ def map_response(
                 "DMSJCEntry": _text(card.get("DMSJCEntry")),
                 "DeliveryDate": promise,
                 "EntryDate": _date_part(card.get("EntryDateTime")),
-                "JobPriority": {"Code": _text((card.get("JobPriority") or {}).get("Code")) or "C"},
                 "JobStatus": _text((card.get("JobStatus") or {}).get("Label")),
                 "Accounts": {
                     "Owner": {

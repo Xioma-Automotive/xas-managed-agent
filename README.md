@@ -55,10 +55,10 @@ flat pool of vehicles, real and future together; there is no PO/PDN/slot layer,
 and a vehicle is always exactly one car. Dates are real dates. The pull comes
 from a callable data source (`datasource.py`) — a standalone `scenario_engine/`
 fabricates the world by default, the live system through the app MCP by config;
-the agent can work the whole book or a
-**scope** (a customer/month/PO slice — a localized fix that leaves the rest
-pinned). Every unresolved choice from the spec is a marked `DECIDE-n` — stubbed
-with a labelled default (see below).
+the agent can work the whole book or narrow it to a slice
+(`may_move.only` — a customer/month/model cut, a localized fix that leaves the
+rest alone). Every unresolved choice from the spec is a marked `DECIDE-n` (see
+below), and every solver PARAMETER is in `xas_allocation/solver_config.yaml`.
 
 ## Two lanes, one agent
 
@@ -105,15 +105,16 @@ before real dealer data (DECIDE-9).
 
 | Module | Deliverable | Role |
 | ------ | ----------- | ---- |
-| `decisions.py`   | —      | Every `DECIDE-1..16` — default, rationale and STATUS — surfaced at runtime. One is still OPEN. |
+| `decisions.py`   | —      | Every `DECIDE-1..16` — default, rationale and STATUS — surfaced at runtime. One is still OPEN, five are RETIRED. Decisions only: the numbers live in the config. |
+| `solver_config.yaml` | — | **Every parameter the solver prices with**, in one file: the lateness exponent, the earliness weight, break cost, the priority steps, the churn sweep, the no-car cost and the version stamped on a saved plan. Read by `solver.py` alone. Editing it means re-running `setup_agent.py`. |
 | `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/units/incumbent`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure rich-pull → snapshot mapping (the "flatten + freeze" hop). Eligibility is a hard `sales_model` equality — no LLM judgment. |
-| `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, data/instruction pins (§5), the **λ sweep**, deterministic read-back. Also `repairability()` — is a broken order even re-slottable, or locked in? |
-| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map (fixable vs locked-in), data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
+| `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, the free/pinned partition (§5), the **churn-price sweep**, deterministic read-back. Two halves — `partition` (who may move, no maths) and `_solve_one` (the arithmetic). |
+| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
 | `../scenario_engine/`   | —     | **Standalone, outside the agent**: fabricates the app MCP's two response payloads (good → disrupted), then derives `data/pull.json` from them through the shared mapping. |
 | `../datasource.py`      | —     | **Host-side pull interface** (DECIDE-7): `ScenarioEngineSource` (the fake, default) / `AppMcpSource` (LIVE, reads the dev system through the app MCP's own tools), selected by `XAS_DATA_SOURCE`. Both run through the SAME `map_response`. `web.py` calls it and mounts the result into the sandbox. |
-| `../tests/`      | §11.7  | 183 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, reschedule fairness, scope, time-scale, report, datasource). |
+| `../tests/`      | §11.7  | 175 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, and one file per priced behaviour (bump, earliness, may_move, report, datasource). |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
 contract, infeasibility policy) is in `skills/xas-allocation/SKILL.md`.
@@ -134,11 +135,43 @@ PYTHONPATH=. uv run python tests/test_invariant.py   # determinism proof (4/4), 
 **`COMMANDS.md` documents every command and flag in this repo**, including the
 deploy path and the typical change→verify loops.
 
+### Three scenarios cut from the real export
+
+`data/vehicles.csv` + `data/orders.csv` are a real XAS export (3523 cars, 1641
+orders). There is nothing to solve in it as it stands — every order already holds
+a car, and a car's `status.name` *is* its allocation state — so three scripts
+manufacture the decision, all running one `carve` in
+`scenario_engine/real_export.py`:
+
+```bash
+uv run python -m scenario_engine.real_unallocated   # orders that lost their car
+uv run python -m scenario_engine.real_delayed       # orders whose car turned late
+uv run python -m scenario_engine.real_mixed         # both, competing for one pool
+```
+
+Each asks the same knobs — how many orders to disturb, how many *further* cars to
+free by deleting an allocation (those orders leave the book, so the pool gains
+slack), the subset size, the available share, and how many sales models to narrow
+to — and writes `data/scenario-{unallocated,delayed,mixed}/{orders,vehicles}.csv`
+in the export's own shape. The first two are the mixed one with a count pinned to
+zero. `real_delayed`/`real_mixed` add `--days-late` and can only slip a car that is
+still inbound. Every knob is a flag too, and one `--seed` makes a run reproducible.
+
+Two things worth knowing before picking knobs: the export already ships 256 late
+orders, so any subset inherits some and every run breaks the late count into
+"delayed here / already late / on time"; and because eligibility is exact
+sales-model equality across 66 models, a *small* subset needs `--models` to pose
+any choice at all — the available percentage cannot fix 0.9 cars per model.
+`COMMANDS.md` has every flag and the numbers behind that.
+
+Not yet wired to `pull.json`: that needs a CSV → MCP-response translation which
+does not exist.
+
 `session.py` prints the discrepancy map (what the disruption broke), the
-data-prep flow chart, the λ-sweep Pareto frontier, the hard-constraint
+data-prep flow chart, the churn-price Pareto frontier, the hard-constraint
 self-check, and a reason-coded change list — first for a base repair, then after
-a steering turn (defer an order, prefer Colmobil, set λ). `data/pull.json` is
-committed, so nothing above needs the engine re-run.
+a steering turn (mark an order urgent, narrow to one dealer, hold changes down).
+`data/pull.json` is committed, so nothing above needs the engine re-run.
 
 ## Run it as a Managed Agent (Anthropic-hosted)
 
@@ -227,30 +260,33 @@ The agent never writes back to XAS — the plan is a proposal the planner approv
 ## Decisions (`DECIDE-n`) — reviewed 2026-08-25, no longer all stubs
 
 Run `uv run python -m xas_allocation.decisions` for the live register; its header
-line counts what is genuinely undecided. **One is OPEN (5).** Five are settled in
-shape but carry a value no planner has validated (1, 2, 3, 11, 15). One is
-DEFERRED (10). Summary:
+line counts what is genuinely undecided. **One is OPEN (5).** Two are settled in
+shape but carry a value no planner has validated (3, 15). **Five are RETIRED**
+(1, 2, 4, 11, 14) — built, reviewed and removed on 2026-08-26; they stay in the
+register with what went wrong, so nobody makes them again. One is DEFERRED (10).
+Summary:
 
 | # | Decision | Default | Status |
 |---|----------|---------|--------|
-| 1 | Aging term: additive vs multiplicative | additive into W(o) (`ALPHA=0.5`, `BETA=0.1`) | value unvalidated |
-| 2 | Time-fence boundaries | frozen ≤14d, slushy 15–42d, liquid >42d | value unvalidated |
-| 3 | Break cost: hard vs soft binding | real vehicle = expensive-but-movable (`BREAK_COST['hard']=200`), Future = free. No location gradient — supersedes the retired committed-`location_state` wall | value unvalidated |
-| 4 | Pin mechanism | inf-cost (soft) for instruction pins; pre-commit for data pins | settled |
+| 1 | Aging term: additive vs multiplicative | **deleted** — the whole escalation term went; all three fields it read are zero on every real row | RETIRED |
+| 2 | Time-fence boundaries | **deleted** — it fired before the authorisation check and cancelled bumps a planner had asked for; a settled order is protected by not being in the free set | RETIRED |
+| 3 | Break cost: hard vs soft binding | real vehicle = expensive-but-movable (`break_cost.hard=200`), Future = free. No location gradient — supersedes the retired committed-`location_state` wall. Config, not steering | value unvalidated |
+| 4 | Pin mechanism | **deleted** with the instruction pin: deferring an order is a NEW PROMISED DATE, which lateness and earliness already price | RETIRED |
 | 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred | **OPEN** |
 | 6 | xas-code MCP liveness pattern | none, and there will not be one — the pull happens host-side before the session exists | settled (not applicable) |
 | 7 | XAS API data contract | `datasource.AppMcpSource` reads VSOs + vehicles through the app MCP host-side; `scenario_engine/` fake stays the offline default | settled as a contract, **blocked** on the MCP projection (`docs/mcp-field-spec.md`) |
-| 8 | Infeasibility strategy | high-cost soft pins (always returns; conflict shows as a cost line) | settled |
-| 9 | Solver repo location + versioning | in-repo `xas_allocation/`; skill pins `SOLVER_VERSION`. Extraction is triggered by the first NON-DEV tenant | settled |
+| 8 | Infeasibility strategy | large finite costs, never walls — since the pins went, `no_car_cost` is the only one | settled |
+| 9 | Solver repo location + versioning | in-repo `xas_allocation/`; `solver_config.yaml` pins the version. Extraction is triggered by the first NON-DEV tenant | settled |
 | 10 | `reserved_for_customer` eligibility | a `Reserved-*` car is out of the pool entirely — supply for NO ONE. Modelling it as earmarked supply is the upgrade | DEFERRED |
-| 11 | Reschedule fairness (`times_rescheduled`) | `GAMMA=0.75` escalation on W(o) — protect an already-bumped order from being delayed again | value unvalidated |
+| 11 | Reschedule fairness (`times_rescheduled`) | **deleted** — nothing ever wrote the field, so it never fired on a real row. Needs the approved write-back first | RETIRED |
 | 12 | Future vehicle = soft supply | one pool of real ∪ future; the classification is the whole distinction — no slot step and no committed flag | settled |
-| 13 | Bumping an untouched order | never without explicit planner authorization (the `bump` override); the agent asks who may be bumped | settled |
-| 14 | Time-scale granularity | planner knob `time_scale` (days/weeks/months); day-gaps rounded **up** to whole units; fence stays in days; default days | settled |
-| 15 | Earliness penalty | `EARLY_WEIGHT=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only | value unvalidated |
+| 13 | Bumping an untouched order | never without explicit planner authorization (`may_move.also`); the agent asks who may be bumped | settled |
+| 14 | Time-scale granularity | **deleted** — nobody asked for days/weeks/months, and it cost a rounding helper, a threaded argument, report phrasing and a test file to stop the solver telling three days from six | RETIRED |
+| 15 | Earliness penalty | `early_weight=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only | value unvalidated |
 | 16 | Where the tenant taxonomy comes from | bundled — `index.md` ships inside the `xas-reporting` skill; a SECOND TENANT flips it back to a host-side mount | settled |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and
-any new hard constraint. The prompt moves weights and pins; a human moves the
-model.
+any new hard constraint. The prompt moves priority and who may move; a human
+moves the model — and a human moves `solver_config.yaml`, which is a reviewed
+change with tests, never something a live session does.

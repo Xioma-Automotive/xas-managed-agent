@@ -4,9 +4,12 @@ Each turn (there is no liveness-check step — DECIDE-6 settled as NOT APPLICABL
 since the pull happens host-side before the session exists):
   1. Pull the rich dataset and ``flatten`` it -> the orders/units/incumbent
      snapshot (pure code; see flatten.py).
-  2. Map the discrepancies — which orders the disruption broke, and **which of
-     them are even repairable** vs locked-in — BEFORE solving (`discrepancy_report`).
-  3. Solve with the current combined **override** (weights / pins / scope / bump).
+  2. Map the discrepancies — which orders the disruption broke — BEFORE solving
+     (`discrepancy_report`). Every one of them is repairable now: the time fence
+     that used to make some "locked in" was removed on 2026-08-26, and it was the
+     only thing that ever made a broken order unfixable in principle.
+  3. Solve with the current combined **override** (`priority` / `may_move` /
+     `churn_price`).
   4. Emit the finished, planner-facing report (`planner_report`) — a plain table,
      no solver internals.
 
@@ -33,16 +36,17 @@ from . import decisions as D
 from .flatten import flatten_default
 from .snapshot import Order, Snapshot, date_label
 from .solver import (
+    CHURN_PRICE_SWEEP,
+    DEFAULT_STEP,
+    SOLVER_VERSION,
     SolveResult,
     SweepPoint,
+    churn_sweep,
     disrupted_order_keys,
-    is_locked_in,
-    lambda_sweep,
-    repairability,
-    scale_units,
+    effective_weight,
+    partition,
     solve,
     tardiness,
-    time_scale_of,
 )
 
 
@@ -51,54 +55,47 @@ class CycleResult:
     override: dict
     sweep: list[SweepPoint]
     results: dict[int, SolveResult]
-    chosen_lambda: int
+    chosen_churn_price: int
     chosen: SolveResult
 
 
-# --- Discrepancy map (step 3): what broke, and what's even fixable -----------
+# --- Discrepancy map (step 2): what broke ------------------------------------
 
 
 @dataclass
 class Discrepancy:
     order_key: str
     customer: str
-    priority: str
     sales_model: str
     vehicle_id: str
     promised: date
     now_arriving: date
     days_late: int
-    fixable: bool  # can it be re-slotted at all?
-    reason: str  # "movable" | "frozen"
 
 
 def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
-    """Orders whose currently-allocated supply now delivers past the promise, each
-    classified fixable vs stuck (only the frozen fence is truly stuck now) so the
-    planner learns on turn 1 which broken orders can't be helped by re-allocation."""
+    """Orders whose currently-allocated supply now delivers past the promise.
+
+    No fixable/stuck split any more: the time fence was the only thing that could
+    call a broken order unrepairable, and it is gone. Every order here is worth
+    trying — whether a re-allocation actually helps is the solver's answer, not
+    a property of the order."""
     orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
-    out: list[Discrepancy] = []
-    for oid, uid in snapshot.incumbent.items():
-        o, u = orders[oid], units[uid]
-        late = tardiness(o, u)
-        if late > 0:
-            reason = repairability(o, snapshot.now, u)
-            out.append(
-                Discrepancy(
-                    order_key=oid,
-                    customer=o.customer,
-                    priority=o.priority,
-                    sales_model=o.sales_model,
-                    vehicle_id=uid,
-                    promised=o.delivery_date,
-                    now_arriving=u.eta_dealer,
-                    days_late=late,
-                    fixable=(reason == "movable"),
-                    reason=reason,
-                )
-            )
-    out.sort(key=lambda d: (d.fixable, -d.days_late, d.order_key))
+    out = [
+        Discrepancy(
+            order_key=oid,
+            customer=orders[oid].customer,
+            sales_model=orders[oid].sales_model,
+            vehicle_id=uid,
+            promised=orders[oid].delivery_date,
+            now_arriving=units[uid].eta_dealer,
+            days_late=tardiness(orders[oid], units[uid]),
+        )
+        for oid, uid in snapshot.incumbent.items()
+        if tardiness(orders[oid], units[uid]) > 0
+    ]
+    out.sort(key=lambda d: (-d.days_late, d.order_key))
     return out
 
 
@@ -183,76 +180,56 @@ def exclusion_note(snapshot: Snapshot) -> str:
     return "\n\n".join(lines)
 
 
-def discrepancy_report(snapshot: Snapshot, override: dict | None = None) -> str:
-    """Turn-1 planner-facing map: what broke, split into fixable vs locked-in.
-
-    ``override`` is optional and used only to speak durations in the active
-    time-scale (DECIDE-14); the discrepancy set itself is scale-independent."""
+def discrepancy_report(snapshot: Snapshot) -> str:
+    """Turn-1 planner-facing map: what broke, before anything is solved."""
     discs = find_discrepancies(snapshot)
     note = exclusion_note(snapshot)
     if not discs:
         clear = "No orders are late — every allocated car still meets its promised date."
         return f"{note}\n\n{clear}" if note else clear
-    scale, unit_days = time_scale_of(override)
-    stuck = [x for x in discs if not x.fixable]
-    movable = [x for x in discs if x.fixable]
 
     lines = [note] if note else []
-    lines.append(f"**A supply delay pushed {len(discs)} order(s) past their promised date.**")
-    if stuck:
+    lines.append(
+        f"**A supply delay pushed {len(discs)} order(s) past their promised date.** "
+        "A re-allocation may get these back on track:\n"
+    )
+    lines.append("| Order | Dealer | Promised | Now arriving | Late |")
+    lines.append("|---|---|---|---|---|")
+    for x in discs:
         lines.append(
-            f"\n**{len(stuck)} locked in** — too close to delivery to re-slot; they will stay "
-            "late unless the delivery itself is expedited (a call to those dealers, not a "
-            "re-allocation):\n"
+            f"| {x.order_key} | {x.customer} "
+            f"| {date_label(x.promised)} | {date_label(x.now_arriving)} "
+            f"| {_dur(x.days_late)} |"
         )
-        lines.append("| Order | Dealer (priority) | Promised | Now arriving | Late | Why |")
-        lines.append("|---|---|---|---|---|---|")
-        for x in stuck:
-            why = "locked in (near delivery)" if x.reason == "frozen" else "already in final prep"
-            lines.append(
-                f"| {x.order_key} | {x.customer} ({x.priority}) "
-                f"| {date_label(x.promised)} | {date_label(x.now_arriving)} "
-                f"| {_dur(x.days_late, scale, unit_days)} | {why} |"
-            )
-    if movable:
-        lines.append(
-            f"\n**{len(movable)} can be repaired** — a re-allocation may get these back on track:\n"
-        )
-        lines.append("| Order | Dealer (priority) | Promised | Now arriving | Late |")
-        lines.append("|---|---|---|---|---|")
-        for x in movable:
-            lines.append(
-                f"| {x.order_key} | {x.customer} ({x.priority}) "
-                f"| {date_label(x.promised)} | {date_label(x.now_arriving)} "
-                f"| {_dur(x.days_late, scale, unit_days)} |"
-            )
     return "\n".join(lines)
 
 
 # --- Bump candidates (DECIDE-13: the agent ASKS before displacing anyone) -----
 
 
-def bump_candidates(snapshot: Snapshot, result: SolveResult) -> list[dict]:
-    """Untouched rows the planner *could* authorize bumping to rescue a still-late
-    disrupted row — so the agent asks with a concrete list, lowest priority first."""
+def bump_candidates(
+    snapshot: Snapshot, result: SolveResult, override: dict | None = None
+) -> list[dict]:
+    """Untouched orders the planner *could* authorize displacing to rescue one that
+    is still late — so the agent asks with a concrete list, lightest first.
+
+    "Lightest" is the priority step the planner set this turn, not a letter on the
+    record: with nothing steered every order weighs the same and the list is in key
+    order. There is no longer a locked-in filter on the rescue targets — the fence
+    that made a target unable to accept a different car is gone, which is what made
+    three authorized bumps no-op on 2026-08-25."""
     orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
     disrupted = disrupted_order_keys(snapshot)
-    prio_rank = {"C": 0, "B": 1, "A": 2}
+    priority = partition(snapshot, override or {}).priority
 
-    # A rescue target that is LOCKED IN cannot accept a different car, so offering
-    # a bump for it wastes the planner's authorization: the freed car sits idle and
-    # the target stays on its late one. Observed 2026-08-25 — three authorized
-    # bumps all no-oped for exactly this reason.
     still_late = [
         oid
         for oid in disrupted
-        if result.plan.get(oid)
-        and tardiness(orders[oid], units[result.plan[oid]]) > 0
-        and not is_locked_in(orders[oid], snapshot.now, units.get(snapshot.incumbent.get(oid, "")))
+        if result.plan.get(oid) and tardiness(orders[oid], units[result.plan[oid]]) > 0
     ]
     cands: dict[str, dict] = {}
-    for lid in still_late:
+    for lid in sorted(still_late):
         lo = orders[lid]
         for oid, o in orders.items():
             if oid in disrupted or oid in cands:
@@ -267,13 +244,15 @@ def bump_candidates(snapshot: Snapshot, result: SolveResult) -> list[dict]:
                 cands[oid] = {
                     "row": oid,
                     "customer": o.customer,
-                    "priority": o.priority,
+                    "priority": priority.get(oid, DEFAULT_STEP),
                     "vehicle": uid,
                     "arrives": date_label(u.eta_dealer),
                     "would_rescue": lid,
                     "rescue_customer": lo.customer,
                 }
-    return sorted(cands.values(), key=lambda c: (prio_rank.get(c["priority"], 9), c["row"]))
+    return sorted(
+        cands.values(), key=lambda c: (effective_weight(orders[c["row"]], priority), c["row"])
+    )
 
 
 # --- Data-prep flow chart ----------------------------------------------------
@@ -311,7 +290,7 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
                 f'  ARC["eligibility arcs<br/>sales_model equality · {n_models} models<br/>'
                 '(computed, never stored)"]'
             ),
-            '  SOLVE["min-cost-flow<br/>λ sweep"]',
+            '  SOLVE["min-cost-flow<br/>churn-price sweep"]',
             "  SRC --> FL",
             "  DIS --> FL",
             "  FL --> ORD",
@@ -330,19 +309,19 @@ def data_prep_flowchart(snapshot: Snapshot) -> str:
 
 
 def run_cycle(snapshot: Snapshot, override: dict | None = None) -> CycleResult:
-    """One deterministic turn: sweep λ over the combined override, then choose the
-    λ to present as 'the' plan — the override's if it set one, else the middle of
-    the sweep (neither max-churn nor max-late). Only an off-sweep override λ needs
-    a re-solve."""
+    """One deterministic turn: sweep the churn price over the combined override,
+    then choose the one to present as 'the' plan — the override's if it set one,
+    else the middle of the sweep (neither max-churn nor max-late). Only an
+    off-sweep price needs a re-solve."""
     override = override or {}
-    sweep, results = lambda_sweep(snapshot, override)
-    # `or` would swallow a deliberate lambda=0 (the first sweep value), so this
-    # tests for absence, not falsiness.
-    steered = override.get("lambda")
-    lam = int(steered) if steered is not None else D.LAMBDA_SWEEP[len(D.LAMBDA_SWEEP) // 2]
-    if lam not in results:
-        results[lam] = solve(snapshot, override, lam=lam)
-    return CycleResult(override, sweep, results, lam, results[lam])
+    sweep, results = churn_sweep(snapshot, override)
+    # `or` would swallow a deliberate churn_price=0 (the first sweep value), so
+    # this tests for absence, not falsiness.
+    steered = override.get("churn_price")
+    price = int(steered) if steered is not None else CHURN_PRICE_SWEEP[len(CHURN_PRICE_SWEEP) // 2]
+    if price not in results:
+        results[price] = solve(snapshot, override, churn_price=price)
+    return CycleResult(override, sweep, results, price, results[price])
 
 
 # --- Planner-facing report (the finished reply) ------------------------------
@@ -352,16 +331,11 @@ def run_cycle(snapshot: Snapshot, override: dict | None = None) -> CycleResult:
 # not a solver knob.
 EARLY_FLAG_DAYS = 14
 
-_UNIT_LABEL = {"days": "day", "weeks": "week", "months": "month"}
 
-
-def _dur(days: int, scale: str, unit_days: int) -> str:
-    """A duration rendered in the active unit, rounding up (DECIDE-14)."""
-    if unit_days <= 1:
-        return f"{days} day" + ("" if days == 1 else "s")
-    n = scale_units(days, unit_days)
-    label = _UNIT_LABEL.get(scale, "unit")
-    return f"{n} {label}" + ("" if n == 1 else "s")
+def _dur(days: int) -> str:
+    """A duration in days — the only unit the solver measures and the report
+    speaks, since the days/weeks/months knob was cut on 2026-08-26."""
+    return f"{days} day" + ("" if days == 1 else "s")
 
 
 def _cid_to_name(snapshot: Snapshot) -> dict[str, str]:
@@ -369,62 +343,60 @@ def _cid_to_name(snapshot: Snapshot) -> dict[str, str]:
     return {o.customer_id: o.customer for o in reversed(snapshot.orders)}
 
 
+def _who(filt: dict, cid_to_name: dict[str, str]) -> str:
+    """Whoever a may_move filter names, in the planner's own words."""
+    return (
+        ", ".join(cid_to_name.get(c, c) for c in (filt.get("customers") or []))
+        or ", ".join(filt.get("orders") or [])
+        or "selected orders"
+    )
+
+
 def _steering_summary(override: dict, cid_to_name: dict[str, str]) -> str:
-    if not override:
-        return "default repair"
+    """The three steering keys, said back in plain words. Every turn shows this:
+    the override is the only state a turn carries, so a planner who cannot see
+    what is still in force cannot tell why a plan changed."""
     parts: list[str] = []
-    boosts = override.get("boosts") or []
-    if boosts:
-        names = ", ".join(
-            cid_to_name.get(b.get("customer", ""), b.get("customer", "")) for b in boosts
-        )
-        parts.append(f"prioritized {names}")
-    defers = [p for p in (override.get("pins") or []) if p.get("action") == "defer"]
-    if defers:
-        parts.append("deferred " + ", ".join(str(p.get("order")) for p in defers))
-    forbids = [f for f in (override.get("forbid") or []) if f.get("action") == "no_move"]
-    if forbids:
-        parts.append("locked " + ", ".join(str(f.get("order")) for f in forbids))
-    if override.get("scope"):
-        parts.append("working only a selected slice")
-    if override.get("bump"):
-        b = override["bump"]
-        who = (
-            ", ".join(cid_to_name.get(c, c) for c in (b.get("customers") or []))
-            or ", ".join(b.get("orders") or [])
-            or "selected orders"
-        )
-        parts.append(f"allowed bumping {who}")
+    for entry in override.get("priority") or []:
+        parts.append(f"{entry['order']} set to {entry['step']}")
+    may_move = override.get("may_move") or {}
+    if may_move.get("only"):
+        parts.append(f"working only {_who(may_move['only'], cid_to_name)}")
+    if may_move.get("also"):
+        parts.append(f"allowed bumping {_who(may_move['also'], cid_to_name)}")
+    if may_move.get("never"):
+        parts.append("leaving " + ", ".join(may_move["never"]) + " alone")
+    if override.get("churn_price") is not None:
+        parts.append(f"churn priced at {override['churn_price']}")
     return "; ".join(parts) if parts else "default repair"
 
 
-def _result_phrase(order: Order, unit, scale: str, unit_days: int) -> str:
+def _result_phrase(order: Order, unit) -> str:
     late = tardiness(order, unit)
     if late > 0:
-        return f"{_dur(late, scale, unit_days)} late"
+        return f"{_dur(late)} late"
     early = (order.delivery_date - unit.eta_dealer).days
     if early > EARLY_FLAG_DAYS:
-        return (
-            f"on time, but {_dur(early, scale, unit_days)} early (ties a car up sooner than needed)"
-        )
+        return f"on time, but {_dur(early)} early (ties a car up sooner than needed)"
     return "on time"
 
 
-def _why_late(reason: str) -> str:
-    return "locked in (near delivery)" if reason == "frozen" else "no compatible car free"
+# The one reason an order can still be late after a repair. There used to be two:
+# "locked in (near delivery)" went with the time fence on 2026-08-26.
+WHY_LATE = "no compatible car free"
 
 
 def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | None = None) -> str:
-    """The finished, jargon-free reply for the planner. No λ, no solver internals —
-    headline, what changed (with the actual supply swap), what's still late (split
-    locked-in vs no-car), unchanged count, one caveat."""
+    """The finished, jargon-free reply for the planner. No churn price, no solver
+    internals — headline, what changed (with the actual supply swap), what is
+    still late, unchanged count, one caveat."""
     override = override or {}
     orders = snapshot.order_by_key()
     units = snapshot.unit_by_id()
     incumbent = snapshot.incumbent
     disrupted = disrupted_order_keys(snapshot)
     cid_to_name = _cid_to_name(snapshot)
-    scale, unit_days = time_scale_of(override)
+    priority = partition(snapshot, override).priority
     plan = result.plan
 
     # `disrupted` is a set — sort every derived list so the report is byte-stable.
@@ -440,20 +412,11 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
         if oid not in result.unfilled and plan.get(oid) and plan[oid] != incumbent.get(oid)
     ]
     still_late = [oid for oid in sorted(orders) if late_by(oid, plan.get(oid))]
-    # Why each still-late order is still late: the frozen fence, or no free car.
-    reason_of = {
-        oid: repairability(orders[oid], snapshot.now, units.get(incumbent.get(oid, "")))
-        for oid in still_late
-    }
-    stuck = [oid for oid in still_late if reason_of[oid] == "frozen"]
-    no_car = [oid for oid in still_late if reason_of[oid] != "frozen"]
 
     lines = [f"**Done — {_steering_summary(override, cid_to_name)}.**"]
     head = f"{n_fixed} of {len(broken)} delayed orders now on time"
     if still_late:
         head += f"; {len(still_late)} still late"
-        if stuck:
-            head += f" ({len(stuck)} locked in — can't be re-slotted)"
     lines.append(head + ".")
 
     # An order can be BOTH re-allocated and still late (a bump victim, or a move
@@ -466,21 +429,20 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     if changed:
         lines.append("\n**What I moved**\n")
         lines.append(
-            "| Order | Dealer (priority) | Was arriving | Now arrives | Promised "
-            "| New allocation | Result |"
+            "| Order | Dealer | Was arriving | Now arrives | Promised | New allocation | Result |"
         )
         lines.append("|---|---|---|---|---|---|---|")
 
         for oid in changed:
             o, was_id, u = orders[oid], incumbent.get(oid), units[plan[oid]]
-            res = _result_phrase(o, u, scale, unit_days)
+            res = _result_phrase(o, u)
             if was_id is not None and oid not in disrupted:
                 res += " — **bumped**"
             kind = "future" if not u.is_hard else "car"
             alloc = f"`{plan[oid]}` [{kind}]" + (f" (was `{was_id}`)" if was_id else "")
             was = date_label(units[was_id].eta_dealer) if was_id else "—"
             lines.append(
-                f"| {oid} | {o.customer} ({o.priority}) | {was} "
+                f"| {oid} | {o.customer} | {was} "
                 f"| **{date_label(u.eta_dealer)}** | {date_label(o.delivery_date)} "
                 f"| {alloc} | {res} |"
             )
@@ -489,23 +451,22 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
 
     if still_late or result.unfilled:
         lines.append("\n**Still needs your call**\n")
-        lines.append("| Order | Dealer (priority) | Arrives | Promised | Late | Why |")
+        lines.append("| Order | Dealer | Arrives | Promised | Late | Why |")
         lines.append("|---|---|---|---|---|---|")
 
-        for oid in stuck + no_car:
+        for oid in still_late:
             o, u = orders[oid], units[plan[oid]]
             label = oid + (" ↑moved" if oid in moved_and_late else "")
             lines.append(
-                f"| {label} | {o.customer} ({o.priority}) | {date_label(u.eta_dealer)} "
-                f"| {date_label(o.delivery_date)} | {_dur(tardiness(o, u), scale, unit_days)} "
-                f"| {_why_late(reason_of[oid])} |"
+                f"| {label} | {o.customer} | {date_label(u.eta_dealer)} "
+                f"| {date_label(o.delivery_date)} | {_dur(tardiness(o, u))} "
+                f"| {WHY_LATE} |"
             )
 
         for oid in result.unfilled:
             o = orders[oid]
             lines.append(
-                f"| {oid} | {o.customer} ({o.priority}) "
-                f"| — | {date_label(o.delivery_date)} | — | no car at all (backordered) |"
+                f"| {oid} | {o.customer} | — | {date_label(o.delivery_date)} | — | no car at all |"
             )
 
         if moved_and_late:
@@ -517,30 +478,25 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     n_unchanged = len(orders) - len(changed) - len(result.unfilled)
     lines.append(f"\nThe other {n_unchanged} orders are unchanged.")
 
-    caveat = _caveat(orders, stuck, no_car)
+    caveat = _caveat(orders, still_late, priority)
     if caveat:
         lines.append(f"\n**Worth knowing:** {caveat}")
     return "\n".join(lines)
 
 
-def _caveat(orders: dict[str, Order], stuck: list[str], no_car: list[str]) -> str | None:
-    """One closing line about the worst thing re-allocation could not fix."""
-    rank = {"A": 0, "B": 1, "C": 2}
-    # Named by LINE plus the car, like every other planner-facing mention — never
-    # the raw three-part key, which is an id the planner has no use for.
-    if stuck:
-        o = orders[min(stuck, key=lambda x: rank.get(orders[x].priority, 9))]
-        return (
-            f"{o.customer} ({o.priority}) order {o.key} is locked in and stays late — "
-            "that's a delivery/expedite call, not something re-allocation can fix."
-        )
-    if no_car:
-        o = orders[no_car[0]]
-        return (
-            f"{o.customer} order {o.key} stays late — no compatible car is free; "
-            "allowing a bump on another priority tier might help."
-        )
-    return None
+def _caveat(
+    orders: dict[str, Order], still_late: list[str], priority: dict[str, str]
+) -> str | None:
+    """One closing line about the worst thing re-allocation could not fix — the
+    heaviest order still late, which is the one the planner set highest if they
+    set anything."""
+    if not still_late:
+        return None
+    o = orders[max(still_late, key=lambda x: (effective_weight(orders[x], priority), x))]
+    return (
+        f"{o.customer} order {o.key} stays late — no compatible car is free; "
+        "authorising a bump on another order might help."
+    )
 
 
 # Where the new allocations are written. The agent must answer follow-ups from
@@ -562,6 +518,7 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
     units = snapshot.unit_by_id()
     incumbent = snapshot.incumbent
     disrupted = disrupted_order_keys(snapshot)
+    priority = partition(snapshot, override).priority
     rows: list[dict] = []
     for oid in sorted(orders):
         o = orders[oid]
@@ -580,7 +537,7 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
                 "order": oid,
                 "customer": o.customer,
                 "customer_id": o.customer_id,
-                "priority": o.priority,
+                "priority": priority.get(oid, DEFAULT_STEP),
                 "model": o.sales_model,
                 "promised": date_label(o.delivery_date),
                 "was_car": was_id,
@@ -593,9 +550,7 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
                 "status": status,
                 # An order the disruption did not touch, moved anyway = displaced.
                 "bumped": status == "moved" and oid not in disrupted and was_id is not None,
-                "why_late": _why_late(repairability(o, snapshot.now, units.get(was_id or "")))
-                if late
-                else None,
+                "why_late": WHY_LATE if late else None,
             }
         )
     return rows
@@ -607,12 +562,17 @@ def save_plan(
     override: dict | None = None,
     path: str | Path = PLAN_FILENAME,
 ) -> Path:
-    """Write the plan to ``path`` and return it. The durable record of a turn."""
+    """Write the plan to ``path`` and return it. The durable record of a turn.
+
+    ``solver_version`` is stamped because a plan is only reproducible against the
+    config it was priced with — the numbers live in ``solver_config.yaml`` now,
+    so a saved plan that did not name a version could not be traced to them."""
     out = Path(path)
     payload = {
         "now": date_label(snapshot.now),
+        "solver_version": SOLVER_VERSION,
         "override": override or {},
-        "lambda": result.lam,
+        "churn_price": result.churn_price,
         "self_check": result.self_check,
         "counts": {
             "orders": len(snapshot.orders),
@@ -655,7 +615,7 @@ def _banner(title: str) -> str:
 
 def main() -> None:
     print(D.format_decisions())
-    print(f"\nsolver version: {D.SOLVER_VERSION}")
+    print(f"\nsolver version: {SOLVER_VERSION} (from solver_config.yaml)")
 
     snap = flatten_default()
     d = snap.disruption
@@ -668,9 +628,8 @@ def main() -> None:
     print(_banner("DISCREPANCY MAP (what broke, before solving)"))
     print(discrepancy_report(snap))
 
-    # Steer toward a dealer that actually has a disrupted row in play, so the demo
-    # boost resolves to a real name instead of a placeholder id. Resolved to real
-    # order keys — the manifest may name lines, not cars.
+    # Steer an order that is actually in play, so the demo resolves to a real
+    # dealer instead of a placeholder id.
     disrupted = sorted(disrupted_order_keys(snap))
     fav = snap.order_by_key()[disrupted[0]] if disrupted else snap.orders[0]
 
@@ -680,11 +639,14 @@ def main() -> None:
     turns = [
         ("default repair", {}),
         (
-            f"steer: prefer {fav.customer} (same override, carried forward)",
-            {"boosts": [{"customer": fav.customer_id, "weight_mult": 3.0}]},
+            f"steer: {fav.key} is urgent (same override, carried forward)",
+            {"priority": [{"order": fav.key, "step": "urgent"}]},
         ),
-        ("steer: also scope to that one dealer", {"scope": {"customers": [fav.customer_id]}}),
-        ("steer: think in weeks (durations coarsen to the unit)", {"time_scale": "weeks"}),
+        (
+            f"steer: and work only {fav.customer}'s orders",
+            {"may_move": {"only": {"customers": [fav.customer_id]}}},
+        ),
+        ("steer: change as little as possible", {"churn_price": 100}),
     ]
     for n, (title, steer) in enumerate(turns, start=1):
         override.update(steer)

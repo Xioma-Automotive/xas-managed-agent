@@ -36,12 +36,12 @@ tool now, not to `jobCards.helpers.ts`.
 | `SalesModelCode` | **add** | the eligibility key, matched against a car's `SalesModel` | 2/25 | no order matches any car; the plan is empty |
 | `DueDateTime` | **rename** | the promised date lateness is measured against | 13/25 | nothing can be late, so there is nothing to repair |
 | `VehicleDMSCode` | **add** | the current allocation | 9/25 | every order looks unallocated; repair becomes rebuild |
-| `EntryDateTime` | **rename** | how long an order has waited (back-order aging) | 13/25 | aging is zero; an old order gets no escalation |
+| `EntryDateTime` | **rename** | when the order was raised (provenance only since 2026-08-26 — the back-order aging term it was meant to feed is deleted) | 13/25 | nothing the solver reads |
 | `SalesModelTrim` | nice | a human label for the wanted car | 1/25 | the plan names a code, not a car |
 | `VehicleUUID` | nice | stable id for the allocation link | 9/25 | `VehicleDMSCode` is enough today |
 | `DeliveryDate` | nice | reporting only — **not** the promise | 3/25 | nothing; listed so it is never mistaken for `DueDateTime` |
 | `Accounts.Owner` | present | dealer name + `AccountUUID`, for "prefer Colmobil" | 25/25 | — |
-| `JobPriority` | present | the customer-priority weight | 0/25 (`Code` null) | returned but empty in the data |
+| `JobPriority` | not needed | was the customer-priority weight | 0/25 (`Code` null) | nothing — since 2026-08-26 priority is a step the planner sets per order, never read from the record |
 | `JobEntryNum`, `JobStatus`, `JobState` | present | order id; excluding cancelled/closed | 25/25 | — |
 
 **The wanted car is on the header, not in `jobItems`.** VSO 502361 has eight items

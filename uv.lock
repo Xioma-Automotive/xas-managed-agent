@@ -1803,6 +1803,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "ortools" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1820,6 +1821,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "ortools" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "sse-starlette" },
     { name = "uvicorn", extras = ["standard"] },
 ]

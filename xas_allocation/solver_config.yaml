@@ -1,0 +1,56 @@
+# Every number the allocation solver reads. Nothing here is decided by the model
+# and nothing is hard-coded beside the code that uses it — change a value here,
+# re-run `setup_agent.py`, and the next plan is priced by the new number.
+#
+# The invariant is plan = pure_function(data_snapshot, skill, override); this
+# file is part of the SKILL half of that, so a plan is only reproducible against
+# the config it was solved with. `version` is what a saved plan records.
+#
+# Reviewed 2026-08-26. Four of these are numbers a planner would argue about —
+# convex_exponent, early_weight, break_cost.hard and the churn sweep — and none
+# has been checked against a real dealer's book.
+
+version: "0.3.0-prototype"
+
+# Exponent on lateness. Above 1, pain grows faster than it accumulates, so the
+# solver spreads delay over several orders instead of dumping it on one. This
+# single number is the difference between "fair" and "someone waits months".
+convex_exponent: 1.5
+
+# Price per day a car arrives BEFORE the promise, per unit of order weight.
+# Linear and small, so an on-time car always beats a late one, but the solver
+# stops grabbing a car that lands three months early and ties up the yard.
+early_weight: 0.15
+
+# The price of an order ending with NO CAR AT ALL — not a late car, no car. High
+# enough that a late car always beats nothing, finite so a book with more orders
+# than cars comes back as a plan naming who is unplaceable, not as a failure.
+no_car_cost: 10000000
+
+# Plumbing, not a knob: min-cost-flow works in integers, so every cost is
+# multiplied by this and rounded. 1000 buys three decimal places.
+cost_scale: 1000
+
+# What it costs to take a car away from an order whose car was arriving ON TIME.
+# `hard` is a real car with a number plate; `soft` is one not built yet, free to
+# reshuffle. An order whose car is already late pays nothing — a promise already
+# broken protects nothing. This is the only thing that stops an authorised
+# displacement being free, and 200 is a guess nobody has signed off.
+break_cost:
+  hard: 200.0
+  soft: 0.0
+
+# How much an order's lateness counts, in named steps the planner sets per turn
+# (override key `priority`). Every order starts at `default_priority_step`;
+# there is no priority column on the record and there never was a planner's
+# decision in one.
+default_priority_step: normal
+priority_steps:
+  normal: 1.0
+  high: 2.0
+  urgent: 4.0
+
+# The price of churn: charged once for every order that ends up on a different
+# car than it had. The solver runs the whole graph at each of these prices and
+# presents the middle one, unless the planner names a `churn_price` of their own.
+churn_price_sweep: [0, 5, 10, 25, 50, 100]

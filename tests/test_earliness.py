@@ -17,7 +17,7 @@ from xas_allocation.snapshot import Order, Snapshot, Unit
 from xas_allocation.solver import solve
 
 NOW = date(2026, 8, 3)
-PROMISED = date(2026, 11, 1)  # ~90 days out → liquid fence, no λ churn in play
+PROMISED = date(2026, 11, 1)  # far enough out that nothing else is in play
 
 
 def _order() -> Order:
@@ -27,11 +27,8 @@ def _order() -> Order:
         customer="Dealer 1",
         customer_id="CUST-001",
         sales_model="SM1",
-        priority="B",
         delivery_date=PROMISED,
         price=40000,
-        n_prior_delays=0,
-        days_backordered=0,
     )
 
 
@@ -63,7 +60,7 @@ def test_closer_early_car_preferred():
     near = _unit("VEH-NEAR", date(2026, 10, 30))  # 2 days early
     far = _unit("VEH-FAR", date(2026, 9, 22))  # 40 days early
     snap = _snap([near, far])
-    result = solve(snap, {}, lam=0)
+    result = solve(snap, {}, churn_price=0)
     assert result.plan["SO-1-1"] == "VEH-NEAR", "should prefer the less-early car"
 
 
@@ -71,7 +68,7 @@ def test_slightly_early_beats_slightly_late():
     early = _unit("VEH-EARLY", date(2026, 10, 31))  # 1 day early
     late = _unit("VEH-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([early, late])
-    result = solve(snap, {}, lam=0)
+    result = solve(snap, {}, churn_price=0)
     assert result.plan["SO-1-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
 
 
@@ -81,7 +78,7 @@ def test_extreme_early_can_lose_to_slight_late():
     far_early = _unit("VEH-FAR-EARLY", date(2026, 9, 22))  # 40 days early
     slight_late = _unit("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([far_early, slight_late])
-    result = solve(snap, {}, lam=0)
+    result = solve(snap, {}, churn_price=0)
     assert result.plan["SO-1-1"] == "VEH-SLIGHT-LATE", (
         "extreme earliness may lose to slight lateness"
     )
@@ -91,7 +88,7 @@ def test_report_frames_earliness_as_a_caveat_not_a_win():
     o = _order()
     very_early = _unit("VEH-X", date(2026, 10, 1))  # 31 days early
     a_bit_early = _unit("VEH-Y", date(2026, 10, 28))  # 4 days early, under the flag
-    phrase = _result_phrase(o, very_early, "days", 1)
+    phrase = _result_phrase(o, very_early)
     assert "early" in phrase and "ties a car up" in phrase and "✅" not in phrase
     # a couple of days early isn't nagged about
-    assert _result_phrase(o, a_bit_early, "days", 1) == "on time"
+    assert _result_phrase(o, a_bit_early) == "on time"

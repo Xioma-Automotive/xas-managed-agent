@@ -1,104 +1,63 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "XAS allocation steering override",
-  "description": "The typed object a planner's natural language compiles to (§6). One combined override carries all active steering (weights / pins / forbid / lambda / scope / bump); the agent edits it in place and carries it forward each turn. The prompt moves weights and pins; it NEVER edits solver code. Same inputs + same override => byte-identical plan. All dates are ISO 'YYYY-MM-DD'.",
+  "description": "The typed object a planner's natural language compiles to (§6). THREE keys, and nothing else steers the solver — that is what makes a turn reproducible. The agent edits this one object in place and carries it forward each turn. The prompt moves priority and who may move; it NEVER edits solver code or the config. Same snapshot + same override => byte-identical plan. All dates are ISO 'YYYY-MM-DD'. Retired 2026-08-26: `pins` (a deferral is a NEW PROMISED DATE on the order, which the lateness and earliness terms already price — it was never steering), `boosts` (superseded by `priority`), `forbid`/`scope`/`bump` (merged into `may_move`), `time_scale` (nobody asked for it) and `break_cost` (a constant somebody exposed per session — it lives in solver_config.yaml).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "pins": {
-      "description": "Instruction-driven pins. 'defer' unpins an order and forbids arrivals before not_before.",
+    "priority": {
+      "description": "Who matters more, in named steps. Every order starts at the config's default step ('normal'); only the orders named here move off it, and a heavier order's lateness costs proportionally more. Priority is a LEVER, not a column — nothing on the record says an order matters more, and the letter this replaced was never a planner's decision.",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["order", "action"],
+        "required": ["order", "step"],
         "properties": {
-          "order": { "type": "string", "description": "An order key at any of its three levels (resolved from NL by the agent): one car '{so_id}-{line}-{n}' e.g. 'VSO-4000-1-1', a whole car line '{so_id}-{line}' e.g. 'VSO-4000-1' (every car its Quantity asks for), or a whole VSO '{so_id}' e.g. 'VSO-4000'. Prefer the LINE level: going in, a line's cars are interchangeable (same model, promise and customer), so steering one usually means steering all. Name a single car only to carve one out." },
-          "action": { "type": "string", "enum": ["defer"] },
-          "not_before": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest allowed delivery date, e.g. 2026-09-14." }
+          "order": { "type": "string", "description": "An order key at either level: one car line '{so_id}-{line}' e.g. 'VSO-4000-1', or a whole VSO '{so_id}' e.g. 'VSO-4000' (every line on it). Prefer the LINE level unless the planner really meant the whole sales order." },
+          "step": { "type": "string", "enum": ["normal", "high", "urgent"], "description": "The named step. Its weight comes from solver_config.yaml (normal 1, high 2, urgent 4) — an unknown name is an error, never a silent fall back to normal." }
         }
       }
     },
-    "boosts": {
-      "description": "Multiplicative weight bumps on W(o) for a customer's orders.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["customer", "weight_mult"],
-        "properties": {
-          "customer": { "type": "string", "description": "customer_id (resolved from a dealer name, e.g. 'Colmobil' -> CUST-001)." },
-          "weight_mult": { "type": "number", "exclusiveMinimum": 0 }
+    "may_move": {
+      "description": "Who is in play this turn. The DEFAULT, with this key absent, is the orders that need help: late, or with no car at all. A settled, on-time order is not in it — that, and nothing else, is what protects it. PRECEDENCE IS PART OF THE CONTRACT: never beats only beats also. 'never' is absolute even against a permission granted in the same breath, and 'only' bounds the whole turn including anything 'also' authorised.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "only": {
+          "description": "NARROW the set: nothing outside this filter moves, however else the turn was steered. This is 'just fix August' / 'only Colmobil'. It narrows the default rather than replacing it, so it can never free a settled order nobody authorised.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "customers": { "type": "array", "items": { "type": "string" }, "description": "customer_ids or dealer names (e.g. ['CUST-001'] or ['Colmobil'])." },
+            "models": { "type": "array", "items": { "type": "string" }, "description": "sales_models to include." },
+            "orders": { "type": "array", "items": { "type": "string" }, "description": "explicit keys, at either level: ['VSO-4000-1'] or ['VSO-4000']." },
+            "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest promised date in play, inclusive." },
+            "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Latest promised date in play, inclusive." }
+          }
+        },
+        "also": {
+          "description": "WIDEN the set (inside 'only'): untouched orders the planner has EXPLICITLY authorized the solver to displace to rescue someone late (DECIDE-13). This is the ONE place permission to displace is granted — ASK before setting it. The solver moves one of these only when it lowers total cost, and pays break_cost for disturbing a kept promise. Absent = nobody may be bumped, which is the default.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "customers": { "type": "array", "items": { "type": "string" } },
+            "models": { "type": "array", "items": { "type": "string" } },
+            "orders": { "type": "array", "items": { "type": "string" } },
+            "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+            "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+          }
+        },
+        "never": {
+          "description": "REMOVE from the set, absolutely — 'I already called that customer, leave it.' Beats everything, including an 'also' naming the same order. It is the only way to protect an order that IS in trouble, since such an order is in the default set. Order keys at either level.",
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
-    "forbid": {
-      "description": "Hard 'do not move' — pins an order to its incumbent vehicle/date.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["order", "action"],
-        "properties": {
-          "order": { "type": "string" },
-          "action": { "type": "string", "enum": ["no_move"] }
-        }
-      }
-    },
-    "lambda": {
-      "description": "Changed-date step penalty for this solve. If null/absent, the λ sweep default applies.",
+    "churn_price": {
+      "description": "What one changed allocation costs, for this solve. Charged once for every order that ends up on a different car than it had — the dial behind 'change as little as possible'. If null/absent the solver sweeps the config's prices and presents the middle one.",
       "type": ["integer", "null"],
       "minimum": 0
-    },
-    "scope": {
-      "description": "General filter that DEFINES the working set: when present, only rows matching ALL given dimensions are re-allocatable and everything else stays pinned. This is how the agent works a slice ('allocate all Colmobil orders for August') and how a fix stays local. Omit/null to fall back to the disrupted set.",
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "properties": {
-        "customers": {
-          "description": "customer_ids or dealer names to include (e.g. ['CUST-001'] or ['Colmobil']).",
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "models": {
-          "description": "sales_models to include.",
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "orders": {
-          "description": "explicit keys to include, at any of the three levels: one car ['VSO-4000-1-1'], a whole car line ['VSO-4000-1'], or a whole VSO ['VSO-4000'].",
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Earliest delivery_date in scope, inclusive." },
-        "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "Latest delivery_date in scope, inclusive." }
-      }
-    },
-    "bump": {
-      "description": "Which UNTOUCHED rows the planner has EXPLICITLY authorized the solver to displace to rescue a disrupted row (DECIDE-13). Same dimensions as scope. Never bump an untouched order without this — ASK the planner who may be bumped first. The solver only moves a bumpable row when it lowers total cost, so it prefers low-priority, not-already-rescheduled targets. Omit/null = nobody may be bumped (the default).",
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "properties": {
-        "customers": { "type": "array", "items": { "type": "string" } },
-        "models": { "type": "array", "items": { "type": "string" } },
-        "orders": { "type": "array", "items": { "type": "string" } },
-        "from_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-        "to_date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
-      }
-    },
-    "time_scale": {
-      "description": "Resolution the solver reasons at and the report speaks in (DECIDE-14). 'days' (default) = exact; 'weeks'/'months' round every gap UP to whole units, so the solver stops distinguishing differences finer than a unit (a coarser, calmer plan) and durations read in that unit. Changes the plan, not just the wording. The hard time fence stays in days regardless.",
-      "type": "string",
-      "enum": ["days", "weeks", "months"]
-    },
-    "break_cost": {
-      "description": "Cost to displace an allocation from its current binding (DECIDE-3). 'hard' = a real vehicle (VehicleClassification 'Vehicle'); 'soft' = a future vehicle (VehicleClassification 'Future'). Hard is expensive-but-movable, soft is free. Only an ON-TIME binding costs this to displace; an already-late binding is free to re-allocate (a broken promise protects nothing), so the break prices the bump victim, not the disrupted order being rescued. The solver bumps an on-time hard allocation only when the tardiness saved elsewhere outweighs 'hard' — it is the tunable 'how many weighted late-days is one hard break worth' knob. Omit to use the defaults (hard=200, soft=0). Only the keys present are overridden.",
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "properties": {
-        "hard": { "type": "number", "minimum": 0, "description": "Cost to break a hard (real-vehicle) allocation." },
-        "soft": { "type": "number", "minimum": 0, "description": "Cost to break a soft (future-vehicle) allocation." }
-      }
     }
   }
 }

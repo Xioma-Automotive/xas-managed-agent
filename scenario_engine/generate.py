@@ -203,12 +203,6 @@ def _car_line(
         "Label": MODEL_NAMES.get(model, model),
         "Quantity": 1,
         "Prices": [{"GrossTotal": rng.choice([32000, 38000, 45000, 52000, 61000])}],
-        # Solver escalation fields; real-data derivation is a TODO (there is no
-        # direct XAS field — see docs/mcp-response-schema.md Q2). The mapper
-        # passes them through when present, and flatten defaults an absent one to 0.
-        "n_prior_delays": rng.choices([0, 1, 2, 3], weights=[70, 18, 8, 4])[0],
-        "days_backordered": rng.choices([0, 0, 0, 7, 14, 30], weights=[50, 15, 10, 12, 8, 5])[0],
-        "times_rescheduled": rng.choices([0, 1, 2], weights=[75, 18, 7])[0],
     }
     item["AllocQty"] = 1
     if bucket == "real":
@@ -306,8 +300,8 @@ def generate(
         vso_num += 1
         # DueDateTime is a VSO-header promise shared by its car lines.
         delivery = rng.choice(promise_window)
-        # Order age. The doc's proposed `days_backordered = now - EntryDateTime`
-        # is not wired (Q2 is open), so this is independent of the line counters.
+        # EntryDateTime is display/provenance only. The escalation counters this
+        # used to feed were deleted with the weight terms on 2026-08-26.
         entered = BASE_DATE - timedelta(days=rng.randint(5, 60))
         items: list[dict] = []
         n_lines = rng.choices([1, 2, 3], weights=[55, 30, 15])[0]

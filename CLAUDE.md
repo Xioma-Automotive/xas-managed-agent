@@ -40,12 +40,19 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   card into its `ModelItem` car lines, one order each. The *same* pull
   backs every turn of a repair cycle — re-applying the same override against a
   different pull is not the same turn.
-- **The override is the session.** Steering is one combined override object
-  (weights / pins / forbid / lambda / scope / bump) the agent edits in place and
-  carries forward — no ledger, no replay. Same snapshot + same override →
-  byte-identical plan; the sandbox is a performance convenience. Durable
-  cross-session persistence of that override is deferred (DECIDE-5) — the real fix
-  is a host-side store, not the ephemeral sandbox.
+- **The override is the session.** Steering is one combined override object —
+  since 2026-08-26 exactly THREE keys, `priority` / `may_move` / `churn_price` —
+  which the agent edits in place and carries forward; no ledger, no replay. Same
+  snapshot + same override → byte-identical plan; the sandbox is a performance
+  convenience. Durable cross-session persistence of that override is deferred
+  (DECIDE-5) — the real fix is a host-side store, not the ephemeral sandbox.
+- **The config is part of the skill half of the invariant.** Every solver
+  parameter lives in `xas_allocation/solver_config.yaml`, read once at import by
+  `solver.py` and nowhere else; `decisions.py` holds decisions and no numbers.
+  A plan is only reproducible against the config it was priced with, which is why
+  `save_plan` stamps `solver_version`. Editing the YAML means re-running
+  `setup_agent.py`, exactly like editing the code — and it needs `pyyaml` in the
+  sandbox, so the skill's install line is `pip install ortools pyyaml`.
 - **Flatten is pure code, not judgment.** Eligibility is a hard `sales_model`
   equality — there is no LLM spec-residual left to cache. If the rich→snapshot
   mapping were re-derived by the model each turn, that is the leak this guards
@@ -193,18 +200,45 @@ XAS endpoint and its credential never touch the sandbox.
   anywhere, uncounted.** That was an explicit call, pending a response-shape
   decision (one allocation cap per line, or per-car fields) — `docs/mcp-response-schema.md`
   Q1, same VPO hop. Do not reinstate a counter or soften the report wording until
-  that lands. An order is NAMED by string in four places (pins, forbid,
-  scope/bump, the disruption manifest); all go through `solver.names_order` /
-  `not_before_for` / `disrupted_order_keys`, which match the line or the whole
-  VSO. `Snapshot.order_by_key` RAISES on a duplicate key rather than collapsing
-  two orders into one.
-- **The frozen fence protects an allocation, not empty demand.** `partition` skips
-  the fence for an order with no incumbent: the fence is about churning a
-  commitment near delivery, and an order with no car has none — freezing it makes
-  it a permanent backorder. It also used to land in neither `plan` nor `unfilled`,
-  so `_self_check` returned not-ok with an EMPTY violation list, which reads like a
-  solver bug rather than a partition one. `repairability` agrees — no incumbent
-  means "movable", never "locked in".
+  that lands. An order is NAMED by string in four places (`priority`,
+  `may_move.only/.also/.never`, the disruption manifest); all go through
+  `solver.names_order` / `disrupted_order_keys`, which match the line or the
+  whole VSO. `Snapshot.order_by_key` RAISES on a duplicate key rather than
+  collapsing two orders into one.
+- **Nothing is walled off, and the free set is the whole protection.** The time
+  fence (frozen ≤14d / slushy 15–42d), the soft instruction pin with its
+  `not_before`, and the three weight-escalation terms were all REMOVED on
+  2026-08-26 (DECIDE-2, -4, -1/-11). The fence is the one that mattered: it fired
+  BEFORE the authorisation check in `partition`, so it silently cancelled
+  displacements a planner had explicitly authorised — three authorised bumps
+  no-oped for exactly that reason. What everyone thought it protected, a settled
+  on-time order, is already protected because such an order is never in the free
+  set. `fence_of` / `is_locked_in` / `repairability` / `scale_units` /
+  `time_scale_of` / `not_before_for` are gone with them; so are `Order.priority`
+  and the three history fields. Do not reinstate a smaller version of any of it —
+  the register (`decisions.py`) keeps each one RETIRED with what went wrong.
+- **`may_move` precedence is part of the contract: never beats only beats also.**
+  `only` bounds the WHOLE turn (including anything `also` authorised) and NARROWS
+  the default rather than replacing it — the `scope` key it replaced replaced the
+  set, so a scope freed settled on-time orders nobody had authorised anyone to
+  touch. `also` is the one place permission to displace is granted, and it is
+  permission, not an instruction: the solver still declines a bump that buys
+  nothing. `never` is absolute, and it is the only way to hold an order that is
+  itself late. `tests/test_may_move.py` pins all three.
+- **The churn price charges for a CHANGED CAR, not a missed promise.** It used to
+  be charged whenever the car's date differed from the promised date — true of
+  98.9% of eligible pairings — and only inside the fence's 15–42d band, so the
+  trade-off curve came back flat (193.0 weighted late-days at every price from 0
+  to 100). It is now added once, in `_solve_one`, to every arc where the vehicle
+  differs from the incumbent, beside the break cost. The fabricated book now
+  sweeps 18 changes/99 late-days at 0 → 4 changes/237 at 100.
+- **Priority is a planner LEVER, not a column.** Every order starts at the
+  config's `default_priority_step` and only what the override names moves off it;
+  named steps (`normal`/`high`/`urgent`) resolve to weights in the config. An
+  unknown step RAISES in `_combined_priority` rather than falling back to normal,
+  because a silent fallback makes a mistyped instruction look applied. The record's
+  priority letter is not read anywhere: `JobPriority` left `REQUIRED_CARD_FIELDS`,
+  the pull and `alloc_tools`' customer map with it.
 - **The report and the solver speak the same grain: one row per order.** With one
   car per line there is nothing to group, so `planner_report` prints an order key
   (`VSO-4000-1`) per row and `line_sizes` / `car_range` / `line_label` /
@@ -234,6 +268,30 @@ XAS endpoint and its credential never touch the sandbox.
   solver's self-check on its own input. Fixed 2026-08-24; pinned by
   `test_a_double_booked_vehicle_yields_no_incumbent_for_anyone` and
   `test_the_card_fallback_needs_a_single_car_line`.
+- **In the real export, a car's status IS its allocation state.** `data/vehicles.csv`
+  + `data/orders.csv` (3523 cars, 1641 orders) hold a perfect 1:1 matching: every
+  `Dealer Order Confirmation` (1380) and `Dealer Reservation` (261) car is claimed
+  by exactly one order, every `Available For Sale` car (1302) by none, and there
+  are no contested cars. So there is nothing to allocate in it, and three scripts
+  manufacture the decision over ONE `carve` (`scenario_engine/real_export.py`):
+  `real_unallocated` DELETES allocations (clearing the order's `vehicleCode` +
+  `description`, freeing the car), `real_delayed` KEEPS them and slips
+  `availableBy` past the order's `etaDealer` instead, and `real_mixed` does both —
+  the first two are the mixed one with a count pinned to zero, which is why the
+  carve lives in one place. Three things they deliberately leave alone: `inv status label` (the
+  physical stage — freeing or delaying a car does not move it, and real available
+  cars appear in every stage), the order row itself in the delay scenario, and the
+  order's colour, which the export copies from the assigned car (so re-matching on
+  colour is circular — 13 of 66 sales models exist in more than one). A freed car's
+  status keeps its REAL trailing space, `'Available For Sale '`. Two traps: only an
+  INBOUND car can be delayed (1727 of 3523 have already arrived; slipping one
+  rewrites history, so candidates are the 694 inbound-and-on-time orders), and the
+  export already ships 256 LATE orders, so a subset inherits some and the late
+  count must be measured on the output rather than taken from the knob — every run
+  reports the split. And `--models` exists because eligibility is exact sales-model
+  equality across 66 models: a 60-car subset averages 0.9 cars per model, so most
+  orders see nothing but their own car back and NO available percentage fixes it. They emit CSVs, not MCP payloads, so neither reaches
+  `pull.json`.
 - **The two views are not one world.** `pull.json` holds VSOs fabricated by
   `scenario_engine`; the MCP serves whatever the dev DMS holds right now, Service
   job cards included. They describe overlapping business objects with no
@@ -325,12 +383,16 @@ line counts what is genuinely undecided. The shape of it:
   lives only in the conversation; a host-side store in `web.py` (keyed by session
   id, mounted like the pull) is the candidate fix, not a decision. Check the
   Managed Agents persistence surface against current docs before wiring it.
-- **Five are settled in SHAPE but carry a number nobody has validated** —
-  DECIDE-1 (`ALPHA`/`BETA`), DECIDE-2 (fence 14/42), DECIDE-3
-  (`BREAK_COST["hard"]=200`), DECIDE-11 (`GAMMA=0.75`), DECIDE-15
-  (`EARLY_WEIGHT=0.15`). Every one is tuned against the fabricated dataset alone.
-  The mechanism is not up for debate; the value is, and it is reviewed at first
-  real dealer data.
+- **Two are settled in SHAPE but carry a number nobody has validated** —
+  DECIDE-3 (`break_cost.hard=200`) and DECIDE-15 (`early_weight=0.15`), both in
+  `solver_config.yaml`. Tuned against the fabricated dataset alone. The mechanism
+  is not up for debate; the value is, and it is reviewed at first real dealer
+  data. The other four of the old five are gone, not re-tuned.
+- **Five are RETIRED** — DECIDE-1 (aging), DECIDE-2 (time fence), DECIDE-4 (pin
+  mechanism), DECIDE-11 (reschedule fairness), DECIDE-14 (time scale). Built,
+  reviewed and removed on 2026-08-26. They stay in the register with what went
+  wrong, because a decision that reads as merely absent invites someone to make
+  it again.
 - **Two are recorded but deliberately not built.** DECIDE-10 — a `Reserved-*`
   vehicle is out of the pool entirely, so an earmarked car is supply for NO ONE,
   not "eligible for anyone" as the register used to claim; modelling it as
@@ -345,14 +407,14 @@ line counts what is genuinely undecided. The shape of it:
 - **The rest are decided**, with their trigger named where they have one:
   DECIDE-9 (solver stays in-repo; extraction is triggered by the first NON-DEV
   tenant, not a date) and DECIDE-16 (taxonomy ships in the `xas-reporting`
-  skill; a SECOND TENANT flips it back to a host-side mount). DECIDE-14
-  (`time_scale` days/weeks/months, rounding gaps UP, fence stays in days) and
-  DECIDE-13 (no uninvited bumps) are the two that most change what a turn does.
+  skill; a SECOND TENANT flips it back to a host-side mount). DECIDE-13 (no
+  uninvited bumps) is the one that most changes what a turn does.
 
 Not in the prototype, per spec: the CP-SAT + LNS escape hatch for *coupled*
-orders, and any new hard constraint. **The prompt moves weights and pins; a human
-moves the model** — a new constraint is a reviewed PR with tests, never a
-live-session mutation.
+orders, and any new hard constraint. **The prompt moves priority and who may
+move; a human moves the model and the config** — a new constraint, or a new
+number in `solver_config.yaml`, is a reviewed PR with tests, never a live-session
+mutation.
 
 ## Verifying a change
 
