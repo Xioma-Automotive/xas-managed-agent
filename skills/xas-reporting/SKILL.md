@@ -141,14 +141,16 @@ Other recipes:
 
 ## Getting the number — a count, or the cards
 
-Two kinds of question, two shapes. Decide which one was asked before the first
-call.
+**Probe once, then answer.** Send the filter with `paging: {"count": 1}` and the
+key alone in `fields`. One cheap row tells you two things you cannot know in
+advance: `totalCount` — how many MATCHED the filter, not how many came back in the
+page — and which fields this data actually carries, since `fields` is silent about
+the ones it does not return. Both decide the real call, so probe before you shape
+it.
 
-**"How many …?" — ask for the count, not the cards.** `totalCount` counts what
-MATCHED your filter, not what came back in the page — so send the filter, ask for
-one row, and read the count off it. For a breakdown, count the buckets *before*
-the first call:
+Then, with the count in hand:
 
+- **A count question is already answered.** `totalCount` IS the number. Stop.
 - **Up to 5 buckets** — one filtered count call each. Five integers, no cards.
 - **More than 5** — one call for the cards, tallied yourself. A split by
   classification is a call per classification the other way, and the phrasebook
@@ -163,10 +165,10 @@ owner's whole contact list — so name the fields you want (below). A count need
 none of them.
 
 **"Show me the cards that …" — ask for the rows.** Ids, statuses, customers,
-dates, the cards behind a chart: that needs the records themselves. Ask for them,
-keep `paging.count` small, and name the ones you show. The count comes back with
-them, so never send `count: 1` for the count and then re-send the same filter for
-the rows. That is the same query twice. (A
+dates, the cards behind a chart: that needs the records themselves. Ask for them
+once, with `paging.count` bounded and only the fields you will print, and name the
+ones you show. What the probe already told you does not need asking again: a second
+call that repeats the first filter AND the first field list has bought nothing. (A
 tool result big enough to be offloaded to a file is a symptom: you asked for cards
 you did not need, and the tokens are spent by the time you read the file.)
 
@@ -176,7 +178,7 @@ Every row sends `fields`. See below for why, and what to put in it.
 
 | Goal | Call |
 | --- | --- |
-| A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
+| The probe, and any count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
 | Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
 | Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
@@ -207,23 +209,12 @@ Two things to know before you trust a response:
   to report. If a field you need never arrives on any row, say the live system
   does not supply it and stop; do not read it as zero, blank, or none.
 
-**Building a date filter? Read the date paragraph in `index.md` first.** The
-bounds shape and the local-to-UTC conversion are both there, and getting the
-conversion wrong shifts a month's edge without erroring.
-
-**"Open" is a state; "opened" is a date.** `CreateDateTime` is the only field that
-means "opened", and every card carries one; *"opened in July and still open"* is
-both filters sent together, and it is the common ask. The near misses:
-
-| Field | What it actually is |
-| --- | --- |
-| `CreateDateTime` | when the card was opened — **this is the one a period means** |
-| `ClosedDateTime` | when it was closed; the field for *"closed in July"* |
-| `UpdateDateTime` | last touched, and it keeps moving; never a period boundary |
-
-`UpdateDateTime` on "opened in July" returns cards opened in March and edited in
-July — a real-looking number for a question nobody asked. Where the wording could
-mean the state or the date, answer one and say which you took it as.
+**"Open" is a state; "opened" is a date.** `CreateDateTime` is the only date
+field to filter a period on: it means "opened", every card carries one, and it is
+the only one whose range filter is verified against the live system. *"Opened in
+July and still open"* is that filter and a status filter sent together, and it is
+the common ask. Where the wording could mean the state or the date, answer one and
+say which you took it as. The tool documents the range shape; take it from there.
 
 ## Charts
 

@@ -21,30 +21,6 @@ Filtering: a classification `code` is the system value; a JobCard status is filt
 "Transfer" is used as "Vehicle Transfer"). `unresolved=true` = status referenced by a
 record but missing from the status dictionary.
 
-A date range is a nested object on the field name, both bounds ISO-8601 with a `Z`:
-
-```
-filter: {"CreateDateTime": {"start": "2026-08-20T21:00:00.000Z", "end": "2026-08-21T20:59:59.999Z"}}
-```
-
-Verified live on 2026-08-23 against `CreateDateTime` — the shape is accepted and it really
-filters (that window returned 1 of 7733 cards). What is NOT established: whether the bounds
-are inclusive, whether one bound alone works, whether a non-`Z` offset is accepted, and
-whether `ClosedDateTime` / `UpdateDateTime` / `EntryDate` / `DueDate` take the same shape.
-Assume only `CreateDateTime` until someone checks, and remember `EntryDate` and `DueDate`
-are date-only on some records, so a timestamp range may not mean anything there.
-
-Bounds are compared in UTC, and this tenant's records are stamped `+03:00`, so a local period
-has to be converted before it is sent — asking for July as `2026-07-01T00:00:00.000Z` clips
-the month's first three hours and silently absorbs three hours of August:
-
-```
-July 2026  ->  start "2026-06-30T21:00:00.000Z"   end "2026-07-31T20:59:59.999Z"
-```
-
-`dump_taxonomy` does not emit this paragraph either — it is hand-maintained here, like the
-BRANCH lines and the Vehicle status block, and a regeneration drops it.
-
 Branches are tenant-wide — they hang off the company, not off an entity, which is why the
 lines below carry no `entity=`. **A branch is filtered by its `id`, never by its name**:
 `{"Branch": ["69f07fdaf930e4ee6d524dc1"]}` returns Main's cards, while

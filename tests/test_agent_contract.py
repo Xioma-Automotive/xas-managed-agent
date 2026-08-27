@@ -377,26 +377,30 @@ def test_reporting_skill_counts_with_totalcount_not_by_paging_records():
     assert 'paging: {"count": 1}' in skill
     assert "Never walk pages to compute an aggregate" in skill
     index = (setup_agent.REPORTING_SKILL_DIR / "index.md").read_text(encoding="utf-8")
-    assert "+03:00" in index, "the UTC/local boundary rule must be spelled out"
-    assert "index.md" in skill.split("## Getting the number")[1], (
-        "and the counting section must send the agent there before it builds a date filter"
+    assert "CreateDateTime" not in index, (
+        "index.md is generated taxonomy — date mechanics hand-maintained there are "
+        "dropped by the next dump_taxonomy run, and cost two round trips to find"
+    )
+    assert "index.md" not in skill.split("## Getting the number")[1], (
+        "and nothing about a date may send the agent to the taxonomy to look it up"
     )
 
 
-def test_reporting_skill_does_not_probe_then_refetch_the_same_filter():
-    """Observed 2026-08-23: "job cards opened last Thursday as a chart" sent the
-    same filter twice — `count: 1` for totalCount (3), then `count: 3` for the rows
-    it needed to split by type. `totalCount` rides on every response, so the first
-    call was the second call with the rows thrown away.
+def test_reporting_skill_probes_once_before_shaping_the_real_call():
+    """REVERSED 2026-08-27. The old rule forbade a `count: 1` probe followed by a
+    real call as "the same query twice". It cannot hold: the probe returns the two
+    things that DECIDE the real call — `totalCount`, and which fields this data
+    actually carries, which `fields` is silent about. Forbidding it also
+    contradicted "count the buckets before the first call", which needs a
+    population size the agent has no way to know in advance; the 2026-08-27 trace
+    shows the agent probing anyway, against the rule.
 
-    Simplified 2026-08-23: the fix was first a cost rule (tally one page when the
-    population is smaller than the bucket list), which took three paragraphs and a
-    threshold to state. It is now a question-shape rule — a count question gets
-    `count: 1`, a "show me the cards" question gets the rows — and the no-refetch
-    line rides on the second one."""
+    What survives is the narrow version: a second call repeating BOTH the first
+    filter and the first field list has bought nothing."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "same query twice" in skill
-    assert "The count comes back with" in skill
+    assert "Probe once, then answer" in skill
+    assert "same query twice" not in skill, "the contradicting prohibition must be gone"
+    assert "has bought nothing" in skill, "but a pure duplicate is still waste"
     assert '"Show me the cards that' in skill, "the rows case must have its own heading"
     assert "Up to 5 buckets" in skill, "the bucket threshold, or a breakdown has no rule"
     assert "More than 5" in skill
