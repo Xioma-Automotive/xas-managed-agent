@@ -41,6 +41,7 @@ from sse_starlette.sse import EventSourceResponse
 import alloc_tools
 import appmcp_auth
 import datasource
+from xas_allocation import planner_channel
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
@@ -314,15 +315,28 @@ async def _stop(session_id: str) -> None:
 def _render(event) -> dict | None:
     """One session event -> what the browser shows, or None to drop it.
 
-    Builtin tool results are dropped — they are sandbox chatter, and the agent's
-    own reply already says what came of them. The *custom* tool's result is
-    kept: it is answered by this process, so the transcript is the only place a
-    planner can see what the pull actually returned.
+    Builtin tool results are dropped as sandbox chatter EXCEPT for a marked
+    planner span (`xas_allocation.planner_channel`): the solver's reports are
+    already written for the planner, and forwarding them is what stops the agent
+    retyping every table into its own reply. The old rule here assumed "the
+    agent's own reply already says what came of them" — that assumption WAS the
+    second copy. A failed result is dropped whatever it contains: a traceback
+    with an open marker in front of it is not a report.
+
+    The *custom* tool's result is kept: it is answered by this process, so the
+    transcript is the only place a planner can see what the pull actually
+    returned.
     """
     kind = event.type
     if kind == "agent.message":
         text = "".join(b.text for b in event.content if b.type == "text")
         return {"type": "agent", "text": text}
+    if kind == "agent.tool_result":
+        if getattr(event, "is_error", False):
+            return None
+        body = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
+        span = planner_channel.planner_span(body)
+        return {"type": "planner", "text": span} if span else None
     if kind == "user.message":
         text = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
         return {"type": "user", "text": text}

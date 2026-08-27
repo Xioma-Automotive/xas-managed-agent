@@ -727,3 +727,84 @@ def test_prompt_says_a_bump_authorisation_lasts_one_turn():
     assert "`true` for anyone" in prompt
     assert "permission is for ONE turn" in prompt
     assert "session.carry_forward" in prompt
+
+
+def test_skill_gates_every_repair_behind_the_preferences_question():
+    """A repair the planner never stated their preferences for is a plan that
+    silently invents them — every order equal, nothing protected. Nothing
+    structural can force the ask, so the skill must state it as a rule, name the
+    three things to ask about, and say that "fix it" is not an answer to it."""
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "## Before you repair — ask what matters, every time" in skill
+    assert "Never suggest, offer or run a repair before asking the planner" in skill
+    assert "none of them is an answer to this question" in skill
+    # the three levers the answer compiles into
+    for lever in ("`priority`", "`may_move.never`", "`churn_price`"):
+        assert lever in skill
+    # and the ask must precede the solve, not follow it
+    assert "do not solve first" in skill
+
+
+def test_prompt_gates_every_repair_behind_the_preferences_question():
+    """The skill body can be summarised; the prompt is always in context. The
+    gate is worth stating twice."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "NEVER offer or run a repair before ASKING the planner what matters" in prompt
+    assert "A client can hold several orders" in prompt
+    assert "you may never assume it" in prompt
+
+
+def test_skill_can_answer_in_client_terms_but_steers_on_ids():
+    """The export carries `customer.name` and the pull now keeps it, so a planner
+    may answer the preferences question with a client rather than an id. The
+    label is NOT a solver dimension (that went on 2026-08-27), so the skill must
+    say the agent groups orders by client itself and confirms the ids it used —
+    a client with three orders and two of them named is half-prioritised."""
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "Every order also carries the client it is for" in skill
+    assert "It is a LABEL" in skill
+    assert "resolve it yourself to every order" in skill
+    assert "there is no model-wide or client-wide lever" in skill
+
+
+# --- The planner channel (web.py forwards the solver's marked reports) --------
+# `_render` drops builtin tool results as sandbox chatter. That is what forced the
+# agent to retype every table into its own reply — two copies of one table in the
+# conversation, and every retype a chance to lose a row. A marked span is the
+# exception: the solver's reports are already written for the planner.
+
+
+class _Block:
+    """One text content block, shaped like the SDK's."""
+
+    def __init__(self, text: str) -> None:
+        self.type = "text"
+        self.text = text
+
+
+class _ToolResult:
+    """An `agent.tool_result` event, shaped like the SDK's."""
+
+    def __init__(self, text: str, is_error: bool = False) -> None:
+        self.type = "agent.tool_result"
+        self.content = [_Block(text)]
+        self.is_error = is_error
+
+
+def test_render_forwards_a_marked_span_to_the_planner():
+    from xas_allocation.planner_channel import show
+
+    out = web._render(_ToolResult("noise\n" + show("| Order |\n|---|") + "\ndone"))
+    assert out == {"type": "planner", "text": "| Order |\n|---|"}
+
+
+def test_render_still_drops_unmarked_sandbox_chatter():
+    assert web._render(_ToolResult("Successfully installed ortools-9.15.6755")) is None
+    assert web._render(_ToolResult("wrote /workspace/snapshot.json")) is None
+
+
+def test_render_drops_a_marked_span_that_failed():
+    """A traceback is not a planner report, even if the span opened before it."""
+    from xas_allocation.planner_channel import show
+
+    assert web._render(_ToolResult(show("half a table"), is_error=True)) is None
