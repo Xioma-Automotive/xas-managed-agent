@@ -110,7 +110,7 @@ before real dealer data (DECIDE-9).
 | `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/vehicles/allocations`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure two-mounted-payloads → snapshot mapping (the "flatten + freeze" hop), and the only part of the data path that runs in the sandbox. Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, the free/pinned partition (§5), the **churn-price sweep**, deterministic read-back. Two halves — `partition` (who may move, no maths) and `_solve_one` (the arithmetic). |
-| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
+| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, whole-book state report (`current_state_report`), data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
 | `../scenario_engine/`   | —     | **Standalone, outside the agent**: carves a solvable scenario out of the real export (`real_unallocated` / `real_delayed` / `real_mixed`, one shared `carve`) into `data/scenario-*/`. |
 | `../datasource.py`      | —     | **Host-side pull** (DECIDE-7): `ScenarioSource` reads a scenario's two CSVs and `translate` — the ONE mapping — filters, counts every drop by reason and writes the two payloads. `web.py` calls it per session and mounts them. |

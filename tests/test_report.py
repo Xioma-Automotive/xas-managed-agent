@@ -16,6 +16,7 @@ from datetime import date
 
 from xas_allocation.session import (
     bump_candidates,
+    current_state_report,
     discrepancy_report,
     exclusion_note,
     plan_rows,
@@ -387,6 +388,95 @@ def test_the_steering_summary_still_renders_a_may_move_filter():
     head = planner_report(snap, run_cycle(snap, override).chosen, override).splitlines()[0]
     assert "working only MOV" in head
     assert "bumping" in head
+
+
+# --- The whole book as it stands (the report the agent must never hand-build) --
+# "Show me all the allocations" is a planner's first question and there was no
+# helper for it, so a real session answered it by scripting over snapshot.json
+# and then explained the result with supply facts it had worked out itself — one
+# of which was flatly contradicted by its own data. The report is the fix.
+
+
+def _with_a_car_less_order() -> Snapshot:
+    snap = _snapshot()
+    snap.orders = [*snap.orders, _order("NOCAR", "SM1", MOV_PROMISED)]
+    return snap
+
+
+def test_the_current_state_report_names_every_order_including_the_car_less_ones():
+    report = current_state_report(_with_a_car_less_order())
+    for oid in ("MOV", "NEAR", "KEPT", "UT", "NOCAR"):
+        assert f"| {oid} |" in report
+    assert "no car yet" in report
+    assert "5 orders: 2 running late, 1 holding no car, 2 settled and on time" in report
+    assert "1 of 5 cars are free" in report
+
+
+def test_the_current_state_report_is_worst_first():
+    """Late (longest first), then the orders holding no car, then the settled
+    ones. The planner reads top-down and the top is the work; looking an order up
+    by number is what plan.json is for."""
+    body = [
+        line
+        for line in current_state_report(_with_a_car_less_order()).splitlines()
+        if line.startswith("| ") and not line.startswith("| Order")
+    ]
+    assert [line.split("|")[1].strip() for line in body] == ["MOV", "NEAR", "NOCAR", "KEPT", "UT"]
+
+
+def test_the_current_state_report_reads_the_book_and_never_solves(tmp_path):
+    """It describes the pull, not a plan. If it changed after a repair it would be
+    a second renderer of the allocations, competing with plan.json over which one
+    the planner should believe."""
+    snap = _snapshot()
+    before = current_state_report(snap)
+    repair_and_report(snap, {}, plan_path=tmp_path / "plan.json")
+    assert current_state_report(snap) == before
+
+
+def test_the_current_state_report_names_the_client_and_carries_no_jargon():
+    report = current_state_report(_named(_snapshot(), NAMES))
+    assert "| Customer |" in report
+    assert "Delek Motors Fleet" in report
+    assert "| — |" in report, "an unnamed client is a dash, never an empty cell"
+    low = report.lower()
+    assert not [t for t in JARGON if t.lower() in low]
+
+
+def test_the_note_leads_the_current_state_report_too():
+    """A planner whose FIRST question is "show me everything" must still hear what
+    the data could not use — those orders are not rows in this table, so leaving
+    the note out would hide them completely."""
+    report = current_state_report(_snapshot_with(EXCLUDED_META))
+    assert report.startswith("**24 of 25 orders are not in this plan")
+
+
+# --- The closing caveat knows what the planner already authorised -------------
+
+
+def test_the_caveat_does_not_re_offer_a_bump_the_planner_just_authorised():
+    """`may_move.also` granted and nothing displaced is an ANSWER — the solver
+    declines a bump that buys nothing. Telling the planner to authorise one reads
+    as the solver ignoring the sentence they just said."""
+    snap = _snapshot()
+    override = {"may_move": {"also": True}}
+    report = planner_report(snap, run_cycle(snap, override).chosen, override)
+    assert "authorising a bump on another order might help" not in report
+    assert "you authorised a bump" in report
+
+
+def test_the_caveat_still_offers_a_bump_when_none_was_authorised():
+    report = planner_report(_snapshot(), run_cycle(_snapshot()).chosen, {})
+    assert "authorising a bump on another order might help" in report
+
+
+def test_an_empty_bump_filter_is_not_an_authorisation():
+    """`also: {}` widens nothing — an empty filter frees nobody — so the advice to
+    authorise a real one still stands."""
+    snap = _snapshot()
+    override = {"may_move": {"also": {}}}
+    report = planner_report(snap, run_cycle(snap, override).chosen, override)
+    assert "authorising a bump on another order might help" in report
 
 
 # --- The planner channel -----------------------------------------------------

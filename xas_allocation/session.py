@@ -20,8 +20,9 @@ override → byte-identical plan. (Durable, cross-session persistence of that
 override is a platform concern, deferred — DECIDE-5.)
 
 The output helpers are the sanctioned way to talk to the planner: call
-``discrepancy_report`` / ``repair_and_report`` and print them. Do NOT re-derive
-the solver's result by hand.
+``current_state_report`` / ``discrepancy_report`` / ``repair_and_report`` and
+print them. Do NOT re-derive the solver's result by hand, and do not build a
+table of the book by hand either — ``current_state_report`` is that table.
 """
 
 from __future__ import annotations
@@ -196,6 +197,62 @@ def discrepancy_report(snapshot: Snapshot) -> str:
             f"| {date_label(x.promised)} | {date_label(x.now_arriving)} "
             f"| {_dur(x.days_late)} |"
         )
+    return "\n".join(lines)
+
+
+def current_state_report(snapshot: Snapshot) -> str:
+    """The whole book as it stands: every order, the car it holds, whether that
+    car meets the promise. A pure READ of the frozen pull — it solves nothing.
+
+    ``discrepancy_report`` answers "what is late"; this answers "show me
+    everything", which a planner asks first and often. It exists so that answer
+    is never assembled by hand out of ``snapshot.json``: a hand-built table is
+    the failure this skill is here to prevent, and in a real session it produced
+    a confident wrong claim about which cars were free.
+
+    Worst first — late (longest first), then the orders holding no car, then the
+    settled ones — so the rows the planner must act on are at the top. Ties break
+    on the order key, so the report is byte-stable. It opens with the same
+    ``exclusion_note`` as the discrepancy report: a planner whose FIRST question
+    is "show me everything" must still hear about the orders the data could not
+    use, and those are not rows in this table.
+    """
+    orders = snapshot.order_by_key()
+    vehicles = snapshot.vehicle_by_id()
+
+    # rank: 0 = late, 1 = holding no car, 2 = settled. Sorting on it is what puts
+    # the planner's work at the top of the table.
+    rows = []
+    for oid in sorted(orders):
+        order = orders[oid]
+        vehicle_id = snapshot.allocations.get(oid)
+        vehicle = vehicles[vehicle_id] if vehicle_id else None
+        late = tardiness(order, vehicle) if vehicle else 0
+        rank = 0 if late else (1 if vehicle is None else 2)
+        rows.append((rank, -late, oid, order, vehicle_id, vehicle))
+    rows.sort(key=lambda r: (r[0], r[1], r[2]))
+
+    lines: list[str] = []
+    note = exclusion_note(snapshot)
+    if note:
+        lines.append(note + "\n")
+    lines.append("| Order | Customer | Model | Promised | Car | Arriving | State |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for _rank, _late, oid, order, vehicle_id, vehicle in rows:
+        state = _result_phrase(order, vehicle) if vehicle else "no car yet"
+        arriving = date_label(vehicle.eta_dealer) if vehicle else "—"
+        lines.append(
+            f"| {oid} | {_client(order)} | {order.sales_model} "
+            f"| {date_label(order.delivery_date)} | {vehicle_id or '—'} | {arriving} "
+            f"| {state} |"
+        )
+
+    counts = Counter(r[0] for r in rows)
+    free = len(snapshot.vehicles) - len(snapshot.allocations)
+    lines.append(
+        f"\n{len(orders)} orders: {counts[0]} running late, {counts[1]} holding no car, "
+        f"{counts[2]} settled and on time. {free} of {len(snapshot.vehicles)} cars are free."
+    )
     return "\n".join(lines)
 
 
@@ -494,24 +551,47 @@ def planner_report(snapshot: Snapshot, result: SolveResult, override: dict | Non
     n_unchanged = len(orders) - len(changed) - len(result.unfilled)
     lines.append(f"\nThe other {n_unchanged} orders are unchanged.")
 
-    caveat = _caveat(orders, still_late, priority)
+    # An order the disruption did not touch, moved anyway = displaced. The caveat
+    # needs it: advising a bump the planner already authorised is advice they
+    # cannot act on.
+    bumped = any(oid not in disrupted and allocations.get(oid) for oid in changed)
+    caveat = _caveat(orders, still_late, priority, override, bumped)
     if caveat:
         lines.append(f"\n**Worth knowing:** {caveat}")
     return "\n".join(lines)
 
 
 def _caveat(
-    orders: dict[str, Order], still_late: list[str], priority: dict[str, str]
+    orders: dict[str, Order],
+    still_late: list[str],
+    priority: dict[str, str],
+    override: dict | None = None,
+    bumped: bool = False,
 ) -> str | None:
     """One closing line about the worst thing re-allocation could not fix — the
     heaviest order still late, which is the one the planner set highest if they
-    set anything."""
+    set anything.
+
+    What it suggests depends on whether the planner has ALREADY authorised a
+    bump: "authorising a bump might help" is the right advice only while the
+    permission is unspent. Said back to a planner who granted it in the same
+    breath, it reads as the solver ignoring them — the permission was given, the
+    solver declined every displacement because none lowered the total, and that
+    is the outcome to state. (`may_move.also = {}` is an empty filter, which
+    widens nothing, so it is correctly falsy here.)
+    """
     if not still_late:
         return None
     o = orders[max(still_late, key=lambda x: (effective_weight(orders[x], priority), x))]
+    head = f"order {o.key} ({o.sales_model}) stays late — no compatible car is free"
+    authorised = ((override or {}).get("may_move") or {}).get("also")
+    if not authorised:
+        return head + "; authorising a bump on another order might help."
+    if bumped:
+        return head + ", even after the displacement you authorised."
     return (
-        f"order {o.key} ({o.sales_model}) stays late — no compatible car is free; "
-        "authorising a bump on another order might help."
+        f"order {o.key} ({o.sales_model}) stays late even though you authorised a bump: "
+        "no displacement helped, because no compatible car lands earlier for it."
     )
 
 

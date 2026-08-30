@@ -281,9 +281,28 @@ XAS endpoint and its credential never touch the sandbox.
   car per line there is nothing to group, so `planner_report` prints an order key
   (`VSO-4000-1`) per row and `line_sizes` / `car_range` / `line_label` /
   `group_by_line` are gone (2026-08-25) along with `build_change_list`.
-  `planner_report` is the only renderer. Reinstating per-car rows means
+  `planner_report` is the only renderer OF A PLAN. Reinstating per-car rows means
   reinstating the grouping rule with it: collapsing was only ever allowed when
   every displayed column agreed.
+- **Three planner-facing reports, and the third exists so the agent stops writing
+  its own.** `discrepancy_report` is what the delay broke, `planner_report` is
+  what a solve did, and `current_state_report` (2026-08-30) is the whole book as
+  it stands — every order, the car it holds, on time or not, worst first. It
+  solves nothing and takes no override; it is a READ of the snapshot. It was
+  added because "show me all the allocations" had no helper, so a session
+  answered it by scripting over `snapshot.json`, and then explained the result
+  with free-car counts it had worked out itself — one of which its own printed
+  data contradicted. A question the helpers cannot answer is a question the agent
+  will answer by hand, which is the leak the whole design is built to stop.
+  `discrepancy_report` and `current_state_report` both open with
+  `exclusion_note`, so the agent prints ONE of them, never both.
+- **The closing caveat knows whether a bump was already authorised.** `_caveat`
+  takes the override and whether anything was displaced, because "authorising a
+  bump might help" said to a planner who authorised one in the same breath reads
+  as the solver ignoring them. Granted-and-unused is an ANSWER — the solver
+  declines a displacement that buys nothing — and the report now says that
+  instead. `also: {}` is an empty filter that frees nobody, so it is correctly
+  NOT an authorisation here either.
 - **The scenarios are the data of record, and they are BUILD OUTPUT.**
   `data/scenario-{unallocated,delayed,mixed}/` each hold `orders.csv` +
   `vehicles.csv` + a `scenario.json` sidecar, carved out of the real export by

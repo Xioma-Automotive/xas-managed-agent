@@ -450,7 +450,10 @@ def test_reporting_description_disclaims_the_allocation_vocabulary():
 
 def test_alloc_skill_stops_a_status_question_at_the_report():
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "A question about the state stops at the discrepancy report." in skill
+    # "the state report" since 2026-08-30: there are two of them now
+    # (`discrepancy_report` and `current_state_report`) and either one is where a
+    # status question stops.
+    assert "A question about the state stops at the state report." in skill
     assert "no VPO ids" in skill, "the VPO-number limit must be stated, not discovered"
 
 
@@ -697,6 +700,27 @@ def test_skill_requires_the_exclusion_census_on_turn_one():
     assert "Never present it as the whole book" in skill
     # and it must be excluded from the "stays internal" suppression list
     assert "must always be reported" in skill
+
+
+def test_skill_offers_a_report_for_the_whole_book():
+    """ "Show me all the allocations" is a planner's first question. With no helper
+    named for it the agent scripts over `snapshot.json` and hand-builds the table
+    — the exact re-derivation this skill exists to forbid, and the one that put a
+    false claim about free cars in front of a planner."""
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "current_state_report" in skill
+    assert "There IS a report for the whole book, so you never build one." in skill
+    # the API block must actually offer it, and count itself correctly
+    assert "S.current_state_report(snap)" in skill
+    assert "The whole API is four calls" in skill
+
+
+def test_skill_forbids_retyping_a_printed_table_as_bullets():
+    """The rule was already there and was broken anyway, in the one shape it did
+    not name: the rows re-listed as bullets, one message after the planner read
+    them."""
+    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    assert "**A list of bullets is a table.**" in skill
 
 
 def test_skill_names_the_eligibility_rule_and_its_hardness():

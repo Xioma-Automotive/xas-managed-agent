@@ -78,10 +78,11 @@ Nobody asks for a "repair". They ask about deliveries and delays.
 | "check the deliveries", "are the cars coming on time?", "what's late?" | run `flatten`, print `discrepancy_report`, stop |
 | "check the orders", "order 503861" | the same; if they named an order, a model or a month, put it in `may_move.only` rather than filtering by hand |
 | "any delays in supply?", "the factory slipped", "the VPO is late" | the same — the data already carries which cars slipped |
+| "show me all the allocations", "where does everything stand?", "the whole book" | print `current_state_report`, stop — every order, the car it holds, on time or not |
 | "which cars are still on order?" | read it off the car list; nothing to solve |
 | "fix it", "sort out the late ones", "pull that order forward" | ask what matters (next section) — always — then compile the instruction into the override and `repair_and_report` |
 
-**A question about the state stops at the discrepancy report.** Do not repair, do
+**A question about the state stops at the state report.** Do not repair, do
 not invent an override, do not offer a plan until they ask. Answering "check the
 deliveries" with a re-allocation nobody requested moves cars in the planner's head
 that nobody moved.
@@ -176,7 +177,7 @@ changing one mid-conversation makes two turns of the same session incomparable.
 
 ## Each turn
 
-`pip install ortools pyyaml` once per session (the solver reads its config from YAML). The whole API is three calls — do not go
+`pip install ortools pyyaml` once per session (the solver reads its config from YAML). The whole API is four calls — do not go
 looking for more:
 
 ```python
@@ -189,7 +190,8 @@ from xas_allocation import session as S
 from xas_allocation.planner_channel import show
 
 snap = S.Snapshot.from_dict(json.load(open("snapshot.json")))
-print(show(S.discrepancy_report(snap)))  # where things stand
+print(show(S.current_state_report(snap)))  # the whole book: every order and its car
+print(show(S.discrepancy_report(snap)))  # just what the delay broke
 print(show(S.repair_and_report(snap, override)))  # solve + write plan.json + the reply
 S.bump_candidates(snap, S.solve(snap, override), override)  # who could be displaced
 ```
@@ -201,9 +203,10 @@ noise on their screen.
 
 1. Call `pull_allocation_snapshot`, then run the `flatten` command it returns,
    verbatim. It reads both mounted files and writes `snapshot.json`.
-2. Print `discrepancy_report` **inside `show(...)`** — what the data could not
-   use, then the orders whose car now arrives past the promise. **Show this
-   before solving anything.**
+2. Print a state report **inside `show(...)`**, and **before solving anything**:
+   `discrepancy_report` for "what's late", `current_state_report` for "show me
+   everything". Print ONE of them — they open with the same note about what the
+   data could not use, and printing both says it twice.
 3. If they asked for a repair: **ask what matters first** — priorities,
    anything to leave alone, anything else that should hold — and wait for the
    answer. Then update the override and print `repair_and_report`, again inside
@@ -216,12 +219,20 @@ noise on their screen.
 `now_arriving`, `days_late`, `on_time`, `status`, `bumped`, `why_late` (`priority`
 is the step the planner set this turn, not anything read off the order). Any follow-up — "show
 me the new allocations", "what did 503861 get?", "which ones are still late?" —
-is a read of that file. **Never re-type allocations out of the conversation and
+is a read of that file — and BEFORE any solve, the same question is
+`current_state_report`. **Never re-type allocations out of the conversation and
 never re-derive them:** a retyped table loses a row or mistypes a car id, and
 nothing catches it. If you find yourself writing a script that reads
 `snapshot.json` to work out an answer yourself, stop — that is the failure this
 skill exists to prevent, it produces confident wrong answers, and the helpers
-already have it.
+already have it. There IS a report for the whole book, so you never build one.
+
+**That holds for your explanations too.** When you say why an order is stuck,
+the reason is the one the report gives — not supply facts you worked out
+yourself. Counting free cars by hand to explain a result is the same mistake as
+allocating by hand, and it has already put a plainly false sentence in front of
+a planner ("the earliest car of her model lands the 22nd" — two were free on
+the 14th, in the report the agent had just printed).
 
 Never displace an order that is not in trouble without being asked — that is what
 `may_move.also` is for, and asking first is the rule, not a courtesy. If an
@@ -253,6 +264,12 @@ So **do not repeat the table** in your own reply — not reformatted, not
 summarised row by row, not "just to confirm". Your reply is the part the report cannot write: which
 customer this hurts, what you would do next, what you need from them, the one
 thing worth noticing. One or two short paragraphs.
+
+**A list of bullets is a table.** Four late orders re-listed as four bullets,
+each with its dates, is the same table in a different shape — that is the form
+this rule is broken in, and it has happened one message after the planner read
+those exact four rows. Naming one or two orders because your point is about them
+is fine; walking the rows is not.
 
 Two reasons, and the second matters more. A retyped table is a table that can
 lose a row or change a car id by one character, and nothing checks it. And a
