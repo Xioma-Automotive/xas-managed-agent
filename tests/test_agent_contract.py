@@ -293,6 +293,7 @@ def test_reporting_bundle_ships_the_built_table_not_the_index():
     assert [n for n, _ in setup_agent.reporting_bundle()] == [
         "xas-reporting/SKILL.md",
         "xas-reporting/dates.py",
+        "xas-reporting/link.py",
         "xas-reporting/phrasebook.tsv",
         "xas-reporting/resolve.py",
     ]

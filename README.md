@@ -17,7 +17,7 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-opus-4-8` (Opu
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
 | `skills/xas-allocation/SKILL.md` | — | The allocation skill: data model, cost model, procedure, steering contract, planner-report contract. |
 | `phrasebook.py` | — | Builds `phrasebook.tsv` from `index.md` at deploy time. Host-side only; imports `normalize` from the skill so the two cannot drift. |
-| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md`, the tenant taxonomy `index.md` (source, never shipped), `resolve.py` that queries the table, and `dates.py` for period words. |
+| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md`, the tenant taxonomy `index.md` (source, never shipped), `resolve.py` that queries the table, `dates.py` for period words, and `link.py` for the link to the page behind an answer. |
 | `COMMANDS.md` | — | Every runnable command with its parameters — data generation knobs, the test gate, deploy, the typical loops. |
 
 The split is **control** (create the agent and environment once — persistent,
@@ -99,6 +99,19 @@ back to a host-side mount. It ships **already flattened** — `setup_agent` rend
 `index.md` into `phrasebook.tsv` at bundle time and ships only the table, so the
 agent greps a file that is already there instead of spending its first turn
 rebuilding one it cannot change.
+
+**Links instead of tables.** A reporting answer ends with a link to the page
+holding the records it counted, built by `link.py` from the filter the read tool
+echoed back — a list page's result set is a pure function of its query string, and
+the query string is the query the tool ran, so the two cannot disagree. It replaces
+retyping the rows: twenty cards is roughly six times the words of a link, to show a
+worse copy of a list the planner has one click away with sorting and actions the
+chat cannot offer, and every row printed stays in the conversation to be re-read on
+each later turn. The URL is built by code and never by hand, because a raw `$` in a
+query string returns an empty page rather than an error and every vehicle or account
+filter needs one. The route comes from the phrasebook's `route` column, since which
+page a classification lists on is not guessable from the code — a `VRV` and a
+`Service` list on different pages.
 
 **Period words** (`last week`, `last month`, `last 30 days`) resolve through
 `dates.py`, which holds the three conventions that were otherwise re-derived

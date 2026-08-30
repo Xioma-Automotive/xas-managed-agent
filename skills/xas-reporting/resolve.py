@@ -36,6 +36,10 @@ COLUMNS = (
     "name",
     "state",
     "closed",
+    # The app page a classification's records live on, for `link.py --route`.
+    # Appended rather than inserted: the recipes in SKILL.md address columns by
+    # position (`$4`, `$11`), so a new column goes on the end or they all shift.
+    "route",
 )
 
 

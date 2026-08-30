@@ -54,7 +54,7 @@ lookup is one anchored grep.
 Columns, tab-separated:
 
 ```
-normalized  surface  role  kind  entity  classification  code  id  name  state  closed
+normalized  surface  role  kind  entity  classification  code  id  name  state  closed  route
 ```
 
 `role` is where the string came from (`code` / `name` / `alias` / `businessType`),
@@ -62,6 +62,9 @@ normalized  surface  role  kind  entity  classification  code  id  name  state  
 what you filter on; `name` is what you display. A `branch` row has no `code` — its
 `id` is the filter value (rule 8). The same surface can appear under two kinds —
 `Closed` is both a status and a state — so read `kind` before acting on a row.
+`route` is on classification rows only: the app page that classification's records
+list on, which is what `link.py --route` takes. It is empty for a classification
+behind no read tool, and an empty route means there is nothing to link.
 
 **Read it whether or not the question has a term in it.** A question can need no
 resolution going IN — "job cards opened last week" names nothing to look up — and
@@ -99,6 +102,7 @@ Other recipes:
 | All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/skills/xas-reporting/phrasebook.tsv` — add `&& $11=="true"` for the closed ones only |
 | Every branch, id and name | `awk -F'\t' '$4=="branch" {print $8, $9}' /workspace/skills/xas-reporting/phrasebook.tsv` |
 | Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/skills/xas-reporting/phrasebook.tsv` |
+| The page a classification lists on (for `link.py --route`) | column 12 of its row: `awk -F'\t' '$7=="VRV" {print $12; exit}' /workspace/skills/xas-reporting/phrasebook.tsv` |
 
 ## Resolution rules
 
@@ -241,6 +245,21 @@ could not identify" — never printed bare as though it were a name. On 2026-08-
 three codes reached the planner untranslated, because step 0 had been skipped and
 there was nothing to look them up in.
 
+**5. Build the link in the SAME command.** The planner gets a link to the page
+behind the answer (see **The link** below), and `link.py` builds it from the filter
+the tool echoed. Append it to the step-4 grep rather than sending a second call:
+
+```bash
+grep 'VRV' /workspace/skills/xas-reporting/phrasebook.tsv
+python /workspace/skills/xas-reporting/link.py --route /vehicle_planning \
+  --filter '{"JobClassification":"VRV","DMSJCEntry":["6813","6815"]}'
+```
+
+One command, one round trip — the same one you were already spending to translate
+the codes. A separate call for the link buys a whole round trip to format a string,
+which is the "size check before the call you were going to make anyway" mistake in
+a different costume.
+
 ### The calls
 
 Every row sends `fields`. See below for why, and what to put in it.
@@ -303,6 +322,49 @@ excludes its end — deciding any of that per turn is how a boundary quietly mov
 and a count changes with it. It takes today, yesterday, this/last week,
 this/last month, this/last year, and "last N days". Anything else it refuses
 rather than guessing, and so do you: ask which dates they mean.
+
+## The link
+
+**Every answer about records ends with a link to them.** The planner is one click
+from the real list — sortable, paged, with every column and every action their job
+needs — so a table you retype is a worse copy of a thing they already have, and it
+costs roughly six times the words. Give the figure and the link. Do not give both
+the link and the table it opens.
+
+`link.py` ships beside this file and builds it:
+
+```bash
+python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the filter you sent>'
+python /workspace/skills/xas-reporting/link.py --card 6813      # one job card
+python /workspace/skills/xas-reporting/link.py --vehicle 11370
+python /workspace/skills/xas-reporting/link.py --account <the account's id>
+```
+
+`--route` is the `route` column on the classification's phrasebook row — the same
+grep you are already running to translate its code. It is the page that
+classification lists on, and it is not always the obvious one: a `VRV` lists on a
+different page than a `Service`, and both link to `/job_cards/<id>` for a SINGLE
+card. Never type a route from memory.
+
+Four rules, each of which is a way to hand someone a link that loads cleanly and
+shows the wrong thing:
+
+1. **Link the query you counted.** Build `--filter` from the `source` block the
+   tool echoed back, never from your recollection of what you asked. They differ
+   exactly when it matters — after you narrowed a filter and re-ran it.
+2. **Never link a filter you did not run.** If the planner names three cards, that
+   is `{"DMSJCEntry": ["a","b","c"]}` — send it, read the count, then link it. A
+   link to a filter no tool has answered is a guess with a URL on it.
+3. **Never hand-write or edit the URL.** A raw `$` in one returns an EMPTY page
+   rather than an error, and every vehicle and account link contains one. Changing
+   a character of a built link is how a planner is shown nothing and told it is
+   five cars.
+4. **`Branch: true` and `MyJobCards` cannot be linked.** They mean "whoever is
+   logged in", which is you and not them. `link.py` refuses; resolve to explicit
+   ids and link that.
+
+A link is not a substitute for the answer. It goes AFTER the figure, in a sentence
+that says what it opens.
 
 ## Charts
 
@@ -390,11 +452,33 @@ Say:
 - **Anything that changes the reading**: which term you took their word to mean, a
   bucket that is an unknown status, a count that came back empty, the one question
   you would need answered to go further.
+- **The link, last, in a sentence naming what it opens.** "184 spare-parts cards
+  are Open, Haifa branch, July — [open the list](<url>)." Not "click here", not a
+  bare URL on its own line.
+
+**What to print, by question.** The table is the default answer only because it
+used to be the only one; it almost never is now.
+
+| They asked | You give |
+| --- | --- |
+| A count, a breakdown | the figures, then one link to the set behind them. **No table of cards.** |
+| "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows. |
+| One card, one car, one customer | its own page's link, and the one or two facts they asked for |
+| A named column — "which customers", "what are the plates" | THAT column, and the link. Not the other ten. |
+
+**Never print a table the link already opens.** Twenty rows is about four hundred
+words of a list the planner can see properly, with sorting and actions you cannot
+give them, one click away — and every one of those rows stays in this conversation
+and is re-read on every later turn. A table earns its place only when the answer IS
+the shape of the data — a handful of buckets and their counts, which no single page
+shows — and even then it is the buckets, never the cards inside them.
 
 Never say: phrasebook, taxonomy, index, normalize, grep, awk, `get_job_list` or
 any other tool name, filter, paging, `totalCount`, record, row, field, code,
 ObjectId, UTC, sandbox, token — and no file path, no filename, and nothing about
-what you saved where or which data operations you ran. Narration is what the
+what you saved where or which data operations you ran. **The app link is the one
+exception**: it is the planner's own system, it is the answer's other half, and it
+is the only URL or path that may appear. Narration is what the
 planner has to read past to reach their number, and it invites them to audit
 plumbing they cannot change. If a step went wrong, one sentence in business terms
 ("the live system returned nothing for July"), never a tool transcript.

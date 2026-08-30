@@ -167,7 +167,8 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, not data.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-reporting/` (SKILL.md + `resolve.py` + `dates.py` + `phrasebook.tsv`).
+  `xas-reporting/` (SKILL.md + `resolve.py` + `dates.py` + `link.py` +
+  `phrasebook.tsv`).
   The DATA is mounted per session by `web.py` — the pull from
   `datasource.get_source(scenario)` — so re-carving a scenario needs no
   re-deploy. The tenant taxonomy is the exception (DECIDE-16): it rides in the
@@ -194,6 +195,31 @@ XAS endpoint and its credential never touch the sandbox.
   equalling `normalize(surface)` and an anchored grep would miss in silence.
   `tests/test_phrasebook.py` pins that equality over the BUNDLED bytes, and that
   the parser is absent from every shipped file.
+- **A reporting answer ends in a LINK, and the link is the query that produced
+  the number.** Added 2026-08-30. A list page's result set is a pure function of
+  its query string — the page parses `filter`/`paging`/`sort` out of the URL and
+  sends them to the same endpoint the read tools call — so `link.py` (in the
+  reporting bundle) turns the `source` block a tool echoed into a URL to the very
+  same set. That is what lets the agent stop retyping tables: twenty rows is ~400
+  output tokens of a list the planner has properly one click away, and those rows
+  are re-read on every later turn. Three things bite. **A raw `$` in the query
+  string returns an EMPTY page, not an error** — verified against the live app on
+  a filter matching five cars — and every vehicle and account link needs `$in`,
+  so the URL is built by code and never typed or edited by hand. **The two lanes
+  parse the URL differently**: job-card pages take the filter verbatim, while
+  vehicles/accounts run it through an adapter that lowercases each dotted segment
+  and re-wraps bare values by the tenant's field TYPE (`$like` for a string — a
+  substring match reported as exact); `adapt_for_core` meets its passthrough
+  branch instead, ucFirst plus an explicit `{"$in": [...]}`, so the round trip is
+  exact by construction. And **the link's paging is not the agent's**: a count
+  question runs `count: 1`, so passing it through would put a one-row page under
+  a total of 89. `Branch: true` / `MyJobCards` are refused outright — they
+  resolve against whoever OPENS the link. `tests/test_link.py` pins the round
+  trip over both dialects and each of those failures.
+  The obvious next move is for the MCP to return the URL in `source` itself: it
+  already holds the filter and is per-tenant, and then nothing is built agent-side
+  and the `$` cannot be got wrong. That is a change to `xas-app-mcp`, which is not
+  this repo's.
 - **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
   `/workspace/vehicles.json` are the pull — the export's two row streams, kept
   apart because folding them into one document would only make `flatten` take it

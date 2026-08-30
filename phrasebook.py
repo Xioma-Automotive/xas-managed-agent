@@ -47,6 +47,64 @@ normalize = _resolve.normalize
 COLUMNS = _resolve.COLUMNS
 
 
+# Which app page a classification's records are listed on, so that a link to the
+# filter the agent just ran can be built without the sandbox holding a route table
+# of its own (`skills/xas-reporting/link.py`).
+#
+# The app splits JobCard classifications three ways by a pair of hardcoded enums
+# (`app/src/types/tenant/classifications.ts`), NOT by anything the taxonomy
+# carries, which is why the split is transcribed here rather than derived. The
+# fallback matches the app's own: a classification in neither set lists on
+# `/job_cards`.
+VEHICLE_PLANNING = frozenset(
+    (
+        "VPR",
+        "VPO",
+        "VGR",
+        "VSR",
+        "VST",
+        "VRV",
+        "VAD",
+        "VRT",
+        "VRS",
+        "VSO",
+        "VDN",
+        "VSI",
+        "VDR",
+        "VIC",
+    )
+)
+CONTRACTS = frozenset(
+    (
+        "Contract",
+        "BlanketAgreement",
+        "LeaseContract",
+        "RentContract",
+        "MaintenanceContract",
+        "RentalContractQuote",
+        "LeaseContractQuote",
+        "Reservation",
+    )
+)
+
+# Entities with a list page of their own. An entity absent from here gets an empty
+# route, and `link.py` refuses rather than guessing — Activities and Items have no
+# read tool behind them, so a link would point at a page the agent cannot have
+# counted anything on.
+ENTITY_ROUTES = {"Vehicle": "/vehicles", "Account": "/accounts"}
+
+
+def route_for(kind: str, entity: str, code: str) -> str:
+    """The page this record's classification lists on, or "" if it has none."""
+    if kind != "classification":
+        return ""
+    if entity == "JobCard":
+        if code in VEHICLE_PLANNING:
+            return "/vehicle_planning"
+        return "/contracts" if code in CONTRACTS else "/job_cards"
+    return ENTITY_ROUTES.get(entity, "")
+
+
 # Only real records; the header legend documents the format with the same
 # `key=<placeholder>` syntax and must not be parsed as data.
 RECORD = re.compile(r"^(ENTITY|CLASSIFICATION|STATUS|STATE|BRANCH)\s+(.*)$")
@@ -112,6 +170,7 @@ def build(index_path: Path = INDEX_PATH) -> list[tuple[str, ...]]:
                     fields.get("name", ""),
                     fields.get("state", ""),
                     fields.get("closed", ""),
+                    route_for(kind, entity, fields.get("code", "")),
                 )
             )
     return sorted(rows)
