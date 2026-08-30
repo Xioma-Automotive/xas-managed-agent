@@ -245,20 +245,35 @@ could not identify" — never printed bare as though it were a name. On 2026-08-
 three codes reached the planner untranslated, because step 0 had been skipped and
 there was nothing to look them up in.
 
-**5. Build the link in the SAME command.** The planner gets a link to the page
-behind the answer (see **The link** below), and `link.py` builds it from the filter
-the tool echoed. Append it to the step-4 grep rather than sending a second call:
+**5. Build the link BESIDE the call, not after it.** The planner gets a link to the
+page behind the answer (see **The link** below). Emit the `link.py` command and the
+`get_job_list` call **in the same block**, so they run together and their results
+come back together:
 
-```bash
-grep 'VRV' /workspace/skills/xas-reporting/phrasebook.tsv
-python /workspace/skills/xas-reporting/link.py --route /vehicle_planning \
-  --filter '{"JobClassification":"VRV","DMSJCEntry":["6813","6815"]}'
+```
+get_job_list  filter={"JobClassification":"VRV","JobStatus.ID":["…"]}  fields=[…]  paging={"count":1}
+bash          python /workspace/skills/xas-reporting/link.py --route /vehicle_planning \
+                --filter '{"JobClassification":"VRV","JobStatus.ID":["…"]}'
 ```
 
-One command, one round trip — the same one you were already spending to translate
-the codes. A separate call for the link buys a whole round trip to format a string,
-which is the "size check before the call you were going to make anyway" mistake in
-a different costume.
+Same filter in both, written once. You have everything the link needs before the
+call returns — the filter is yours, and `--route` came from the phrasebook grep in
+step 1 — so waiting for the response buys nothing and costs a whole round trip to
+format a string. That is the "size check before the call you were going to make
+anyway" mistake in a different costume, and sending the link call afterwards is how
+you make it.
+
+**Do not fold it into the step-4 grep instead.** That looks equivalent and is not:
+step 4 only runs when there are codes to translate, so on a turn that answers in
+names — "which customers", a list of accounts — there is no step-4 call to ride on
+and the link ends up alone in a round trip of its own. Beside the tool call, it is
+free on every turn.
+
+Two things follow from building it early. **A link is void if its call was not the
+one you report**: if the tool errors, or the count comes back 0 and you re-run with
+a corrected filter, throw that link away and pair a new one with the call you
+actually answer from. And when a turn ends up making several calls, the link that
+reaches the planner is the one whose filter matches the figure you printed.
 
 ### The calls
 
@@ -349,9 +364,13 @@ card. Never type a route from memory.
 Four rules, each of which is a way to hand someone a link that loads cleanly and
 shows the wrong thing:
 
-1. **Link the query you counted.** Build `--filter` from the `source` block the
-   tool echoed back, never from your recollection of what you asked. They differ
-   exactly when it matters — after you narrowed a filter and re-ran it.
+1. **Link the query you counted.** `--filter` and the tool's `filter` are ONE
+   filter, written once into two commands sent together (step 5). That is what
+   makes them agree — not care in copying them. What breaks the pairing is a
+   turn that moves on: you narrow the filter and re-run, and the first link now
+   opens a set you are not reporting. Discard it and send a new pair. If you ever
+   do find yourself writing a link after the fact, take the filter from the
+   `source` block the tool echoed, never from memory of what you asked.
 2. **Never link a filter you did not run.** If the planner names three cards, that
    is `{"DMSJCEntry": ["a","b","c"]}` — send it, read the count, then link it. A
    link to a filter no tool has answered is a guess with a URL on it.

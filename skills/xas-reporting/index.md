@@ -1,10 +1,14 @@
 # Taxonomy — xioma/DMSDEV2023 (6530d4f8d5c9e5001d6e319e)
 
-8 entities, 51 classifications, 109 statuses, 7 branches. Generated from `mcp_servers/xioma_read_mcp/mock_data/xioma-DMSDEV2023.json` by `python -m mcp_servers.xioma_read_mcp.dump_taxonomy`.
+8 entities, 53 classifications, 116 statuses, 7 branches. Generated from `mcp_servers/xioma_read_mcp/mock_data/xioma-DMSDEV2023.json` by `python -m mcp_servers.xioma_read_mcp.dump_taxonomy`.
 
-Active only: 7 inactive classifications are omitted, along with 2 entities left with none. Everything listed here is live in the app; nothing needs an
-active check. Note `index_lookup` on the MCP server does NOT filter this way — it can still
-return an inactive classification.
+Active, plus the inactive ones that still hold records: 5 of the 7 inactive classifications are
+omitted, along with 2 entities left with none. The other 2 — `VGR` and `LeaseContract` — are kept
+and marked, because **inactive is a config flag, not an empty set**: between them they own 39 live
+job cards, and omitting them made a breakdown by type report those 39 under a type it could not
+name. So everything listed here is queryable; nothing needs an active check, and a classification
+being absent is NOT evidence that no card carries it. Note `index_lookup` on the MCP server does
+NOT filter this way — it can still return an inactive classification.
 
 How to read a line:
   ENTITY          — one per system entity; businessType is the plain business term.
@@ -269,6 +273,27 @@ STATUS          entity="JobCard"  classification="VPR"  id="6530d9a89c098a05a65b
 STATUS          entity="JobCard"  classification="VPR"  id="6530d9a89c098a33be3e0c6f"  code="01"  name="New"  state="New"  closed=false
 CLASSIFICATION  entity="JobCard"  code="Evaluation"  name="Service Lead"  fields=89  statuses=1  aliases=""
 STATUS          entity="JobCard"  classification="Evaluation"  id="6530d9a89c098a33be3e0c6f"  code="01"  name="New"  state="New"  closed=false
+
+Two classifications below this line are INACTIVE in the tenant config and are
+therefore NOT emitted by `dump_taxonomy` — they are hand-maintained, like the
+BRANCH and STATE blocks, and a regeneration drops them. They are here because
+inactive does not mean empty: `VGR` owns 24 live job cards and `LeaseContract`
+15, counted 2026-08-30, and without these lines a breakdown by type reports 39
+cards under a type it cannot name. Their `statuses` are the ones OBSERVED on
+those live cards, not a declared set — the config declares none — so treat that
+list as a floor. The other three inactive job-card classifications (`VRT`,
+`VST`, and `VPR` under the `VehiclePlanning` entity) hold no cards and are
+correctly absent; `VPR` also exists, active, under `JobCard` above.
+
+CLASSIFICATION  entity="JobCard"  code="VGR"  name="Vehicle Goods Receipt"  fields=0  statuses=2  aliases=""
+STATUS          entity="JobCard"  classification="VGR"  id="6530d9a89c098a33be3e0c6f"  code="01"  name="New"  state="New"  closed=false
+STATUS          entity="JobCard"  classification="VGR"  id="6530d9a89c098a33be3e0c73"  code="1"  name="Open"  state="In Process"  closed=false
+CLASSIFICATION  entity="JobCard"  code="LeaseContract"  name="Lease Contract"  fields=48  statuses=5  aliases=""
+STATUS          entity="JobCard"  classification="LeaseContract"  id="6530d9a89c098a33be3e0c6f"  code="01"  name="New"  state="New"  closed=false
+STATUS          entity="JobCard"  classification="LeaseContract"  id="6530d9a89c098a33be3e0c73"  code="1"  name="Open"  state="In Process"  closed=false
+STATUS          entity="JobCard"  classification="LeaseContract"  id="6530d9a89c098a33be3e0c74"  code="21"  name="Active"  state="In Process"  closed=false
+STATUS          entity="JobCard"  classification="LeaseContract"  id="6530d9a89c098a37e96ff5c7"  code="22"  name="QUOTAION"  state="In Process"  closed=false
+STATUS          entity="JobCard"  classification="LeaseContract"  id="6530d9a89c098a33be3e0c76"  code="25"  name="Vehicle Ready"  state="In Process"  closed=false
 
 ENTITY          entity="Model"  businessType=""  classifications=1  statuses=0
 CLASSIFICATION  entity="Model"  code="Model"  name="Model"  fields=154  statuses=0  aliases=""

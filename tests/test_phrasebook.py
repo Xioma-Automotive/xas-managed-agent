@@ -274,3 +274,31 @@ def test_the_builder_borrows_the_skill_normalizer_rather_than_defining_one():
     builder_source = (REPO_ROOT / "phrasebook.py").read_text(encoding="utf-8")
     assert "def normalize" not in builder_source
     assert "COLUMNS = (" not in builder_source
+
+
+def test_the_inactive_classifications_that_hold_cards_survive_into_the_bundle():
+    """`VGR` and `LeaseContract` are flagged inactive in the tenant config and so
+    are NOT emitted by `dump_taxonomy` — they are hand-maintained in `index.md`,
+    and the next regeneration drops them exactly like the BRANCH block.
+
+    They are there because inactive is a config flag, not an empty set: between
+    them they own 39 live job cards. Without these rows a breakdown by type files
+    those 39 under "a type I could not identify" — observed 2026-08-30 on a chart
+    of one customer's jobs. That is a wrong answer that looks like a careful one,
+    so the loss has to fail here rather than in front of a planner.
+    """
+    import setup_agent
+
+    table = dict(setup_agent.reporting_bundle())["xas-reporting/phrasebook.tsv"]
+    rows = [tuple(line.split("\t")) for line in table.decode().splitlines()[1:] if line]
+
+    for code, name, route in (
+        ("VGR", "Vehicle Goods Receipt", "/vehicle_planning"),
+        ("LeaseContract", "Lease Contract", "/contracts"),
+    ):
+        hits = [r for r in rows if r[3] == "classification" and r[6] == code]
+        assert hits, f"{code} is missing from the bundled phrasebook — regenerated over?"
+        assert {r[8] for r in hits} == {name}
+        # A route is what makes the classification linkable; an empty one reads as
+        # "nothing to link" and would hide the loss rather than report it.
+        assert {r[11] for r in hits} == {route}
