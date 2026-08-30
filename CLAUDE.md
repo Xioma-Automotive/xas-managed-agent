@@ -17,15 +17,15 @@ because a self-hosted sandbox runs tools as your own uid — an agent there
 enumerated every credential file on the host through `bash`, which is what
 prompted this branch. Don't merge the two; they are alternatives.
 
-Docs: `docs/real-source-investigation.md` is what the live system actually holds,
-`docs/appmcp-connect.md` how to call the dev MCP by hand (reporting lane), and
-`docs/evals/routing.md` the hand-run check of which skill fires. That is all of
-them, and each describes the code as it stands — `docs/` is not an archive. The
-app-MCP allocation-pull change request (`mcp-field-spec.md`,
-`mcp-response-schema.md`) went on 2026-08-30 with the implementation plans and
-the sandbox file-probe note: the pull reads the export's CSVs, so the request is
-closed, and git history keeps what was asked for. The self-hosted plans, specs
-and platform notes were retired on 2026-08-23.
+Docs: `docs/appmcp-connect.md` is how to call the dev MCP by hand (reporting
+lane) and `docs/evals/routing.md` the hand-run check of which skill fires. That
+is both of them, and each describes the code as it stands — `docs/` is not an
+archive. Deleted 2026-08-30: the app-MCP allocation-pull change request
+(`mcp-field-spec.md`, `mcp-response-schema.md`), the three implementation plans,
+the sandbox file-probe note, and `real-source-investigation.md` — the last was
+the 2026-08-20 study of reading the pull through the app MCP, and that whole path
+is gone. Git history keeps every one of them. The self-hosted plans, specs and
+platform notes were retired on 2026-08-23.
 
 ## The invariant everything serves
 
@@ -460,10 +460,12 @@ line counts what is genuinely undecided. The shape of it:
   reviewed and removed on 2026-08-26. They stay in the register with what went
   wrong, because a decision that reads as merely absent invites someone to make
   it again.
-- **Two are recorded but deliberately not built.** DECIDE-10 — a `Reserved-*`
+- **Two are recorded but deliberately not built.** DECIDE-10 — a reserved-for-X
   vehicle is out of the pool entirely, so an earmarked car is supply for NO ONE,
   not "eligible for anyone" as the register used to claim; modelling it as
-  earmarked supply is the deferred upgrade. DECIDE-6 — there is no liveness
+  earmarked supply is the deferred upgrade. This export has no such row —
+  its pool is three statuses and none of them earmarks — so the decision waits on
+  a source that carries one. DECIDE-6 — there is no liveness
   check and will not be one: the pull happens host-side before the session
   exists, so a session-start call from the agent proves nothing about it.
 - **DECIDE-7 is settled and unblocked.** The source is the export's two CSVs, so

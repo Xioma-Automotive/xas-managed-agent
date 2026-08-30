@@ -221,14 +221,16 @@ DECISIONS: list[Decision] = [
         default="a reserved vehicle is out of the pool entirely — eligible for NO ONE",
         rationale=(
             "Corrected 2026-08-25: this used to read 'ignored — eligible for anyone', which "
-            "described behaviour the mapper does not have. `Reserved-*` is one of the statuses "
-            "datasource.py drops as out_of_scope_status (DECIDE-3), so an earmarked car is not "
-            "supply for anybody, including the dealer it is earmarked for. XAS carries the "
-            "reserved-for-customer notion as that status, NOT the `IsReserved` flag "
-            "(`docs/real-source-investigation.md` §2). Modelling it as EARMARKED SUPPLY — a "
-            "Reserved-for-X vehicle eligible only for X's orders — is the deferred upgrade: it "
-            "widens supply and needs the reserved-to-account link to resolve, and it becomes an "
-            "extra term in the sparse-arc eligibility rule."
+            "described behaviour no mapper has. XAS carries reserving as a vehicle STATUS, not "
+            "an `IsReserved` flag, and a status the pull does not recognise keeps the car out "
+            "of the pool entirely — so an earmarked car is supply for nobody, including the "
+            "dealer it is earmarked for. Restated 2026-08-30 for the CSV export, whose pool is "
+            "three statuses (Available For Sale, Dealer Order Confirmation, Dealer Reservation) "
+            "and carries no Reserved-for-X row at all: this decision is now about a shape the "
+            "current data does not contain, and it becomes live again with a source that does. "
+            "Modelling it as EARMARKED SUPPLY — a Reserved-for-X vehicle eligible only for X's "
+            "orders — is the deferred upgrade: it widens supply, needs the reserved-to-account "
+            "link to resolve, and becomes an extra term in the sparse-arc eligibility rule."
         ),
     ),
     Decision(
