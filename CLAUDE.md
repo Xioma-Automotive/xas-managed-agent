@@ -17,12 +17,15 @@ because a self-hosted sandbox runs tools as your own uid — an agent there
 enumerated every credential file on the host through `bash`, which is what
 prompted this branch. Don't merge the two; they are alternatives.
 
-Docs: `docs/real-source-investigation.md` is what the live system actually holds
-and `docs/appmcp-connect.md` how to call the dev MCP by hand (reporting lane).
-`docs/mcp-response-schema.md` and `docs/mcp-field-spec.md` are HISTORICAL as of
-2026-08-27 — they were the change request for an app-MCP allocation pull that no
-longer exists; the pull reads the export's CSVs instead. The self-hosted plans,
-specs and platform notes were retired on 2026-08-23.
+Docs: `docs/real-source-investigation.md` is what the live system actually holds,
+`docs/appmcp-connect.md` how to call the dev MCP by hand (reporting lane), and
+`docs/evals/routing.md` the hand-run check of which skill fires. That is all of
+them, and each describes the code as it stands — `docs/` is not an archive. The
+app-MCP allocation-pull change request (`mcp-field-spec.md`,
+`mcp-response-schema.md`) went on 2026-08-30 with the implementation plans and
+the sandbox file-probe note: the pull reads the export's CSVs, so the request is
+closed, and git history keeps what was asked for. The self-hosted plans, specs
+and platform notes were retired on 2026-08-23.
 
 ## The invariant everything serves
 
@@ -200,17 +203,15 @@ XAS endpoint and its credential never touch the sandbox.
   (`delay_days` / `delay_tiers` / `delayed_vehicles`, removed 2026-08-27): the
   summary reports the min/median/max days late instead, which real data can
   actually support.
-- **ONE CAR PER LINE, and `Quantity` is not read at all.** One car line is one
-  order, keyed `{so_id}-{line}` — two levels. This REPLACED qty expansion on
-  2026-08-25 (the expansion, `qty_index`, the per-car report naming and the
-  `allocation_qty_not_resolvable_to_cars` counter are all gone). The reason it is
-  safe to ignore `Quantity`: a line resolves to at most ONE vehicle code, so a
-  second car on it could never be linked to anything. The reason it is not free:
-  **a line asking for 3 cars is planned as 1 and the other 2 are not represented
-  anywhere, uncounted.** That was an explicit call, pending a response-shape
-  decision (one allocation cap per line, or per-car fields) — `docs/mcp-response-schema.md`
-  Q1, same VPO hop. Do not reinstate a counter or soften the report wording until
-  that lands. An order is NAMED by string in four places (`priority`,
+- **ONE ROW IS ONE ORDER, and there are no lines any more.** The key is the
+  export row's own `OrderId` (`502377`) — ONE level. The two-level
+  `{so_id}-{line}` key, the `Quantity` question with it, went out with the app-MCP
+  job-card grain on 2026-08-27: this export has no lines and no `Quantity`
+  column, so there is nothing to expand and nothing left uncounted. (Earlier
+  still, on 2026-08-25, qty expansion itself was replaced — `qty_index`, the
+  per-car report naming and the `allocation_qty_not_resolvable_to_cars` counter
+  are all gone.) A line-grain pull would bring the whole question back; do not
+  reintroduce one without deciding it. An order is NAMED by string in four places (`priority`,
   `may_move.only/.also/.never`, the disruption manifest); all go through
   `solver.names_order` / `disrupted_order_keys`, which match the line or the
   whole VSO. `Snapshot.order_by_key` RAISES on a duplicate key rather than
@@ -468,8 +469,8 @@ line counts what is genuinely undecided. The shape of it:
 - **DECIDE-7 is settled and unblocked.** The source is the export's two CSVs, so
   nothing waits on a widened MCP projection any more (the blocker was: no
   `jobitems`, so every dev job card dropped and the live allocation pull came back
-  EMPTY). `docs/mcp-field-spec.md` and `docs/mcp-response-schema.md` are the
-  historical record of that request, not open work.
+  EMPTY). The change request that went with it was deleted on 2026-08-30 — it
+  was answered by dropping the MCP source, not by widening the projection.
 - **The rest are decided**, with their trigger named where they have one:
   DECIDE-9 (solver stays in-repo; extraction is triggered by the first NON-DEV
   tenant, not a date) and DECIDE-16 (taxonomy ships in the `xas-reporting`

@@ -98,17 +98,18 @@ def _b64u(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-# The three vars the gateway login itself needs — a subset of REQUIRED_ENV, named
-# separately because `datasource.XASApiSource` needs the login WITHOUT the vault
-# and encryption config that only the MCP bearer uses.
+# The three vars the gateway login itself needs — a subset of REQUIRED_ENV, kept
+# separate because the login stands on its own: it is checked and reported apart
+# from the vault and encryption config that only the MCP bearer uses.
 LOGIN_ENV = ("APPMCP_COMPANY_DB", "APPMCP_LOGIN_EMAIL", "APPMCP_LOGIN_PASSWORD")
 
 
 def login_request() -> tuple[str, dict]:
     """The gateway login call — its URL and JSON body. ONE definition of the
-    credential, two transports: `_fetch_user_token` (async, for the MCP bearer)
-    and `datasource.XASApiSource._login` (sync, for the allocation pull) both
-    issue exactly this. Read per call, never at import — see `configured()`.
+    credential, kept apart from `_fetch_user_token` (its only caller now) so the
+    call can be read and reproduced by hand — `docs/appmcp-connect.md` walks it.
+    The allocation pull used to be a second caller; it reads CSVs since
+    2026-08-27. Read per call, never at import — see `configured()`.
 
     `forceLogin` invalidates any other session for this user, so every call here
     kicks a browser logged in as the same account.

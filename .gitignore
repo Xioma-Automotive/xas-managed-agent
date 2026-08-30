@@ -5,13 +5,8 @@
 !.env.example
 
 # Local solver artifacts, from running xas_allocation.session by hand
-ledger.json
-residual_cache.json
 snapshot.json
 plan.json
-
-# QA agent chart outputs downloaded from sessions (qa/run_qa.py)
-qa-outputs/
 
 # Python cruft
 __pycache__/

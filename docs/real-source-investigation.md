@@ -15,13 +15,15 @@ wins.
 > directly, or widen the MCP first (different repo, and already a deploy behind:
 > its `get_job_card` still takes `DMSJCEntry`, not `JobEntryNum`).
 
-> **Status, 2026-08-20: implemented — through the MCP, not around it.**
-> `datasource.AppMcpSource` reads the MCP's own `get_job_cards` + `get_vehicles`
-> host-side and `map_response` filters and maps them; `python -m datasource
-> --census` prints the funnel. That makes the MCP's projection a blocking
-> dependency: `docs/mcp-field-spec.md` is the change request, and
-> `missing_projection()` reports any field the MCP still does not return so it
-> cannot be mistaken for empty data. §9 records what shipped.
+> **Status, 2026-08-27: the MCP is NOT the allocation source.** It was one for a
+> week (`datasource.AppMcpSource`, 2026-08-20 → 08-27) and its projection
+> returned no `jobitems`, so every dev job card dropped and the pull came back
+> empty. The source is now a scenario directory of the export's two CSVs
+> (`datasource.ScenarioSource`); `AppMcpSource`, `map_response` and
+> `missing_projection` are all gone, and so is the change request that asked the
+> MCP to widen. `python -m datasource --census` still prints the funnel. What
+> this file remains good for is the FIELD-LEVEL picture of the live system;
+> read every "we will read it through the MCP" below against this note.
 
 ---
 
@@ -224,10 +226,10 @@ belongs in the snapshot's provenance, not in our code.
    ⚠️ **REVERSED 2026-08-24.** The pull reads the app MCP after all
    (`datasource.AppMcpSource`, DECIDE-7): one data seam serves both lanes, and
    the reporting lane already answered over those tools. What the investigation
-   got right is that the MCP does not return everything the solver needs — that
-   is now a projection gap with a change request behind it
-   (`docs/mcp-field-spec.md`), not a reason for a second source. `XASApiSource`
-   never shipped.
+   got right is that the MCP does not return everything the solver needs — and
+   that turned out to be fatal rather than fixable: the allocation pull moved to
+   the export's CSVs on 2026-08-27 and the change request was dropped. Neither
+   `XASApiSource` nor `AppMcpSource` exists now.
 2. **Eligibility grain** — ✅ trim (`SalesModel`). Not a choice: model grain
    joins nothing (§3).
 3. **Future/real rule** — ✅ `Status.Name` (stripped) in {Ordered, On The Way}
@@ -263,14 +265,17 @@ belongs in the snapshot's provenance, not in our code.
 
 ## 9. What shipped, and what the pull actually yields
 
-`datasource.AppMcpSource.pull()` → the MCP's `get_job_cards` + `get_vehicles`
-(paged) → `map_response()` → the rich `{meta, vsos, vehicles, disruption}`
-contract → mounted as a file → `flatten`. Nothing about the architecture moved:
-collect is host-side because the pull must be ONE frozen snapshot (a live
-mid-turn read makes the same override meet different rows on turn 3 than on turn
-1), filter is host-side because the mounted file **is** the data snapshot,
-translate stays in `flatten` in the sandbox. `map_response` is pure and tested
-against a captured response (`tests/fixtures/xas_sample.json`).
+**Superseded 2026-08-27** — what shipped through the MCP (`AppMcpSource.pull()`
+→ `get_job_cards` + `get_vehicles` → `map_response()`) was removed when the
+projection turned out not to carry `jobitems`. What stands now:
+`datasource.ScenarioSource` reads a scenario directory's two CSVs →
+`translate()` → the two payloads `orders.json` + `vehicles.json` → mounted as
+files → `flatten` in the sandbox. The ARCHITECTURE below is unchanged and is why
+the source could be swapped at all: collect is host-side because the pull must be
+ONE frozen snapshot (a live mid-turn read makes the same override meet different
+rows on turn 3 than on turn 1), filter is host-side because the mounted files
+**are** the data snapshot, translate stays in `flatten` in the sandbox.
+`translate` is pure and tested row by row (`tests/test_datasource.py`).
 
 The tables in §1–§2 still describe the RAW records, which is what the MCP has to
 be widened to expose — they are the requirement, not the current behaviour.

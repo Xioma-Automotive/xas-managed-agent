@@ -307,50 +307,6 @@ def bump_candidates(
     )
 
 
-# --- Data-prep flow chart ----------------------------------------------------
-
-
-def data_prep_flowchart(snapshot: Snapshot) -> str:
-    """Mermaid of how the mounted pull became solver inputs — the data-prep hop."""
-    n_orders = len(snapshot.orders)
-    n_vehicles = len(snapshot.vehicles)
-    n_allocations = len(snapshot.allocations)
-    n_free = n_vehicles - n_allocations
-    n_models = len({o.sales_model for o in snapshot.orders})
-    d = snapshot.disruption
-    n_disrupted = len(d.get("disrupted_orders", []))
-    return "\n".join(
-        [
-            "```mermaid",
-            "flowchart LR",
-            (
-                f'  SRC["mounted pull<br/>orders.json · vehicles.json<br/>'
-                f'{n_orders} orders · {n_vehicles} cars ({n_free} free)"]'
-            ),
-            (f'  DIS["late arrivals<br/>derived, not declared<br/>{n_disrupted} orders freed"]'),
-            '  FL["flatten + freeze<br/>(pure code, no model judgment)"]',
-            f'  ORD["orders[]<br/>{n_orders} rows"]',
-            f'  VEH["vehicles[]<br/>{n_vehicles} rows"]',
-            f'  ALC["allocations[]<br/>{n_allocations} pairs"]',
-            (
-                f'  ARC["eligibility arcs<br/>sales_model equality · {n_models} models<br/>'
-                '(computed, never stored)"]'
-            ),
-            '  SOLVE["min-cost-flow<br/>churn-price sweep"]',
-            "  SRC --> FL",
-            "  DIS --> FL",
-            "  FL --> ORD",
-            "  FL --> VEH",
-            "  FL --> ALC",
-            "  ORD --> ARC",
-            "  VEH --> ARC",
-            "  ALC --> SOLVE",
-            "  ARC --> SOLVE",
-            "```",
-        ]
-    )
-
-
 # --- Solve ------------------------------------------------------------------
 
 

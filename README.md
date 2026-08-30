@@ -45,11 +45,10 @@ the agent carries forward — no ledger, no replay. `tests/test_invariant.py`
 proves it holds even after the sandbox is discarded: re-pull, re-apply the same
 override, get the same plan.
 
-This build is a **runnable prototype**. Its data is shaped like real XAS: a
-**VSO** (vehicle sales order) is a job card carrying the promise and a list of
-car lines, and **one car line is one order for one car**, keyed `{VSO}-{line}`.
-(`Quantity` on a line can read 3; the pull reads it as 1 — one car per line is an
-assumption pending a response-shape decision, see `docs/mcp-response-schema.md`.)
+This build is a **runnable prototype**. Its data IS real XAS: one row of the
+export's `orders.csv` is **one order for one car**, keyed by its own `OrderId`
+(`502377`). There are no job-card lines and no `Quantity` column in this export,
+so there is nothing to expand and no per-line grain to decide.
 Supply is ONE
 flat pool of vehicles, real and future together; there is no PO/PDN/slot layer,
 and a vehicle is always exactly one car. Dates are real dates. The pull is a
@@ -110,7 +109,7 @@ before real dealer data (DECIDE-9).
 | `snapshot.py`    | §11.1  | The flattened, date-based solver snapshot (`orders/vehicles/allocations`) + JSON (de)serialization. |
 | `flatten.py`     | §11.3  | Pure two-mounted-payloads → snapshot mapping (the "flatten + freeze" hop), and the only part of the data path that runs in the sandbox. Eligibility is a hard `sales_model` equality — no LLM judgment. |
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, the free/pinned partition (§5), the **churn-price sweep**, deterministic read-back. Two halves — `partition` (who may move, no maths) and `_solve_one` (the arithmetic). |
-| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, whole-book state report (`current_state_report`), data-prep flow chart, the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
+| `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, whole-book state report (`current_state_report`), the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
 | `../scenario_engine/`   | —     | **Standalone, outside the agent**: carves a solvable scenario out of the real export (`real_unallocated` / `real_delayed` / `real_mixed`, one shared `carve`) into `data/scenario-*/`. |
 | `../datasource.py`      | —     | **Host-side pull** (DECIDE-7): `ScenarioSource` reads a scenario's two CSVs and `translate` — the ONE mapping — filters, counts every drop by reason and writes the two payloads. `web.py` calls it per session and mounts them. |
@@ -183,7 +182,7 @@ carries a `scenario.json` sidecar with the pull date, because no column does and
 a wall clock would make static files mean something new tomorrow.
 
 `session.py` prints the discrepancy map (what is late, and who holds no car at
-all), the data-prep flow chart, the churn-price frontier, the hard-constraint
+all), the churn-price frontier, the hard-constraint
 self-check and the finished planner report — first for a base repair, then after
 three steering turns (mark an order urgent, narrow to one model, hold changes
 down) — and the two on-time orders visibly stay put through all four. The three
@@ -248,9 +247,10 @@ configured, and `--list` names them all.
 
 The app MCP was this pull's source for a week (2026-08-20 → 08-27) and is not one
 now: its list projection returned no `jobitems`, so every dev job card dropped and
-the live pull came back empty. `docs/mcp-response-schema.md` and
-`docs/mcp-field-spec.md` are the historical record of that change request. The
-MCP tools the agent holds are the reporting lane's and are unaffected.
+the live pull came back empty. The change request behind it was closed by
+dropping the source rather than widening the projection, and its two spec docs
+went with it on 2026-08-30. The MCP tools the agent holds are the reporting
+lane's and are unaffected.
 
 ### One session at a time
 
@@ -289,7 +289,7 @@ Summary:
 | 4 | Pin mechanism | **deleted** with the instruction pin: deferring an order is a NEW PROMISED DATE, which lateness and earliness already price | RETIRED |
 | 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred | **OPEN** |
 | 6 | xas-code MCP liveness pattern | none, and there will not be one — the pull happens host-side before the session exists | settled (not applicable) |
-| 7 | XAS API data contract | `datasource.AppMcpSource` reads VSOs + vehicles through the app MCP host-side; `scenario_engine/` fake stays the offline default | settled as a contract, **blocked** on the MCP projection (`docs/mcp-field-spec.md`) |
+| 7 | XAS API data contract | `datasource.ScenarioSource` reads a scenario directory of the real export host-side — two CSVs, no credential, no MCP. `AppMcpSource` and the fabricated world are both gone | settled and unblocked |
 | 8 | Infeasibility strategy | large finite costs, never walls — since the pins went, `no_car_cost` is the only one | settled |
 | 9 | Solver repo location + versioning | in-repo `xas_allocation/`; `solver_config.yaml` pins the version. Extraction is triggered by the first NON-DEV tenant | settled |
 | 10 | `reserved_for_customer` eligibility | a `Reserved-*` car is out of the pool entirely — supply for NO ONE. Modelling it as earmarked supply is the upgrade | DEFERRED |
