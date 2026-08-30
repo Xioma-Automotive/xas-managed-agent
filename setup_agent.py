@@ -42,6 +42,7 @@ from dotenv import load_dotenv
 
 import alloc_tools
 import appmcp_auth
+import phrasebook
 
 load_dotenv()
 
@@ -117,7 +118,7 @@ Environment
 - The solver and its cost model ship inside the `xas-allocation` skill as the `xas_allocation` package, which says how to run it. Never reimplement or approximate it. On an import error look in the skill directory — never `find /`, which blows the 120s bash timeout and kills your shell.
 - `pip install ortools pyyaml` once per session — the solver reads every price from its own config file, so both are needed.
 - `pull_allocation_snapshot` returns a summary plus a `flatten` command. Run it verbatim and read the file it writes from your code, never into this conversation. Never read the rows at /workspace/orders.json or /workspace/vehicles.json by hand.
-- Taxonomy: `index.md` ships inside the `xas-reporting` skill directory, beside `phrasebook.py` — the ONLY authority for business words to system codes, and codes back to names.
+- Taxonomy: `phrasebook.tsv` ships inside the `xas-reporting` skill directory, built and ready — the ONLY authority for business words to system codes, and codes back to names. Never build it; grep it.
 - The `xas-app-mcp` tools read the LIVE XAS dev system: the one exception to "everything is local", and REPORTING's only source of records. You never handle their credential. No other network.
 
 Determinism
@@ -241,18 +242,35 @@ def alloc_bundle() -> list[tuple[str, bytes]]:
 
 
 def reporting_bundle() -> list[tuple[str, bytes]]:
-    """SKILL.md + phrasebook.py + index.md. No package: grep over a flattened
-    table is the matcher.
+    """SKILL.md + resolve.py + dates.py + the phrasebook TABLE. No package: grep
+    over a flattened table is the matcher.
 
-    TODO (DECIDE-16): index.md — the tenant taxonomy — rides along in this bundle
-    because there is exactly one tenant. It is the one piece of DATA in a skill,
-    and the cost is that the caller can no longer choose a dealership per session
-    and a taxonomy edit needs a redeploy. Second tenant = move it back to a
-    per-session mount (`datasource.get_taxonomy` + `/workspace/reports/index.md`,
-    reverted from this commit); do NOT fix it by bundling every tenant's
-    taxonomy, which shows each session all the others.
+    The table is RENDERED HERE from index.md and shipped; the index itself is
+    not. Deriving it in the sandbox cost a turn every session to rebuild a file
+    that is byte-identical every time and that the agent cannot change — and it
+    put a second copy of the taxonomy in the bundle for the model to be tempted
+    to read. index.md stays in the repo as the SOURCE: `dump_taxonomy`
+    regenerates it, and re-rendering is part of this deploy.
+
+    TODO (DECIDE-16): the tenant taxonomy rides along in this bundle because
+    there is exactly one tenant. It is the one piece of DATA in a skill, and the
+    cost is that the caller can no longer choose a dealership per session and a
+    taxonomy edit needs a redeploy. Second tenant = move it back to a per-session
+    mount (`datasource.get_taxonomy` + /workspace/reports/); do NOT fix it by
+    bundling every tenant's taxonomy, which shows each session all the others.
     """
-    return skill_files(REPORTING_SKILL_DIR)
+    table = phrasebook.render(phrasebook.build())
+    # index.md is the source and stays here; a phrasebook.tsv left on disk by a
+    # local `phrasebook.py` run is IGNORED — the table that ships is always the
+    # one rendered a line above, never a stale file that happens to be lying there.
+    skipped = ("/index.md", "/phrasebook.tsv")
+    files = [
+        (name, blob)
+        for name, blob in skill_files(REPORTING_SKILL_DIR)
+        if not name.endswith(skipped)
+    ]
+    files.append((f"{REPORTING_SKILL_DIR.name}/phrasebook.tsv", table.encode()))
+    return sorted(files)
 
 
 # Still deny-by-default: no allowed_hosts, so the agent reaches no host of its

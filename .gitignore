@@ -17,3 +17,4 @@ venv/
 
 # Local Claude Code state (worktrees are embedded repos)
 .claude/
+skills/xas-reporting/phrasebook.tsv

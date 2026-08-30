@@ -1,4 +1,12 @@
-"""`phrasebook` is the pure taxonomy->lookup-table hop for the XAS Q&A agent.
+"""The taxonomy->lookup-table hop, and the query side that reads what it built.
+
+Two modules, split along where they RUN: `phrasebook` (repo root) parses the
+taxonomy at deploy time and never reaches the sandbox; `resolve` (in the skill)
+is what the agent runs against the shipped table. They share ONE `normalize`,
+which `phrasebook` imports from `resolve` — the test at the bottom pins that the
+column the table was built with really is that function's output.
+
+The original point stands for both:
 
 The point of it is that term -> system code stays deterministic code instead of
 being re-derived by the model each turn. These tests pin what that buys: Hebrew
@@ -9,18 +17,22 @@ index yields a byte-identical phrasebook.
 """
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 INDEX = REPO_ROOT / "skills" / "xas-reporting" / "index.md"
 
+import phrasebook  # repo root, host-side builder
+
 _spec = importlib.util.spec_from_file_location(
-    "phrasebook", REPO_ROOT / "skills" / "xas-reporting" / "phrasebook.py"
+    "resolve", REPO_ROOT / "skills" / "xas-reporting" / "resolve.py"
 )
-phrasebook = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(phrasebook)
+resolve = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(resolve)
 
 
 @pytest.fixture(scope="module")
@@ -137,32 +149,32 @@ def test_build_is_deterministic():
 
 
 def test_suggest_recovers_a_misspelling(rows):
-    codes = {_cols(r)["code"] for r in phrasebook.suggest("sapre parts", rows)}
+    codes = {_cols(r)["code"] for r in resolve.suggest("sapre parts", rows)}
     assert "SpareParts" in codes
 
 
 def test_suggest_recovers_a_hebrew_misspelling(rows):
     """חלפם is חלפים with a letter dropped — normalization alone cannot bridge it."""
-    codes = {_cols(r)["code"] for r in phrasebook.suggest("חלפם", rows)}
+    codes = {_cols(r)["code"] for r in resolve.suggest("חלפם", rows)}
     assert "SpareParts" in codes
 
 
 def test_suggest_returns_nothing_for_a_term_the_tenant_lacks(rows):
     """The point of the ladder's last rung: an honest empty, so the agent asks
     instead of dressing up the nearest row as an answer."""
-    assert phrasebook.suggest("zzqqxx wobble", rows) == []
+    assert resolve.suggest("zzqqxx wobble", rows) == []
 
 
 def test_suggest_is_deterministic_and_bounded(rows):
-    first = phrasebook.suggest("srvice", rows)
-    assert first == phrasebook.suggest("srvice", rows)
-    assert 0 < len(first) <= phrasebook.SUGGEST_LIMIT
+    first = resolve.suggest("srvice", rows)
+    assert first == resolve.suggest("srvice", rows)
+    assert 0 < len(first) <= resolve.SUGGEST_LIMIT
 
 
 def test_suggest_returns_one_row_per_candidate_wording(rows):
     """Deduped on `normalized`: five spellings of the same code is not five
     candidates, and a user asked to choose needs distinct options."""
-    normalized = [r[0] for r in phrasebook.suggest("srvice", rows)]
+    normalized = [r[0] for r in resolve.suggest("srvice", rows)]
     assert len(normalized) == len(set(normalized))
 
 
@@ -190,3 +202,75 @@ def test_a_shared_surface_is_split_by_kind(rows):
     them apart — the skill says to read it before acting on a row."""
     kinds = {c["kind"] for c in map(_cols, rows) if c["normalized"] == "closed"}
     assert kinds == {"status", "state"}
+
+
+# --------------------------------------------------------------------------
+# The shipped table. The index does NOT reach the sandbox any more, so the
+# render -> read_rows hop is the only path back to rows: if it is lossy,
+# `--suggest` quietly degrades there and nowhere else.
+# --------------------------------------------------------------------------
+
+
+def test_render_round_trips_through_read_rows(rows, tmp_path):
+    table = tmp_path / "phrasebook.tsv"
+    table.write_text(phrasebook.render(rows), encoding="utf-8")
+    assert resolve.read_rows(table) == rows
+
+
+def test_render_leads_with_the_column_legend(rows):
+    first = phrasebook.render(rows).splitlines()[0]
+    assert first.split("\t") == list(phrasebook.COLUMNS)
+
+
+def test_read_rows_does_not_return_the_legend_as_data(rows, tmp_path):
+    """Parse the header as a row and `--suggest` starts proposing "normalized"."""
+    table = tmp_path / "phrasebook.tsv"
+    table.write_text(phrasebook.render(rows), encoding="utf-8")
+    assert all(row[0] != "normalized" for row in resolve.read_rows(table))
+
+
+def test_suggest_works_off_the_shipped_table(rows, tmp_path):
+    """The sandbox path: a typo is recovered with no index anywhere near it."""
+    table = tmp_path / "phrasebook.tsv"
+    table.write_text(phrasebook.render(rows), encoding="utf-8")
+    codes = {_cols(r)["code"] for r in resolve.suggest("sapre parts", resolve.read_rows(table))}
+    assert "SpareParts" in codes
+
+
+# --------------------------------------------------------------------------
+# The one property that makes normalizer drift impossible to ship unnoticed.
+# --------------------------------------------------------------------------
+
+
+def test_every_shipped_row_normalizes_to_its_own_surface():
+    """The table's first column IS `normalize(surface)`, checked against the
+    BUNDLED bytes with the SHIPPED normalizer.
+
+    If those two ever disagree — a changed `normalize`, a table built elsewhere,
+    a stale artifact — an anchored grep misses and the term reads to the planner
+    as "not in this dealership's vocabulary". Silently, which is the whole
+    failure the phrasebook exists to prevent. This catches all three without
+    caring which one happened.
+    """
+    import setup_agent
+
+    table = dict(setup_agent.reporting_bundle())["xas-reporting/phrasebook.tsv"]
+    rows = [tuple(line.split("\t")) for line in table.decode().splitlines()[1:] if line]
+    assert rows, "the bundled table must not be empty"
+    for normalized, surface, *_rest in rows:
+        assert normalized == resolve.normalize(surface)
+
+
+def test_the_builder_borrows_the_skill_normalizer_rather_than_defining_one():
+    """One definition, and it lives on the side that must stand alone in the
+    sandbox. A second copy here is how the two quietly diverge."""
+    # Identity would only compare two module objects; what matters is that the
+    # builder's normalizer is COMPILED FROM the skill's file and that the builder
+    # defines none of its own.
+    skill_file = REPO_ROOT / "skills" / "xas-reporting" / "resolve.py"
+    assert Path(phrasebook.normalize.__code__.co_filename) == skill_file
+    assert phrasebook.COLUMNS == resolve.COLUMNS
+
+    builder_source = (REPO_ROOT / "phrasebook.py").read_text(encoding="utf-8")
+    assert "def normalize" not in builder_source
+    assert "COLUMNS = (" not in builder_source

@@ -22,6 +22,7 @@ import pytest
 import alloc_tools
 import appmcp_auth
 import datasource
+import phrasebook
 import setup_agent
 import web
 
@@ -230,10 +231,12 @@ def test_prompt_names_every_mount():
 
 def test_prompt_says_where_the_taxonomy_lives():
     """It is no longer a mount (DECIDE-16), so the prompt must send the agent to
-    the skill directory instead of a path that does not exist."""
+    the skill directory instead of a path that does not exist — and to the TABLE,
+    not the index it was built from, which no longer ships."""
     prompt = setup_agent.SYSTEM_PROMPT
-    assert "index.md` ships inside the `xas-reporting` skill directory" in prompt
+    assert "`phrasebook.tsv` ships inside the `xas-reporting` skill directory" in prompt
     assert "/workspace/reports/index.md" not in prompt
+    assert "index.md" not in prompt
 
 
 def test_prompt_answers_in_the_users_language():
@@ -281,14 +284,17 @@ def test_alloc_bundle_ships_the_solver():
     assert "xas-allocation/xas_allocation/solver.py" in names
 
 
-def test_reporting_bundle_ships_the_phrasebook_builder_and_the_taxonomy():
-    """The taxonomy is the ONE dataset that ships in a bundle (DECIDE-16) — it is
-    static config for the single tenant, and phrasebook.py finds it beside
-    itself instead of hunting for a mount."""
+def test_reporting_bundle_ships_the_built_table_not_the_index():
+    """The taxonomy is the ONE dataset that ships in a bundle (DECIDE-16), and it
+    ships BUILT: rendering it host-side spends no sandbox turn on a file that is
+    byte-identical every run and that the agent cannot change. index.md is the
+    source, kept in the repo — shipping it too would only offer a second copy of
+    the taxonomy to read."""
     assert [n for n, _ in setup_agent.reporting_bundle()] == [
         "xas-reporting/SKILL.md",
-        "xas-reporting/index.md",
-        "xas-reporting/phrasebook.py",
+        "xas-reporting/dates.py",
+        "xas-reporting/phrasebook.tsv",
+        "xas-reporting/resolve.py",
     ]
 
 
@@ -327,9 +333,14 @@ def test_every_mounted_input_is_filtered_from_outputs():
 # --------------------------------------------------------------------------
 
 
-def test_bundled_taxonomy_is_the_real_index():
-    bundled = dict(setup_agent.reporting_bundle())["xas-reporting/index.md"]
-    assert bundled.startswith(b"# Taxonomy")
+def test_bundled_table_is_the_real_taxonomy_rendered():
+    """Rendered from the committed index, not hand-written: the header legend
+    first, then the rows the skill greps."""
+    bundled = dict(setup_agent.reporting_bundle())["xas-reporting/phrasebook.tsv"]
+    lines = bundled.decode().splitlines()
+    assert lines[0].split("\t")[0] == "normalized"
+    assert any(line.startswith("service\tService\tcode\tclassification") for line in lines)
+    assert len(lines) > 300, "the whole taxonomy, not a fragment"
 
 
 def test_host_no_longer_serves_a_taxonomy():
@@ -413,7 +424,8 @@ def test_reporting_skill_does_not_probe_for_its_own_sake():
     Then the key alone, no columns."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "there is no separate probe to run first" in skill
-    assert "cannot bound the page without" in skill
+    assert "can you bound the page without" in skill
+    assert "has bought NOTHING" in skill, "the wasted size check must be named as waste"
     assert "never candidate columns" in skill
     assert "has bought nothing" in skill, "a pure duplicate is still waste"
     assert '"Show me the cards that' in skill, "the rows case keeps its heading"
@@ -517,16 +529,53 @@ def test_agent_does_not_report_where_the_chart_was_written():
     assert "Not the filename, not the directory" in skill
 
 
-def test_phrasebook_reads_the_taxonomy_beside_itself():
+def test_the_shipped_resolver_reads_the_table_beside_itself():
+    """The skill file must stand alone: it finds the table through __file__ and
+    knows nothing about this repo, because in the sandbox there is no repo."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "phrasebook", setup_agent.REPORTING_SKILL_DIR / "phrasebook.py"
+        "resolve", setup_agent.REPORTING_SKILL_DIR / "resolve.py"
     )
-    phrasebook = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(phrasebook)
+    resolve = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(resolve)
+    assert resolve.PHRASEBOOK_PATH.name == "phrasebook.tsv"
+    assert resolve.PHRASEBOOK_PATH.parent == setup_agent.REPORTING_SKILL_DIR.resolve()
+    assert not hasattr(resolve, "build"), "the taxonomy parser is host-side only"
+
+
+def test_the_taxonomy_parser_does_not_ship():
+    """It cannot run there — index.md is not in the bundle — and a `main()` that
+    looks like it rebuilds the table is an invitation to rebuild the table,
+    which is the turn this change removed."""
+    shipped = dict(setup_agent.reporting_bundle())
+    assert "xas-reporting/phrasebook.py" not in shipped
+    for name, blob in shipped.items():
+        assert b"ENTITY|CLASSIFICATION|STATUS" not in blob, f"{name} carries the index parser"
     assert phrasebook.INDEX_PATH == (setup_agent.REPORTING_SKILL_DIR / "index.md").resolve()
-    assert phrasebook.default_index() is not None
+
+
+def test_reporting_skill_builds_nothing_at_session_start():
+    """Step 0 was `python phrasebook.py`, every session, to produce a file that is
+    byte-identical every run: ~6s and a whole model turn before the first lookup.
+    The table ships built, so the skill must not ask for one to be made — and it
+    must not send the agent to an index that no longer reaches the sandbox."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "index.md" not in skill
+    assert "Step 0" not in skill
+    for build_it in ("python phrasebook.py", "python resolve.py --build", "Step 0"):
+        assert build_it not in skill, f"nothing may tell it to build the table ({build_it})"
+    assert "/workspace/skills/xas-reporting/phrasebook.tsv" in skill
+    assert "there before your first" in skill
+
+
+def test_reporting_skill_resolves_periods_with_the_helper():
+    """A date range is a convention, not a judgment. Working it out per turn cost
+    two bash calls and ~20s, and landed on UTC midnight for a UTC+3 dealership."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "dates.py" in skill
+    assert "Never work a date range out yourself" in skill
+    assert "The tool documents the range shape" not in skill
 
 
 # --------------------------------------------------------------------------
@@ -683,7 +732,7 @@ def test_reporting_skill_translates_codes_on_the_way_out():
     a code that will not resolve is named as unresolved, never printed bare."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "in BOTH directions" in skill
-    assert "Build it whether or not the question has a term in it" in skill
+    assert "Read it whether or not the question has a term in it" in skill
     assert "Translate every code before you print it" in skill
     assert "NAMED as unresolved" in skill
     assert "once per session" not in skill, "step 0 must not read as conditional"

@@ -16,7 +16,8 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-opus-4-8` (Opu
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
 | `skills/xas-allocation/SKILL.md` | — | The allocation skill: data model, cost model, procedure, steering contract, planner-report contract. |
-| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md`, the tenant taxonomy `index.md`, and `phrasebook.py` that flattens it. |
+| `phrasebook.py` | — | Builds `phrasebook.tsv` from `index.md` at deploy time. Host-side only; imports `normalize` from the skill so the two cannot drift. |
+| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md`, the tenant taxonomy `index.md` (source, never shipped), `resolve.py` that queries the table, and `dates.py` for period words. |
 | `COMMANDS.md` | — | Every runnable command with its parameters — data generation knobs, the test gate, deploy, the typical loops. |
 
 The split is **control** (create the agent and environment once — persistent,
@@ -67,7 +68,7 @@ separate agents:
 | Lane | Skill | Reads | Answers |
 | --- | --- | --- | --- |
 | Allocation repair | `xas-allocation` | `/workspace/orders.json` + `/workspace/vehicles.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
-| Reporting | `xas-reporting` | `index.md` in its own skill dir + the `xas-app-mcp` tools (LIVE dev system) | how many, which branch, what status — and charts |
+| Reporting | `xas-reporting` | `phrasebook.tsv` in its own skill dir + the `xas-app-mcp` tools (LIVE dev system) | how many, which branch, what status — and charts |
 
 Both skills are on the same session, so a planner can repair an allocation and
 then ask for a chart without switching tools.
@@ -86,15 +87,24 @@ code `Evaluation` displays as `Service Lead`. `xas-reporting` flattens the taxon
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
 exact-first, then loosely, then through other wordings it proposes and the grep
-confirms, then `phrasebook.py --suggest` for a misspelling. A term that survives
+confirms, then `resolve.py --suggest` for a misspelling. A term that survives
 all of that unresolved gets no answer: the skill makes the agent name it, offer
 the nearest entries and ask, because the closest-looking code returns a
 real-looking number nobody can tell is wrong.
 
-The taxonomy itself ships **inside the `xas-reporting` skill** as
-`index.md` (DECIDE-16): one tenant, so static config beats a per-session upload,
-at the cost of a redeploy when it changes and no per-session choice of
-dealership. A second tenant moves it back to a host-side mount.
+The taxonomy itself ships **inside the `xas-reporting` skill** (DECIDE-16): one
+tenant, so static config beats a per-session upload, at the cost of a redeploy
+when it changes and no per-session choice of dealership. A second tenant moves it
+back to a host-side mount. It ships **already flattened** — `setup_agent` renders
+`index.md` into `phrasebook.tsv` at bundle time and ships only the table, so the
+agent greps a file that is already there instead of spending its first turn
+rebuilding one it cannot change.
+
+**Period words** (`last week`, `last month`, `last 30 days`) resolve through
+`dates.py`, which holds the three conventions that were otherwise re-derived
+every turn: the dealership's clock is UTC+3 while the filter compares in UTC, the
+week starts Monday, and the range is half-open. A phrase it does not know is a
+question for the planner, never a guessed range.
 
 ## Reference-solver package (the deterministic core)
 
@@ -298,7 +308,7 @@ Summary:
 | 13 | Bumping an untouched order | never without explicit planner authorization (`may_move.also`); the agent asks who may be bumped | settled |
 | 14 | Time-scale granularity | **deleted** — nobody asked for days/weeks/months, and it cost a rounding helper, a threaded argument, report phrasing and a test file to stop the solver telling three days from six | RETIRED |
 | 15 | Earliness penalty | `early_weight=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only | value unvalidated |
-| 16 | Where the tenant taxonomy comes from | bundled — `index.md` ships inside the `xas-reporting` skill; a SECOND TENANT flips it back to a host-side mount | settled |
+| 16 | Where the tenant taxonomy comes from | bundled — rendered from `index.md` into `phrasebook.tsv`, which ships inside the `xas-reporting` skill; a SECOND TENANT flips it back to a host-side mount | settled |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

@@ -167,14 +167,33 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, not data.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-reporting/` (SKILL.md + `phrasebook.py` + `index.md`). The DATA is mounted
-  per session by `web.py` — the pull from `datasource.get_source(scenario)` — so
-  re-carving a scenario needs no re-deploy. The tenant
-  taxonomy is the exception (DECIDE-16): it rides in the `xas-reporting` bundle
-  because there is one tenant, `phrasebook.py`
-  finds it beside itself, and the price is that the caller can no longer pick a
-  dealership per session. **Change either skill, the solver package, or the
-  taxonomy and you must re-run `setup_agent.py`.**
+  `xas-reporting/` (SKILL.md + `resolve.py` + `dates.py` + `phrasebook.tsv`).
+  The DATA is mounted per session by `web.py` — the pull from
+  `datasource.get_source(scenario)` — so re-carving a scenario needs no
+  re-deploy. The tenant taxonomy is the exception (DECIDE-16): it rides in the
+  `xas-reporting` bundle because there is one tenant, and the price is that the
+  caller can no longer pick a dealership per session. It ships **BUILT**
+  (2026-08-30): `reporting_bundle()` renders `index.md` through
+  `phrasebook.render` into `phrasebook.tsv` and ships THAT, while `index.md`
+  stays in the repo as the source and never reaches the sandbox. Deriving it
+  there cost a model turn every session to rebuild a file that is byte-identical
+  every run and that the agent cannot change — and put a second copy of the
+  taxonomy in front of a model told not to read it whole. **Change either skill,
+  the solver package, or the taxonomy and you must re-run `setup_agent.py`.**
+- **The phrasebook is TWO modules, split by where they run, and they share one
+  `normalize`.** `phrasebook.py` at the repo root parses `index.md` and renders
+  the table (host-side, never shipped — the same hop `flatten.py` is for the
+  pull); `skills/xas-reporting/resolve.py` is the query side the agent runs,
+  `--normalize` and `--suggest`, and it is the ONLY one in the bundle. The
+  builder IMPORTS `normalize` and `COLUMNS` from the skill file, never the
+  reverse: the skill file has to stand alone in a sandbox that cannot see this
+  repo, so it owns anything both sides need. That direction plus "render at
+  bundle time, never commit the table" is what makes normalizer drift
+  impossible — a skill version physically cannot hold a table built by a
+  different `normalize`, and if it ever did, the `normalized` column would stop
+  equalling `normalize(surface)` and an anchored grep would miss in silence.
+  `tests/test_phrasebook.py` pins that equality over the BUNDLED bytes, and that
+  the parser is absent from every shipped file.
 - **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
   `/workspace/vehicles.json` are the pull — the export's two row streams, kept
   apart because folding them into one document would only make `flatten` take it

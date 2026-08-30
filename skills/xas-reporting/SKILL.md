@@ -13,7 +13,7 @@ description: >-
 
 # XAS terminology resolution
 
-`index.md`, beside `phrasebook.py` in this skill's directory, is the **only**
+`phrasebook.tsv`, beside this file in this skill's directory, is the **only**
 authority for this tenant's vocabulary, and it works in BOTH directions: what the
 user SAYS becomes what the records store, and what the records RETURN becomes what
 the planner reads. Never guess a code, an ObjectId or a status name from memory in
@@ -24,8 +24,8 @@ The records themselves are NOT here and NOT mounted: they come from the
 cards, so there is no snapshot to fall back on, and a number you cannot get from
 a tool call is a number you do not have.
 
-**Never read `index.md` or the phrasebook whole.** This tenant's index is small;
-production tenants run to megabytes.
+**Never read the phrasebook whole.** This tenant's is small; production tenants
+run to megabytes. Grep it; never cat it.
 
 ## The channel
 
@@ -39,18 +39,17 @@ are two calls deep, something looks off, and explaining the next step feels like
 thinking rather than talking. It is talking. **Presenting the answer** below is the
 only text you ever produce.
 
-## Step 0 — build the phrasebook (every session, before anything else)
+## The phrasebook — already built, nothing to run
 
-```bash
-python phrasebook.py            # index.md beside it -> /workspace/phrasebook.tsv
-```
+**`/workspace/skills/xas-reporting/phrasebook.tsv` is there before your first
+turn.** Do not build it, derive it, or write it; there is no step 0. (If that
+path is missing, `ls /workspace/skills/*/phrasebook.tsv` finds where the skill
+landed — one call, not one per session.)
 
 One row per **surface string** — every code, name and alias on its own line —
 with a `normalized` first column (casefolded, combining marks stripped), so
-Hebrew typed the normal way (`חלפים`) matches the index's stored form
-(`חֲלָפִים`) and a lookup is one anchored grep. Pure code, byte-identical every
-run — run it, don't reimplement it. If it is missing, grep `index.md` here
-instead and expect the normalization misses back.
+Hebrew typed the normal way (`חלפים`) matches the stored form (`חֲלָפִים`) and a
+lookup is one anchored grep.
 
 Columns, tab-separated:
 
@@ -64,7 +63,7 @@ what you filter on; `name` is what you display. A `branch` row has no `code` —
 `id` is the filter value (rule 8). The same surface can appear under two kinds —
 `Closed` is both a status and a state — so read `kind` before acting on a row.
 
-**Build it whether or not the question has a term in it.** A question can need no
+**Read it whether or not the question has a term in it.** A question can need no
 resolution going IN — "job cards opened last week" names nothing to look up — and
 still come back full of codes that must be translated going OUT (step 4). There is
 no reporting turn that does not need this file.
@@ -72,14 +71,14 @@ no reporting turn that does not need this file.
 ## Resolving a term
 
 Work down the ladder and stop at the first step that returns rows. Normalize the
-user's term the same way first: `python phrasebook.py --normalize "<term>"`.
+user's term the same way first: `python resolve.py --normalize "<term>"`.
 
 | Step | Command |
 | --- | --- |
-| 1. **Exact** — the deterministic hit | `grep -P '^<normalized>\t' /workspace/phrasebook.tsv` |
-| 2. **Loose** — substring, then word-by-word for a multi-word term | `grep -i '<term>' /workspace/phrasebook.tsv` / `grep -i vehicle … \| grep -i purchase \| grep -i order` |
+| 1. **Exact** — the deterministic hit | `grep -P '^<normalized>\t' /workspace/skills/xas-reporting/phrasebook.tsv` |
+| 2. **Loose** — substring, then word-by-word for a multi-word term | `grep -i '<term>' /workspace/skills/xas-reporting/phrasebook.tsv` / `grep -i vehicle … \| grep -i purchase \| grep -i order` |
 | 3. **Synonyms — you propose, `grep` decides** | look up each other wording a person might use (translation, plural, industry term): `parts` → `spare parts`, `spareparts`, `חלפים`, `Ersatzteile`. Only a wording that RETURNS A ROW may be used |
-| 4. **Typo** | `python phrasebook.py --suggest "<term>"` — letter overlap, the one thing synonym guessing cannot reach (`sapre parts` → `Spare Parts`) |
+| 4. **Typo** | `python resolve.py --suggest "<term>"` — letter overlap, the one thing synonym guessing cannot reach (`sapre parts` → `Spare Parts`) |
 | 5. **Ask, and answer nothing else** | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words (or say there were none), then stop |
 
 Step 2 widens fast — `service` anchored returns one row, as a substring twelve —
@@ -97,10 +96,9 @@ Other recipes:
 
 | Goal | Command |
 | --- | --- |
-| All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/phrasebook.tsv` — add `&& $11=="true"` for the closed ones only |
-| Every branch, id and name | `awk -F'\t' '$4=="branch" {print $8, $9}' /workspace/phrasebook.tsv` |
-| Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/phrasebook.tsv` |
-| Browse the raw structure | `grep '^ENTITY' <this skill>/index.md` |
+| All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/skills/xas-reporting/phrasebook.tsv` — add `&& $11=="true"` for the closed ones only |
+| Every branch, id and name | `awk -F'\t' '$4=="branch" {print $8, $9}' /workspace/skills/xas-reporting/phrasebook.tsv` |
+| Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/skills/xas-reporting/phrasebook.tsv` |
 
 ## Resolution rules
 
@@ -115,7 +113,7 @@ Other recipes:
 3. **Substring search matches more than you meant.** `כרטיס עבודה` hits `Service`
    (as an alias) and `Invoice` (inside its Hebrew name). Read the rows you got
    before acting on them.
-4. **Statuses filter the way the index says.** JobCard statuses filter on the
+4. **Statuses filter the way the phrasebook says.** JobCard statuses filter on the
    status `id` from the phrasebook; Vehicle statuses have no `id` (they are core
    enums), so filter those on `code`. In this tenant an id and its name are 1:1, so
    an id needs no classification to be read — and a status that came BACK carries
@@ -136,9 +134,9 @@ Other recipes:
    status is always the narrower reading. Status rows carry no aliases, so a
    lifecycle word in another language resolves by translating to the English
    status name (ladder step 3), never by widening to `state`.
-6. **`unresolved=true` in the index means the dictionary is missing that
-   status.** Those rows have no `name` and no `state`. Report them as "unknown
-   status (code NN)" and count them separately. Never invent a label.
+6. **A status row with an empty `name` and `state` is one the dictionary is
+   missing.** Report it as "unknown status (code NN)" and count it separately.
+   Never invent a label.
 7. **Everything listed is active.** Inactive classifications are already
    omitted; no liveness check is needed.
 8. **Send a branch `id` from the phrasebook, and nothing else.** A branch NAME
@@ -150,13 +148,9 @@ Other recipes:
 9. **Job cards with no branch are real**, so per-branch buckets do not sum to
    the total. Say the remainder rather than letting it disappear into the
    biggest branch.
-10. **Parsing the raw index directly?** Strings are quoted (`name="Closed"`) but
-    booleans and counts are not (`closed=true`, `fields=649`), so a
-    `(\w+)="([^"]*)"` regex silently drops every boolean, `closed` included. The
-    phrasebook has already handled this.
-11. **The taxonomy holds no field names** — only a `fields=<n>` count. The names
-    you may ask for are listed on the tool itself; which ones actually come back
-    is learned from one record. Never from the index, and never from memory.
+10. **The phrasebook holds no field names.** The names you may ask for are
+    listed on the tool itself; which ones actually come back is learned from one
+    record. Never from the phrasebook, and never from memory.
 
 ## Getting the number
 
@@ -165,11 +159,14 @@ calls and three rounds on 2026-08-27; skipping step 4 the same day put three raw
 codes in front of the planner.
 
 **1. Pin down what the question is about, and take its id.** Resolve every business
-term through the phrasebook first (above). A person or a company is an ACCOUNT: if
-the name is already in this conversation it IS that account, so use the id you hold;
-if the planner introduces a name you have not seen, look it up with
-`get_account_list`, the only call that knows how MANY accounts carry it — "Daniil"
-matches two here.
+term through the phrasebook first (above). A person or a company is an ACCOUNT.
+
+**An id you already hold needs no lookup.** If the name has appeared in this
+conversation — in a card you read, in an answer you gave — you HAVE its id, so
+use it. Fetching the account again to read back a field already in front of you
+is a whole round trip spent on nothing. Only a name you have NOT seen gets looked
+up, with `get_account_list`, the only call that knows how MANY accounts carry it
+— "Daniil" matches two here.
 
 Never search cards for a person's name in place of that. `searchAllFields` matches
 the string anywhere on a card, so a hit is not proof of ownership and a miss is not
@@ -185,10 +182,16 @@ proven, because a 0 from `A AND B` where neither is established
 carries NO information, and working out afterwards which one killed it costs more
 calls than doing it in order.
 
-Send a bare `count: 1` FIRST in one case only: **you cannot bound the page without
-knowing the size** — "all of X", where 20 is a list and 2,000 is a different answer
+Before any bare `count: 1`, answer one question: **can you bound the page without
+knowing the size?** For a count, a bucket, a named period, one account — anything
+you will show at most 50 of — the answer is yes, so there is no probe and the call
+you were going to make is the whole turn. A size check followed by the call you
+would have made anyway has bought NOTHING: a round trip, a slower answer, and a
+second copy of the same filter to get wrong.
+
+The one "no" is **"all of X"**, where 20 is a list and 2,000 is a different answer
 altogether, and pulling 50 rows would present a truncated page as though it were
-all of them. Then ask for the key alone and nothing else. Not candidate columns: a
+all of them. There, ask for the key alone and nothing else. Not candidate columns: a
 single row cannot tell you which fields this data carries, because presence varies
 per card — `PlateNo` was missing from one sales order and present on 40 of 40 cards
 sampled across types. A probe that names columns to "discover" them learns
@@ -221,7 +224,7 @@ owner's whole contact list — so name the columns you want. A count needs none.
 
 **4. Translate every code before you print it.** The records answer in codes —
 `VRV`, `VSO`, `Service` — and the planner reads names, so reverse-look up each one
-you are about to show: `grep '<code>' /workspace/phrasebook.tsv`, then take the
+you are about to show: `grep '<code>' /workspace/skills/xas-reporting/phrasebook.tsv`, then take the
 `name`. Two fields on a card need this and they differ: `JobStatus` arrives as
 `{ID, Code, Label}` and already carries its own label, but `JobState` arrives as a
 BARE ObjectId — grep it the same way and print the `kind=state` row's `name`. An
@@ -246,7 +249,7 @@ Every row sends `fields`. See below for why, and what to put in it.
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch id, `filter: {"Branch": ["<id>"]}` |
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification (rule 5) |
 | Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
-| The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/phrasebook.tsv \| sort -u` |
+| The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/skills/xas-reporting/phrasebook.tsv \| sort -u` |
 
 ### Ask for the fields you need
 
@@ -275,7 +278,24 @@ field to filter a period on: it means "opened", every card carries one, and it i
 the only one whose range filter is verified against the live system. *"Opened in
 July and still open"* is that filter and a status filter sent together, and it is
 the common ask. Where the wording could mean the state or the date, answer one and
-say which you took it as. The tool documents the range shape; take it from there.
+say which you took it as.
+
+**Never work a date range out yourself.** `dates.py` ships beside this file and
+already holds the conventions:
+
+```bash
+python /workspace/skills/xas-reporting/dates.py "last week"
+{"start": "2026-08-16T21:00:00Z", "end": "2026-08-23T21:00:00Z"}
+last week = Mon 17 Aug 2026 to Sun 23 Aug 2026, dealership time
+```
+
+Send the first line as the `CreateDateTime` filter and tell the planner the span
+from the second. It knows the dealership's clock runs three hours ahead of the
+one the filter compares in, that the week starts Monday, and that the range
+excludes its end — deciding any of that per turn is how a boundary quietly moves
+and a count changes with it. It takes today, yesterday, this/last week,
+this/last month, this/last year, and "last N days". Anything else it refuses
+rather than guessing, and so do you: ask which dates they mean.
 
 ## Charts
 
