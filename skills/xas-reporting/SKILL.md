@@ -173,6 +173,12 @@ the string anywhere on a card, so a hit is not proof of ownership and a miss is 
 proof of absence: the same account came back as 18 cards by name search and 336 by
 owner id.
 
+**`get_account_details` sections are PREVIEWS.** `include: ["jobCards"]` returns
+10 rows however many exist — 401 for one account here — with no paging and no
+`fields`. It tells you an account HAS 401 cards, never what they are. A
+customer's cards are always `get_job_list` filtered on the owner, and that is the
+FIRST call, not the second.
+
 **2. Send the call you actually need — there is no separate probe to run first.**
 `totalCount` rides on EVERY response, so it costs nothing extra: a count question
 is one call, and a card list is one call that returns the count with the rows.
@@ -245,6 +251,7 @@ Every row sends `fields`. See below for why, and what to put in it.
 | A size check before "all of X" | the same call — the key ALONE, never candidate columns |
 | Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
 | Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
+| All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<code>"}` — never `get_account_details` |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch id, `filter: {"Branch": ["<id>"]}` |
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification (rule 5) |

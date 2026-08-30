@@ -569,6 +569,17 @@ def test_reporting_skill_builds_nothing_at_session_start():
     assert "there before your first" in skill
 
 
+def test_reporting_skill_says_the_account_sections_are_previews():
+    """`get_account_details(include=["jobCards"])` returns 10 rows whatever the
+    total (401 for one account here), takes no paging and no `fields`. The agent
+    reached for it twice — once per trace — because the tool reads as though it
+    returns the account's cards. Costly, and the truncation is the real risk:
+    10 of 401 presented as a customer's history."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "sections are PREVIEWS" in skill
+    assert "never `get_account_details`" in skill
+
+
 def test_reporting_skill_resolves_periods_with_the_helper():
     """A date range is a convention, not a judgment. Working it out per turn cost
     two bash calls and ~20s, and landed on UTC midnight for a UTC+3 dealership."""
