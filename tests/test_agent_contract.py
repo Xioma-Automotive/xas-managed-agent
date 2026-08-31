@@ -411,6 +411,74 @@ def test_reporting_skill_counts_with_totalcount_not_by_paging_records():
     )
 
 
+def test_three_sources_and_the_prompt_names_them_the_same_way():
+    """The prompt said filter keys come from the taxonomy; the skill's rule 10 said
+    the taxonomy holds no field names and a KEY comes from the recipes — and rule
+    10's own heading said both. Whichever half the agent believed, one of them sent
+    it to a source that cannot answer, which is the shape of the 2026-08-31 guess.
+
+    Three sources, each supplying exactly one thing: the tool says what you may SEE,
+    the taxonomy supplies VALUES, the recipes supply KEYS."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    prompt = setup_agent.SYSTEM_PROMPT
+    rule = skill.split("10. **")[1].split("\n\n")[0]
+    assert "filter VALUES from here, filter KEYS\n    from the recipes" in rule
+    assert "no source gives you two of them" in rule
+    assert "VALUES come from the taxonomy and filter KEYS from the skill's recipes" in prompt
+    assert "Filter keys and values come from the taxonomy" not in prompt, (
+        "the taxonomy holds no filter keys — sending the agent there for one is a dead end"
+    )
+
+
+def test_the_app_link_is_the_one_path_both_sides_allow():
+    """The prompt bans file paths, filenames and tool names from the reply; the skill
+    mandates a URL at the end of every answer about records and carries the exception
+    that permits it. The prompt did not mention the link at all, so the only rule
+    surviving a summary was the ban."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "no file paths, no filenames" in prompt, "the ban stays"
+    assert "the one URL or path you may ever print" in prompt, "and so does its exception"
+    assert "The app link is the one" in skill
+
+
+def test_a_tally_is_one_page_at_the_servers_maximum():
+    """Observed 2026-08-31: a tally of 51 cards asked for 50, then spent a whole
+    round trip on page 2 — 17 seconds of a 45-second turn — to collect one card
+    whose customer was already in the list. "Never walk pages to compute an
+    aggregate" already forbade that call, but it sits in a later paragraph than the
+    bullet where the decision is taken, and 50 was our own number: the server's
+    maximum is 200, so the shortfall need not have arisen at all.
+
+    200 rows is a token cost, not a free win, so the rule says what bounds a page —
+    bytes — and names the `Accounts.*` fields, which arrive as whole owner objects
+    (~175 tokens a row here, contact details included) rather than one value."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    tally = skill.split("- **More than 5**")[1].split('- **"Show me')[0]
+    assert "count: 200" in tally, "the tally page must be the server maximum"
+    assert "never page a tally" in tally
+    assert "50" in tally, "the failure that set the number must stay attached to it"
+    assert "BYTES" in tally and "`Accounts.*`" in tally, "200 of a fat field is not the same page"
+    assert '{"count": 50}' not in skill, "no recipe may still prescribe the old page"
+
+
+def test_prompt_lets_a_lookup_ride_with_the_skill_read():
+    """The skill read is a round trip of its own — ~9s and 17k tokens on the first
+    reporting turn of every session — and the block that follows it is a taxonomy
+    grep for words taken from the planner's question, not from the procedure. So the
+    two go together.
+
+    What the rule actually fences is the 2026-08-31 failure: a FILTER fired in the
+    same block as the read, before the procedure it was fetching had arrived. A
+    lookup cannot come back wrong; a filter can. Keep both halves — dropping the
+    second reopens the hole, dropping the first pays for the round trip again."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    rule = prompt.split("The `xas-reporting` skill holds the procedure:")[1].split("\n")[0]
+    assert "BEFORE the first `xas-app-mcp` call" in rule, "the ban is on a tool call, not a grep"
+    assert "DOES ride in that same block" in rule
+    assert "a lookup cannot come back wrong, a filter can" in rule
+
+
 def test_reporting_skill_does_not_probe_for_its_own_sake():
     """REVERSED AGAIN 2026-08-27, and this time on measurement. The probe was
     prescribed for every question, naming "the columns you are CONSIDERING". Both
@@ -660,11 +728,17 @@ def test_reporting_skill_sends_fields_on_every_call():
     a response carries its salient fields whether the answer uses them or not, and
     they stay in context for the session. Prose alone did not hold — the agent
     copies the calls table — so the table itself carries `fields`, and a count asks
-    for the key alone because it only ever reads `totalCount`."""
+    for the key alone because it only ever reads `totalCount`.
+
+    Says "no COLUMNS" since 2026-08-31: "a count needs no fields" read as a
+    contradiction of the "Every row sends `fields`" heading two lines above it. The
+    rule is the same one — `fields` is always sent, and for a count it names the key
+    and nothing else."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Every row sends `fields`" in skill
     assert 'fields: ["DMSJCEntry"]' in skill, "the count row must ask for the key alone"
-    assert "A count needs no fields" in skill
+    assert "A count needs no columns" in skill
+    assert "A count needs no fields" not in skill, "the two must not both be in the file"
 
 
 def test_reporting_skill_says_an_absent_field_is_not_an_empty_value():

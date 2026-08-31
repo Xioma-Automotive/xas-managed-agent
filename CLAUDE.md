@@ -18,9 +18,11 @@ enumerated every credential file on the host through `bash`, which is what
 prompted this branch. Don't merge the two; they are alternatives.
 
 Docs: `docs/appmcp-connect.md` is how to call the dev MCP by hand (reporting
-lane) and `docs/evals/routing.md` the hand-run check of which skill fires. That
-is both of them, and each describes the code as it stands — `docs/` is not an
-archive. Deleted 2026-08-30: the app-MCP allocation-pull change request
+lane), `docs/evals/routing.md` the hand-run check of which skill fires, and
+`docs/appmcp-requests.md` the three things the reporting lane needs from
+`xas-app-mcp` that no rule here can fix — the last is an open request against
+another repo and goes away when it is answered. That is all three, and each
+describes the code as it stands — `docs/` is not an archive. Deleted 2026-08-30: the app-MCP allocation-pull change request
 (`mcp-field-spec.md`, `mcp-response-schema.md`), the three implementation plans,
 the sandbox file-probe note, and `real-source-investigation.md` — the last was
 the 2026-08-20 study of reading the pull through the app MCP, and that whole path
@@ -204,9 +206,32 @@ XAS endpoint and its credential never touch the sandbox.
   names the server does not honour (`InventoryStatus` really holds `"1"`–`"5"`),
   and the phrasebook had the answer outright: `In Stock` is a Vehicle STATUS,
   code `03`. Two rules now carry it — the prompt orders the skill read BEFORE the
-  first tool call and bans filters taken from a field list, and the skill's
+  first MCP call and bans filters taken from a field list, and the skill's
   resolution rule 10 scopes that list to `fields` alone. Neither is structural;
-  the prose is the whole mechanism.
+  the prose is the whole mechanism. The ban is on the CALL, not on the block: a
+  taxonomy lookup rides WITH the skill read, because its words come from the
+  planner's question rather than from the procedure being fetched, and a lookup
+  cannot come back wrong where a filter can. Reworded 2026-08-31 — the read is a
+  round trip of its own (~9s and 17k tokens on the first reporting turn of every
+  session) and the block after it was always the same grep. There are THREE sources
+  and each supplies exactly one thing: the tool says what you may SEE, the taxonomy
+  supplies filter VALUES, the recipes supply filter KEYS. Both sides used to get that
+  wrong in opposite directions — the prompt sent the agent to the taxonomy for a key
+  it does not hold, and rule 10's heading said the same while its last sentence said
+  the opposite. Whichever half was believed, one of them was a dead end, which is the
+  shape of the guess above.
+- **A tally is ONE page, and the page is 200 — the server's own maximum, not
+  ours.** The skill said 50, so a 51-card tally came back one short and the agent
+  spent a whole round trip on page 2 to collect a customer already in its list: 17s
+  of a 45s turn, and the general rule that forbade it ("never walk pages to compute
+  an aggregate") sat in a later paragraph than the bullet where the decision is
+  taken. Raised 2026-08-31, with the never-page rule moved next to the decision. Any
+  cap has an off-by-one case; 200 makes it rare, and the shortfall now means "too big
+  to tally, loop the buckets" rather than "fetch the rest". 200 is not free, so what
+  bounds a page is stated as BYTES: 200 of one scalar is cheap, and the `Accounts.*`
+  fields are whole owner objects (~175 tokens a row, phone and e-mail included) — see
+  `docs/appmcp-requests.md`, which asks for a sub-field so a customer name costs a
+  customer name.
 - **A reporting answer ends in a LINK, and the link is the query that produced
   the number.** Added 2026-08-30. A list page's result set is a pure function of
   its query string — the page parses `filter`/`paging`/`sort` out of the URL and
@@ -242,7 +267,10 @@ XAS endpoint and its credential never touch the sandbox.
   The obvious next move is for the MCP to return the URL in `source` itself: it
   already holds the filter and is per-tenant, and then nothing is built agent-side
   and the `$` cannot be got wrong. That is a change to `xas-app-mcp`, which is not
-  this repo's.
+  this repo's — written up with the other two in `docs/appmcp-requests.md`.
+  The PROMPT carries the link too, in one clause, because it is the only rule that
+  survives a summary of the skill: without it the reply rules read as a flat ban on
+  paths and filenames, and the link is a URL.
 - **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
   `/workspace/vehicles.json` are the pull — the export's two row streams, kept
   apart because folding them into one document would only make `flatten` take it

@@ -143,8 +143,9 @@ Other recipes:
 9. **Job cards with no branch are real**, so per-branch buckets do not sum to
    the total. Say the remainder rather than letting it disappear into the
    biggest branch.
-10. **`fields` names come from the tool; filter keys and VALUES come from
-    here.** The tool's list says what you may ask to SEE — and it lies about
+10. **`fields` names come from the tool, filter VALUES from here, filter KEYS
+    from the recipes — three sources, and no source gives you two of them.** The
+    tool's list says what you may ask to SEE — and it lies about
     that too, advertising names the server never returns, so which ones arrive
     is read off the response you already wanted, never off a probe. It is not a
     source of filters: `inventoryStatus: "InStock"` is a field-list guess, and
@@ -184,26 +185,29 @@ FIRST call, not the second.
 **2. Send the call you actually need — there is no separate probe to run first.**
 `totalCount` rides on EVERY response, so it costs nothing extra: a count question
 is one call, and a card list is one call that returns the count with the rows.
-Bound `paging.count` to what you will show, and name only the columns you will
-print. Add ONE narrowing clause at a time — never send two clauses you have not
-proven, because a 0 from `A AND B` where neither is established
-carries NO information, and working out afterwards which one killed it costs more
-calls than doing it in order.
+Bound `paging.count` to what you will show — or, for a tally, to the one page you
+will count over — and name only the columns you will print. Add ONE narrowing clause
+at a time — never send two clauses you have not proven, because a 0 from `A AND B`
+where neither is established carries NO information, and working out afterwards which
+one killed it costs more calls than doing it in order.
 
 Before any bare `count: 1`, answer one question: **can you bound the page without
 knowing the size?** For a count, a bucket, a named period, one account — anything
-you will show at most 50 of — the answer is yes, so there is no probe and the call
-you were going to make is the whole turn. A size check followed by the call you
+whose whole answer fits ONE page — the answer is yes, so there is no probe and the
+call you were going to make is the whole turn. A size check followed by the call you
 would have made anyway has bought NOTHING: a round trip, a slower answer, and a
 second copy of the same filter to get wrong.
 
-The one "no" is **"all of X"**, where 20 is a list and 2,000 is a different answer
-altogether, and pulling 50 rows would present a truncated page as though it were
-all of them. There, ask for the key alone and nothing else. Not candidate columns: a
-single row cannot tell you which fields this data carries, because presence varies
-per card — `PlateNo` was missing from one sales order and present on 40 of 40 cards
-sampled across types. A probe that names columns to "discover" them learns
-something false and costs a round trip to do it.
+The one "no" is **"all of X" that you must PRINT COLUMNS for**, where 20 is a list
+and 2,000 is a different answer altogether. There, ask for the key alone and nothing
+else: a page of padded cards you then decide not to show is the expensive way to learn
+a number one row would have told you. A tally is NOT this case — it reads one small
+field, so it sends its one page and learns the same thing free, from `returned`
+against `totalCount`. Not candidate columns either: a single row cannot tell you which
+fields this data carries, because presence varies per card — `PlateNo` was missing
+from one sales order and present on 40 of 40 cards sampled across types. A probe that
+names columns to "discover" them learns something false and costs a round trip to do
+it.
 
 **3. Read what came back.**
 
@@ -215,9 +219,14 @@ something false and costs a round trip to do it.
 - **Up to 5 buckets** — one filtered count call each. Five integers, no cards.
 - **More than 5** — one call for the cards, tallied yourself. A split by
   classification is a call per classification the other way, and the phrasebook
-  lists far more than five of them. Ask for at most 50 rows, and check `totalCount`
-  against what came back: more than you were given means the set is too big to
-  tally, so loop the buckets after all.
+  lists far more than five of them. Ask for `count: 200` — the server's maximum — and
+  **never page a tally**: page 2 costs a whole round trip and almost never changes the
+  answer. On 2026-08-31 a 51-card tally asked for 50, then spent a call on page 2 to
+  find one card whose customer was already in the list. If `totalCount` still exceeds
+  what you were given, the set is too big to tally: loop the buckets instead. 200 is
+  not free — what bounds a page is BYTES, so it is 200 of the ONE small field you
+  group by, and an `Accounts.*` field is not small: it arrives as the whole owner
+  object.
 - **"Show me the cards that …"** — ids, statuses, customers, dates, the cards behind
   a chart need the records themselves, so this is the case where you ask for rows
   and name the ones you show. Asking twice buys nothing: a second call repeating the
@@ -274,9 +283,9 @@ Every row sends `fields`. See below for why, and what to put in it.
 | Goal | Call |
 | --- | --- |
 | A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
-| A size check before "all of X" | the same call — the key ALONE, never candidate columns |
+| A size check before an "all of X" you must print columns for | the same call — the key ALONE, never candidate columns. Not before a tally: that is one page of one field |
 | Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
-| Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
+| Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 200}` (the maximum — one page, never a second), and tally the rows by hand |
 | All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<code>"}` — never `get_account_details` |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
 | Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id (rule 4), and the key is lower-case going in |
@@ -291,7 +300,7 @@ A card comes back with its salient fields whether you use them or not, and every
 one of them stays in this conversation for the rest of the session. `fields` is
 the only lever on that, so **send it on every call**:
 
-- **A count needs no fields.** You read `totalCount`, never a row. Ask for the
+- **A count needs no columns.** You read `totalCount`, never a row. Ask for the
   key alone — it comes back regardless — and the page costs nothing.
 - **A tally needs one field**: the one you group by.
 - **A card list needs the columns you will actually print.** Decide them from the
