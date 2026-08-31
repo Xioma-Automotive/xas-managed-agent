@@ -13,38 +13,29 @@ description: >-
 
 # XAS terminology resolution
 
-`phrasebook.tsv`, beside this file in this skill's directory, is the **only**
-authority for this tenant's vocabulary, and it works in BOTH directions: what the
-user SAYS becomes what the records store, and what the records RETURN becomes what
-the planner reads. Never guess a code, an ObjectId or a status name from memory in
-either direction — resolve it here.
+**`/workspace/skills/xas-reporting/phrasebook.tsv` is there before your first
+turn** — the **only** authority for this tenant's vocabulary, in BOTH directions:
+what the user SAYS becomes what the records store, and what the records RETURN
+becomes what the planner reads. Never guess a code, an ObjectId or a status name
+from memory in either direction. Do not build it, derive it or write it; there is
+no step 0. (If that path is missing, `ls /workspace/skills/*/phrasebook.tsv` finds
+where the skill landed — one call, not one per session.) **Never read it whole**:
+this tenant's is small, production tenants run to megabytes. Grep it; never cat it.
 
 The records themselves are NOT here and NOT mounted: they come from the
 `xas-app-mcp` read tools, against the live system. Nothing on disk holds job
 cards, so there is no snapshot to fall back on, and a number you cannot get from
 a tool call is a number you do not have.
 
-**Never read the phrasebook whole.** This tenant's is small; production tenants
-run to megabytes. Grep it; never cat it.
-
 ## The channel
 
-Every character you emit reaches the planner, including the lines between tool
-calls. There is no working-notes channel and no scratchpad: a sentence saying what
-you are about to do IS a message, delivered to them before they have an answer. So
-work in SILENCE and answer ONCE, at the end.
+Every character you emit reaches the planner and there is no scratchpad, so work
+in SILENCE and answer ONCE, at the end. That breaks mid-turn, when it does not yet
+feel like presenting anything — two calls deep, something looks off, and
+explaining the next step feels like thinking rather than talking. It is talking.
+**Presenting the answer** below is the only text you ever produce.
 
-This is broken mid-turn, when it does not yet feel like presenting anything — you
-are two calls deep, something looks off, and explaining the next step feels like
-thinking rather than talking. It is talking. **Presenting the answer** below is the
-only text you ever produce.
-
-## The phrasebook — already built, nothing to run
-
-**`/workspace/skills/xas-reporting/phrasebook.tsv` is there before your first
-turn.** Do not build it, derive it, or write it; there is no step 0. (If that
-path is missing, `ls /workspace/skills/*/phrasebook.tsv` finds where the skill
-landed — one call, not one per session.)
+## The phrasebook
 
 One row per **surface string** — every code, name and alias on its own line —
 with a `normalized` first column (casefolded, combining marks stripped), so
@@ -152,15 +143,22 @@ Other recipes:
 9. **Job cards with no branch are real**, so per-branch buckets do not sum to
    the total. Say the remainder rather than letting it disappear into the
    biggest branch.
-10. **The phrasebook holds no field names.** The names you may ask for are
-    listed on the tool itself; which ones actually come back is learned from one
-    record. Never from the phrasebook, and never from memory.
+10. **`fields` names come from the tool; filter keys and VALUES come from
+    here.** The tool's list says what you may ask to SEE — and it lies about
+    that too, advertising names the server never returns, so which ones arrive
+    is read off the response you already wanted, never off a probe. It is not a
+    source of filters: `inventoryStatus: "InStock"` is a field-list guess, and
+    it returned 0 on a shelf holding 71 cars. The phrasebook holds no field
+    names either — a filter KEY is the one thing neither source gives you, so
+    take it from the recipe below or from a `source` block a tool echoed.
 
 ## Getting the number
 
-Every question runs the same four steps, in this order. Skipping step 1 cost five
-calls and three rounds on 2026-08-27; skipping step 4 the same day put three raw
-codes in front of the planner.
+Every question runs the same five steps, in this order. Skipping step 1 cost five
+calls and three rounds on 2026-08-27, and three calls for a one-call count on
+2026-08-31 — the filter was guessed from the tool's field list before the
+phrasebook was read at all. Skipping step 4 put three raw codes in front of the
+planner; skipping step 5 sent the planner a number with no way to see it.
 
 **1. Pin down what the question is about, and take its id.** Resolve every business
 term through the phrasebook first (above). A person or a company is an ACCOUNT.
@@ -259,21 +257,14 @@ bash          python /workspace/skills/xas-reporting/link.py --route /vehicle_pl
 Same filter in both, written once. You have everything the link needs before the
 call returns — the filter is yours, and `--route` came from the phrasebook grep in
 step 1 — so waiting for the response buys nothing and costs a whole round trip to
-format a string. That is the "size check before the call you were going to make
-anyway" mistake in a different costume, and sending the link call afterwards is how
-you make it.
+format a string: the "size check before the call you were going to make anyway"
+mistake in a different costume.
 
 **Do not fold it into the step-4 grep instead.** That looks equivalent and is not:
 step 4 only runs when there are codes to translate, so on a turn that answers in
 names — "which customers", a list of accounts — there is no step-4 call to ride on
 and the link ends up alone in a round trip of its own. Beside the tool call, it is
 free on every turn.
-
-Two things follow from building it early. **A link is void if its call was not the
-one you report**: if the tool errors, or the count comes back 0 and you re-run with
-a corrected filter, throw that link away and pair a new one with the call you
-actually answer from. And when a turn ends up making several calls, the link that
-reaches the planner is the one whose filter matches the figure you printed.
 
 ### The calls
 
@@ -343,8 +334,8 @@ rather than guessing, and so do you: ask which dates they mean.
 **Every answer about records ends with a link to them.** The planner is one click
 from the real list — sortable, paged, with every column and every action their job
 needs — so a table you retype is a worse copy of a thing they already have, and it
-costs roughly six times the words. Give the figure and the link. Do not give both
-the link and the table it opens.
+costs roughly six times the words. Give the figure and the link, never both the
+link and the table it opens.
 
 `link.py` ships beside this file and builds it:
 
@@ -427,10 +418,9 @@ print(f"wrote {out}")
 The `<title>` becomes the browser tab name. **The filename is business-facing:**
 the planner sees it as the caption above the chart, so name it in their words
 (`open-spare-parts-by-branch.html`), never with a code, an id or an internal field
-name. Then say in ONE line what the chart shows — "open spare-parts cards by
-branch, July" — and stop. Not the filename, not the directory, not that a file
-was written at all. **Do not read the chart back**; that returns the whole file into
-the conversation to tell you what you just plotted.
+name. Then ONE line on what the chart shows. Not the filename, not the directory,
+not that a file was written. **Do not read the chart back**; that returns the whole
+file into the conversation to tell you what you just plotted.
 
 ## Presenting the answer
 
@@ -439,13 +429,10 @@ phrasebook, the lookups, the filters, the tool calls — is HOW you got the answ
 and none of it belongs in the reply. Give the business answer: the figure, what
 it covers, and anything that changes how they read it.
 
-**What that silence rules out** (see **The channel** above). Nothing like *"Let
-me check the timeframe first"* / *"Now I'll get the per-status split"* (announcing a step, or narrating
-one you just took); *"28 cards — small"* / *"all 16 buckets sum to 28, so the
-split is clean"* (a running total, or a cross-check that came out fine — a check
-that FAILS is worth a sentence, one that passed is not news); *"the chart above
-shows the breakdown"* (never point at your own output); or the buckets that came
-back empty, unless they asked for them.
+**What that silence rules out** (**The channel** above): announcing a step or
+narrating one you just took, running totals, a cross-check that came out fine — one
+that FAILS is worth a sentence, one that passed is not news — pointing at your own
+output, and the buckets that came back empty unless they asked for them.
 
 Say:
 
@@ -485,19 +472,16 @@ used to be the only one; it almost never is now.
 | One card, one car, one customer | its own page's link, and the one or two facts they asked for |
 | A named column — "which customers", "what are the plates" | THAT column, and the link. Not the other ten. |
 
-**Never print a table the link already opens.** Twenty rows is about four hundred
-words of a list the planner can see properly, with sorting and actions you cannot
-give them, one click away — and every one of those rows stays in this conversation
-and is re-read on every later turn. A table earns its place only when the answer IS
-the shape of the data — a handful of buckets and their counts, which no single page
-shows — and even then it is the buckets, never the cards inside them.
+**Never print a table the link already opens** — and every row you print stays in
+this conversation, re-read on every later turn. A table earns its place only when
+the answer IS the shape of the data — a handful of buckets and their counts, which
+no single page shows — and even then it is the buckets, never the cards inside
+them.
 
-Never say: phrasebook, taxonomy, index, normalize, grep, awk, `get_job_list` or
-any other tool name, filter, paging, `totalCount`, record, row, field, code,
-ObjectId, UTC, sandbox, token — and no file path, no filename, and nothing about
-what you saved where or which data operations you ran. **The app link is the one
-exception**: it is the planner's own system, it is the answer's other half, and it
-is the only URL or path that may appear. Narration is what the
-planner has to read past to reach their number, and it invites them to audit
-plumbing they cannot change. If a step went wrong, one sentence in business terms
-("the live system returned nothing for July"), never a tool transcript.
+The prompt's ban on internal vocabulary and plumbing, in this lane's words: never
+say phrasebook, taxonomy, index, normalize, grep, awk, filter, paging,
+`totalCount`, record, row, field, code, ObjectId, UTC, sandbox or token — and
+no file path, no filename, no account of what you ran. **The app link is the one
+exception** — the planner's own system and the answer's other half, so it is the
+only URL or path that may appear. If a step went wrong, one sentence in business
+terms ("the live system returned nothing for July"), never a tool transcript.

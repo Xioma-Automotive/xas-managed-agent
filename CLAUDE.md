@@ -195,6 +195,18 @@ XAS endpoint and its credential never touch the sandbox.
   equalling `normalize(surface)` and an anchored grep would miss in silence.
   `tests/test_phrasebook.py` pins that equality over the BUNDLED bytes, and that
   the parser is absent from every shipped file.
+- **A filter guessed from the MCP's own `fields` enum returns 0, not an error.**
+  On 2026-08-31 a session read SKILL.md and fired `{"inventoryStatus": "InStock"}`
+  in the SAME block — so it filtered before it had the procedure it was fetching —
+  then answered the 0 with an unfiltered 40-row pull instead of the one `count: 1`
+  control the skill allows. Three calls for a one-call count, and 40 padded rows
+  left in the conversation to be re-read every later turn. The enum advertises
+  names the server does not honour (`InventoryStatus` really holds `"1"`–`"5"`),
+  and the phrasebook had the answer outright: `In Stock` is a Vehicle STATUS,
+  code `03`. Two rules now carry it — the prompt orders the skill read BEFORE the
+  first tool call and bans filters taken from a field list, and the skill's
+  resolution rule 10 scopes that list to `fields` alone. Neither is structural;
+  the prose is the whole mechanism.
 - **A reporting answer ends in a LINK, and the link is the query that produced
   the number.** Added 2026-08-30. A list page's result set is a pure function of
   its query string — the page parses `filter`/`paging`/`sort` out of the URL and
