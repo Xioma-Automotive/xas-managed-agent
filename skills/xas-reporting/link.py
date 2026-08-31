@@ -6,7 +6,8 @@ real one a click away, and leaves those rows in the conversation to be re-read o
 every later turn. A link costs ~70 and carries the whole set, sorted, paged and
 filterable.
 
-    python link.py --route /vehicle_planning --filter '<the filter you sent>'
+    python link.py --tool get_vehicle_list --filter '<the filter you are sending>'
+    python link.py --route /vehicle_planning --filter '<the filter you are sending>'
     python link.py --card 6813          # one job card, whatever its classification
     python link.py --vehicle 11370
     python link.py --account 6a9144209004759d555d03f1
@@ -16,10 +17,16 @@ string: the page parses `filter` / `paging` / `sort` out of the URL and sends th
 to the same endpoint the read tools call. So the link is not a second query that
 happens to agree — it IS the query, and the two cannot drift.
 
-**Build it from what the tool ECHOED, never from memory of what you asked.** Every
-list response carries a `source` block with the filter it actually ran; that is the
-input here. A filter retyped from recollection is a different question wearing the
-answer's clothes.
+**Write the filter ONCE, into the tool call and this command together.** That is
+what makes the two agree — not care in copying them. Both arguments are things you
+hold before the call returns, so the pair goes out in one block and the link costs
+no round trip of its own. (If you ever do build one after the fact, take the filter
+from the `source` block the response echoed, never from memory of what you asked.)
+
+**The page is a fact about the call, not a lookup.** Two of the three list tools
+have exactly one page — `--tool` names it. Job cards are the one lane where the
+page depends on the classification, and that mapping lives in the phrasebook,
+never here.
 
 Two dialects, because two pages parse the URL differently:
 
@@ -70,6 +77,14 @@ VERBATIM_ROUTES = ("/job_cards", "/vehicle_planning", "/contracts")
 CARD_DETAIL = "/job_cards"
 VEHICLE_DETAIL = "/vehicles"
 ACCOUNT_DETAIL = "/accounts"
+
+# The read tools whose records all list on ONE page, so the page is a fact about
+# the call and not something to look up. `get_job_list` is deliberately absent:
+# job cards list on three pages depending on classification, which is what the
+# phrasebook's `route` column is for. Confirmed 2026-08-31 against the endpoints
+# the tools echo — `get_account_list` reads `/api/coreApi/customers`, so this is
+# transcribed from live responses rather than derived from the tool's name.
+TOOL_ROUTES = {"get_vehicle_list": "/vehicles", "get_account_list": "/accounts"}
 
 # Filters that mean "whoever is asking". The agent asks as the integration login;
 # the person clicking is someone else, so these two silently re-scope the page to
@@ -181,12 +196,14 @@ def parse_url(url: str) -> dict:
 
 
 USAGE = """usage:
+  link.py --tool get_vehicle_list --filter '<json>'
   link.py --route /job_cards --filter '<json>' [--sort '<json>']
   link.py --card <DMSJCEntry> | --vehicle <VehicleCode> | --account <Id>
 
---route comes from the phrasebook's `route` column for the classification in play;
-this file holds no table of its own. --filter is the `source.filter` the read tool
-echoed back, not a filter retyped from memory."""
+--tool is the read tool you are calling, for the tools whose records all list on
+one page. --route is for job cards, which do not: it comes from the phrasebook's
+`route` column for the classification in play, and this file holds no table of
+its own. --filter is the filter you are sending, written once into both."""
 
 
 def main() -> None:
@@ -204,12 +221,22 @@ def main() -> None:
             print(detail_url(page, flags[flag]))
             return
 
-    if "--route" not in flags or "--filter" not in flags:
+    if ("--route" in flags) == ("--tool" in flags) or "--filter" not in flags:
         sys.exit(USAGE)
 
-    route = flags["--route"]
-    if not route.startswith("/"):
-        sys.exit(f"--route must be a page path such as /job_cards, not {route!r}")
+    if "--tool" in flags:
+        tool = flags["--tool"]
+        if tool not in TOOL_ROUTES:
+            sys.exit(
+                f"--tool does not fix a page for {tool!r}. Job cards list on three "
+                "different pages depending on classification, so pass --route from the "
+                "phrasebook's `route` column instead."
+            )
+        route = TOOL_ROUTES[tool]
+    else:
+        route = flags["--route"]
+        if not route.startswith("/"):
+            sys.exit(f"--route must be a page path such as /job_cards, not {route!r}")
 
     try:
         filter_obj = json.loads(flags["--filter"])

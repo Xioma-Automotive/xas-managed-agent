@@ -255,8 +255,9 @@ bash          python /workspace/skills/xas-reporting/link.py --route /vehicle_pl
 ```
 
 Same filter in both, written once. You have everything the link needs before the
-call returns — the filter is yours, and `--route` came from the phrasebook grep in
-step 1 — so waiting for the response buys nothing and costs a whole round trip to
+call returns — the filter is yours, and the page comes from the tool you are
+calling (or, for a job card, from the phrasebook grep in step 1) — so waiting for
+the response buys nothing and costs a whole round trip to
 format a string: the "size check before the call you were going to make anyway"
 mistake in a different costume.
 
@@ -278,6 +279,7 @@ Every row sends `fields`. See below for why, and what to put in it.
 | Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 50}`, and tally the rows by hand |
 | All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<code>"}` — never `get_account_details` |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
+| Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id (rule 4), and the key is lower-case going in |
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch id, `filter: {"Branch": ["<id>"]}` |
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification (rule 5) |
 | Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
@@ -340,17 +342,24 @@ link and the table it opens.
 `link.py` ships beside this file and builds it:
 
 ```bash
-python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the filter you sent>'
+python /workspace/skills/xas-reporting/link.py --tool get_vehicle_list --filter '<the filter you sent>'
+python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the filter you sent>'   # job cards
 python /workspace/skills/xas-reporting/link.py --card 6813      # one job card
 python /workspace/skills/xas-reporting/link.py --vehicle 11370
 python /workspace/skills/xas-reporting/link.py --account <the account's id>
 ```
 
-`--route` is the `route` column on the classification's phrasebook row — the same
-grep you are already running to translate its code. It is the page that
-classification lists on, and it is not always the obvious one: a `VRV` lists on a
-different page than a `Service`, and both link to `/job_cards/<id>` for a SINGLE
-card. Never type a route from memory.
+**Vehicles and accounts need no page at all — pass `--tool`.** Everything
+`get_vehicle_list` returns lists on one page, and so does everything
+`get_account_list` returns, so naming the tool you are calling is naming the page.
+There is nothing to look up and nothing to get wrong.
+
+**Job cards are the one lane that needs `--route`**, because they list on three
+different pages: it is the `route` column on the classification's phrasebook row,
+the same grep you are already running to translate its code. It is not always the
+obvious one — a `VRV` lists on a different page than a `Service`, and both link to
+`/job_cards/<id>` for a SINGLE card. Never type a route from memory; if the filter
+names no classification, there is no single page and no link to build.
 
 Four rules, each of which is a way to hand someone a link that loads cleanly and
 shows the wrong thing:

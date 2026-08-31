@@ -254,6 +254,35 @@ def test_the_bundled_phrasebook_carries_the_route_for_every_classification_with_
     assert all(route for (entity, _), route in routes.items() if entity == "JobCard")
 
 
+def test_naming_the_tool_is_naming_the_page():
+    """Everything `get_vehicle_list` returns lists on one page, so the page is a
+    fact about the call rather than something to look up. This is the whole reason
+    `--tool` exists: a vehicle question resolves to a STATUS row, which carries no
+    route, so the rule "take the route from the phrasebook" had nothing to take and
+    a session typed `/vehicles` from memory instead."""
+    sent = {"status.code": "03"}
+    for tool, route in link.TOOL_ROUTES.items():
+        assert link.list_url(route, sent) == link.list_url(link.TOOL_ROUTES[tool], sent)
+    assert link.TOOL_ROUTES["get_vehicle_list"] == "/vehicles"
+    assert link.TOOL_ROUTES["get_account_list"] == "/accounts"
+
+
+def test_the_tool_routes_are_the_entity_routes():
+    """`link.py` cannot import the builder, so these two are the same fact written
+    twice and this is the joint that holds them together."""
+    assert set(link.TOOL_ROUTES.values()) == set(phrasebook.ENTITY_ROUTES.values())
+
+
+def test_a_job_card_tool_has_no_single_page(monkeypatch):
+    """Job cards list on three pages by classification, so the tool name cannot fix
+    one. The refusal names `--route` rather than picking a page."""
+    assert "get_job_list" not in link.TOOL_ROUTES
+    monkeypatch.setattr(link.sys, "argv", ["link.py", "--tool", "get_job_list", "--filter", "{}"])
+    with pytest.raises(SystemExit) as exit_info:
+        link.main()
+    assert "--route" in str(exit_info.value)
+
+
 def test_an_entity_with_no_read_tool_gets_no_route():
     """Activities and Items are in the taxonomy but behind no tool, so the agent
     can never have counted anything on such a page. An empty route makes that a

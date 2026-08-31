@@ -226,8 +226,19 @@ XAS endpoint and its credential never touch the sandbox.
   exact by construction. And **the link's paging is not the agent's**: a count
   question runs `count: 1`, so passing it through would put a one-row page under
   a total of 89. `Branch: true` / `MyJobCards` are refused outright — they
-  resolve against whoever OPENS the link. `tests/test_link.py` pins the round
-  trip over both dialects and each of those failures.
+  resolve against whoever OPENS the link. And **two of the three lanes need no page
+  looked up at all** (2026-08-31): everything `get_vehicle_list` returns lists on
+  `/vehicles` and everything `get_account_list` returns on `/accounts`, so `--tool`
+  names the page and `--route` is now the JOB-CARD flag only. That is not a
+  convenience — the `route` column is filled on classification rows only, and a
+  vehicle question ("in stock") resolves to a STATUS row, so the rule "take the
+  route from the phrasebook, never from memory" had nothing to take and a session
+  typed `/vehicles` from memory. The same hole is still open for a job-card filter
+  naming no classification, and correctly so: those list on three pages, so there
+  is no single page to link. The two tool routes and `phrasebook.ENTITY_ROUTES`
+  are the same fact written twice — `link.py` cannot import the builder — and
+  `tests/test_link.py` is the joint, alongside the round trip over both dialects
+  and each of those failures.
   The obvious next move is for the MCP to return the URL in `source` itself: it
   already holds the filter and is per-tenant, and then nothing is built agent-side
   and the `$` cannot be got wrong. That is a change to `xas-app-mcp`, which is not
