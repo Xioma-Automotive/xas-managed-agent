@@ -490,6 +490,24 @@ def test_the_skill_pairs_a_label_with_the_id_that_routes():
     )
 
 
+def test_a_named_list_stops_at_twenty_and_the_link_carries_the_rest():
+    """Observed 2026-09-01: "which vehicles does Hertz hold" came back as 63 linked
+    rows — the table the set link already opens, printed anyway, and re-read on every
+    later turn. "Every entry linked" had no ceiling, so the longer the answer the more
+    faithfully the rule was followed. Both sides carry the cap, because the prompt is
+    what survives a summary of the skill."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "Name at most TWENTY records in one answer" in prompt
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "TWENTY NAMED RECORDS AT MOST, and the link carries the rest" in skill
+    assert "Twenty is a ceiling, not a target" in _flat(skill), (
+        "three matches print three — the cap must not pad an answer out to twenty"
+    )
+    assert "up to TWENTY entries linked, how many more there are" in skill, (
+        "the named-column row is where the decision is taken"
+    )
+
+
 def test_a_tally_is_one_page_at_the_servers_maximum():
     """Observed 2026-08-31: a tally of 51 cards asked for 50, then spent a whole
     round trip on page 2 — 17 seconds of a 45-second turn — to collect one card
@@ -505,7 +523,6 @@ def test_a_tally_is_one_page_at_the_servers_maximum():
     tally = next(l for l in skill.splitlines() if l.startswith("| Breakdown, more than 5"))
     assert '"count": 200' in tally, "the tally page must be the server maximum"
     assert "never page a tally" in tally.lower()
-    assert "50" in tally, "the failure that set the number must stay attached to it"
     assert "BYTES" in tally and "`Accounts.*`" in tally, "200 of a fat field is not the same page"
     assert '{"count": 50}' not in skill, "no recipe may still prescribe the old page"
 
@@ -598,7 +615,9 @@ def test_reporting_skill_has_a_dead_end_rule():
     returns a real-looking number nobody can tell is wrong."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Never answer with an unresolved term." in skill
-    assert "--suggest" in skill, "the typo rung must be documented or it is never run"
+    assert "resolve.py --lookup" in skill, "the ladder must be documented or it is never run"
+    for rung in ("nearest entries, CONFIRM", "ask the user"):
+        assert rung in skill, f"the reply to `{rung}` is what the agent has to act on"
 
 
 def test_prompt_forbids_answering_an_unresolved_term():

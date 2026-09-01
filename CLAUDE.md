@@ -148,7 +148,7 @@ XAS endpoint and its credential never touch the sandbox.
   `test_credential_config_is_read_after_the_environment_loads`, and `web.py` now
   names the missing vars in a warning.
 - **`effort` only works on the agent, and the failure is silence.** `setup_agent.model_config()`
-  sends `{"id": MODEL, "effort": "medium"}`. An `effort` inside a per-session
+  sends `{"id": MODEL, "effort": "low"}` (lowered from `medium` on 2026-09-01). An `effort` inside a per-session
   `model` override is IGNORED — not rejected — and `web.py` sends exactly such an
   override for the model picker, so a session always runs at the agent's level.
   Effort drives how many tool calls a turn spends, so this is a cost knob as much
@@ -205,14 +205,14 @@ XAS endpoint and its credential never touch the sandbox.
   `normalize`.** `phrasebook.py` at the repo root parses `index.md` and renders
   the table (host-side, never shipped — the same hop `flatten.py` is for the
   pull); `skills/xas-reporting/resolve.py` is the query side the agent runs,
-  `--normalize` and `--suggest`, and it is the ONLY one in the bundle. The
+  ONE verb `--lookup`, and it is the ONLY one in the bundle. The
   builder IMPORTS `normalize` and `COLUMNS` from the skill file, never the
   reverse: the skill file has to stand alone in a sandbox that cannot see this
   repo, so it owns anything both sides need. That direction plus "render at
   bundle time, never commit the table" is what makes normalizer drift
   impossible — a skill version physically cannot hold a table built by a
   different `normalize`, and if it ever did, the `normalized` column would stop
-  equalling `normalize(surface)` and an anchored grep would miss in silence.
+  equalling `normalize(surface)` and the exact rung would miss in silence.
   `tests/test_phrasebook.py` pins that equality over the BUNDLED bytes, and that
   the parser is absent from every shipped file.
 - **A filter guessed from the MCP's own `fields` enum returns 0, not an error.**
@@ -253,7 +253,12 @@ XAS endpoint and its credential never touch the sandbox.
 - **TWO kinds of link, and only one of them is built.** Added 2026-08-31, after
   a session named seventeen customers as plain strings: a reporting answer links
   every RECORD it names to that record's own page, and closes with the SET link
-  below. A detail page is a path and an id — no filter, nothing to encode — so the
+  below. Capped at TWENTY named records on 2026-09-01: "every entry linked" had no
+  ceiling, so "which vehicles does Hertz hold" printed 63 linked rows — the table
+  the set link already opens, and 63 rows re-read on every later turn. Past twenty
+  the set link IS the list; twenty is a ceiling, not a target. (The cap was ten for
+  the first few hours of that day; twenty is the number that stuck.) A detail page is a
+  path and an id — no filter, nothing to encode — so the
   agent writes those inline itself; `link.py` is not involved and a batch mode for
   it was tried and reverted. Its `detail_url` helper and the `--card` / `--vehicle`
   / `--account` flags went the same way on 2026-09-01 — nothing called them, and a

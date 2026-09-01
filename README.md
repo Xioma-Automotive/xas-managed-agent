@@ -86,8 +86,10 @@ and `docs/evals/routing.md` is the hand-run behavioural check.
 code `Evaluation` displays as `Service Lead`. `xas-reporting` flattens the taxonomy into a
 normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
-exact-first, then loosely, then through other wordings it proposes and the grep
-confirms, then `resolve.py --suggest` for a misspelling. A term that survives
+it with one `resolve.py --lookup` call, which climbs the whole ladder — the
+stored form, a code or id read backwards, a substring, word by word, then the
+nearest spelling for a misspelling — over every wording the agent proposes in
+that call, and stops at the first rung that hits. A term that survives
 all of that unresolved gets no answer: the skill makes the agent name it, offer
 the nearest entries and ask, because the closest-looking code returns a
 real-looking number nobody can tell is wrong.

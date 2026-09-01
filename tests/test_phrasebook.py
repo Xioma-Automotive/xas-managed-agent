@@ -142,7 +142,7 @@ def test_build_is_deterministic():
 
 
 # --------------------------------------------------------------------------
-# --suggest: the typo rung of the ladder. Exact and substring search both need
+# suggest(): the typo rung of the ladder. Exact and substring search both need
 # the letters to be right; a misspelling defeats them, and no amount of synonym
 # guessing recovers "sapre parts". These are CANDIDATES for the user to confirm.
 # --------------------------------------------------------------------------
@@ -176,6 +176,80 @@ def test_suggest_returns_one_row_per_candidate_wording(rows):
     candidates, and a user asked to choose needs distinct options."""
     normalized = [r[0] for r in resolve.suggest("srvice", rows)]
     assert len(normalized) == len(set(normalized))
+
+
+# --------------------------------------------------------------------------
+# --lookup: the whole ladder in one call. It used to be four greps the agent
+# typed itself, in an order only the prose held: run the loose one first and the
+# single right row for `service` is one of nineteen. Order is code's job now;
+# proposing the WORDINGS stays the agent's.
+# --------------------------------------------------------------------------
+
+
+def test_lookup_takes_the_exact_row_over_the_substring_haul(rows):
+    """`service` is one stored surface and nineteen substrings. The rung order is
+    the whole reason this moved out of the skill's prose."""
+    term, rung, shown, found = resolve.lookup(["service"], rows)
+    assert (term, rung, found) == ("service", "exact", 1)
+    assert _cols(shown[0])["name"] == "Vehicle Service Order"
+
+
+def test_lookup_prefers_a_later_wordings_exact_row_to_an_earlier_ones_substring(rows):
+    """Rung before term: the agent proposes wordings in the order they occur to
+    it, and the best MATCH is not usually the first guess. `parts inventory` finds
+    rows by word; `spare parts` is a row."""
+    term, rung, _, _ = resolve.lookup(["parts inventory", "spare parts"], rows)
+    assert (term, rung) == ("spare parts", "exact")
+
+
+def test_lookup_reads_the_table_backwards_from_an_id(rows):
+    """A `JobState` arrives as a bare ObjectId, which is nobody's surface string.
+    Without this rung the skill had to send the agent back to a raw grep."""
+    _, rung, shown, _ = resolve.lookup(["6530d9a89c098a15dc784be6"], rows)
+    assert rung == "code or id"
+    assert {_cols(r)["name"] for r in shown} == {"Closed"}
+
+
+def test_lookup_sends_a_misspelling_to_the_nearest_spellings(rows):
+    """`sapre parts` has one real word in it, and the rows `parts` alone pulls are
+    every Parts status — noise, without the `Spare Parts` the user meant. A word
+    that matches nothing drops the whole term to the typo rung."""
+    _, rung, shown, _ = resolve.lookup(["sapre parts"], rows)
+    assert rung == "near"
+    assert "SpareParts" in {_cols(r)["code"] for r in shown}
+
+
+def test_lookup_caps_a_broad_rung_and_says_what_it_held_back():
+    """Every row printed is re-read on every later turn of the session, so a word
+    matching half the table returns a page of it, not the table."""
+    many = [(f"widget {n}", f"Widget {n}") + ("",) * 10 for n in range(30)]
+    term, rung, shown, found = resolve.lookup(["widget"], many)
+    assert (rung, len(shown), found) == ("partial", resolve.LOOSE_LIMIT, 30)
+    assert "showing 20 of 30" in resolve.report(term, rung, shown, found)
+
+
+def test_lookup_that_matches_nothing_says_to_ask(rows):
+    """The dead-end rung, in the one line the agent acts on: no row, no candidate,
+    no code to improvise with."""
+    term, rung, shown, found = resolve.lookup(["zzqqxx wobble"], rows)
+    assert (rung, shown) == ("", [])
+    assert resolve.report(term, rung, shown, found) == (
+        "no match for 'zzqqxx wobble' — ask the user what they meant"
+    )
+
+
+def test_report_leads_with_the_column_legend(rows):
+    """The rows are tab-separated columns the agent has to read by name."""
+    lines = resolve.report(*resolve.lookup(["spare parts"], rows)).splitlines()
+    assert lines[0].startswith("matched 'spare parts' — exact")
+    assert lines[1] == "\t".join(resolve.COLUMNS)
+
+
+def test_lookup_finds_hebrew_typed_without_niqqud(rows):
+    """The miss the phrasebook exists for, end to end through the one command."""
+    _, rung, shown, _ = resolve.lookup(["חלפים"], rows)
+    assert rung == "exact"
+    assert {_cols(r)["code"] for r in shown} == {"SpareParts"}
 
 
 def test_state_ids_resolve_to_printable_names(rows):

@@ -21,8 +21,8 @@ Filter VALUES come from the phrasebook, filter KEYS from **The calls** below or
 from a `source` block a tool echoed. **Never take a filter — key or value — from a
 tool's `fields` list**: that list says only which columns you may SEE, and a filter
 built from it comes back as 0 rows rather than an error, which reads exactly like a
-real answer. `{"inventoryStatus": "InStock"}` returned 0 on a shelf holding 71 cars,
-while the phrasebook had `In Stock` as a vehicle status with code `03`.
+real answer. `In Stock` is a vehicle STATUS with code `03` in the phrasebook, not
+the `inventoryStatus: "InStock"` the field list advertises.
 
 ## The phrasebook
 
@@ -30,14 +30,14 @@ while the phrasebook had `In Stock` as a vehicle status with code `03`.
 built and ready. It is the only authority for this tenant's vocabulary, and it
 works in BOTH directions: the user's words going in, the records' codes coming
 out. Never guess a code, an id or a status name from memory; never build or edit
-the file. **Grep it; never read it whole** — this tenant's is small, production
-tenants run to megabytes. (Missing at that path?
+the file. **Look terms up with the command below; never read it whole** — this
+tenant's is small, production tenants run to megabytes. (Missing at that path?
 `ls /workspace/skills/*/phrasebook.tsv`.)
 
 One row per surface string — every code, name and alias on its own line — with a
 `normalized` first column (casefolded, combining marks stripped), so Hebrew typed
-the normal way (`חלפים`) matches the stored form (`חֲלָפִים`) and a lookup is one
-anchored grep. Tab-separated:
+the normal way (`חלפים`) matches the stored form (`חֲלָפִים`) however the user
+typed it. Tab-separated:
 
 ```
 normalized  surface  role  kind  entity  classification  code  id  name  state  closed  route
@@ -56,16 +56,28 @@ classification that is ABSENT is not evidence that no card carries it.
 
 ## Resolving a term
 
-Normalize the user's term first — `python resolve.py --normalize "<term>"` — then
-work down and stop at the first step that returns rows.
+**One command does the searching.** Give it the user's term and any other
+wordings you would have tried — translations, plurals, industry terms — in one
+call:
 
-| Step | Command, and what to watch |
+```bash
+python /workspace/skills/xas-reporting/resolve.py --lookup "חלפים" "spare parts" "parts"
+```
+
+It works the ladder and stops at the first rung that hits — the stored form, a code
+or an id read backwards, a substring, word by word, the nearest spelling for a typo
+— and its first line says which wording matched and how. **Proposing the wordings
+is yours**; only one that RETURNS A ROW may be used.
+
+| Its first line | You do |
 | --- | --- |
-| 1. **Exact** | `grep -P '^<normalized>\t' /workspace/skills/xas-reporting/phrasebook.tsv` |
-| 2. **Loose** | `grep -i '<term>' /workspace/skills/xas-reporting/phrasebook.tsv`, one word per grep for a multi-word term. Only after the anchored grep came back empty: `service` anchored returns one row, as a substring thirteen. Read the rows you got — `כרטיס עבודה` hits `Service` and `Invoice` both |
-| 3. **Synonyms** | you propose, grep decides: translations, plurals, industry terms (`parts` → `spare parts`, `spareparts`, `חלפים`). Only a wording that RETURNS A ROW may be used |
-| 4. **Typo** | `python resolve.py --suggest "<term>"` — letter overlap, which synonyms cannot reach (`sapre parts` → `Spare Parts`). One candidate: say how you read it and carry on ("I read *sapre parts* as **Spare Parts**"). Several: list them and ask. Never swap a word silently |
-| 5. **Ask** | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words, and stop. Do not name this file or the command that missed |
+| `matched … — exact` or `— code or id` | use the row |
+| `matched … — partial` or `— words` | pick from the rows, or narrow the term and look again; the line says how many it held back |
+| `no match … nearest entries, CONFIRM` | ONE candidate: say how you read it and carry on ("I read *sapre parts* as **Spare Parts**"). Several: list them and ask. Never swap a word silently |
+| `no match … ask the user` | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words, and stop. Do not name this file or the command that missed |
+
+The table is a plain TSV — grep it directly when you want one column and nothing
+else.
 
 **Never answer with an unresolved term.** Not the closest code, not a count for
 "something like it": a wrong-but-close code returns a real-looking number the user
@@ -104,7 +116,7 @@ already in this conversation needs no lookup. A name you have not seen goes to
 `get_account_list` as `search`, which returns both handles: `Code` filters that
 customer's cards, `Id` routes their page.
 **`get_account_details` sections are PREVIEWS**: `include: ["jobCards"]` returns 10
-rows however many exist (401 for one account here), with no paging and no `fields`.
+rows however many exist, with no paging and no `fields`.
 So a customer's cards are `get_job_list` filtered on the owner, and that is the
 FIRST call — never `get_account_details`.
 
@@ -130,7 +142,7 @@ you pull stays in this conversation and is re-read on every later turn.
 
 **4. Translate every code before you print it.** `JobStatus` arrives as
 `{ID, Code, Label}` and already carries its label; `JobState` arrives as a BARE
-ObjectId, so grep it and print the `kind=state` row's `name`. A code that will not
+ObjectId, so `--lookup` it and print the `kind=state` row's `name`. A code that will not
 resolve is NAMED as unresolved — "a card type I could not identify" — never printed
 bare.
 
@@ -145,10 +157,10 @@ rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.I
 | --- | --- |
 | A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` → `totalCount` |
 | Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`. Five integers, no cards |
-| Breakdown, more than 5 buckets | ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer, and at a page of 50 a 51-card tally spends it on a customer already in the list. If `totalCount` exceeds what you got, the set is too big to tally — loop the buckets instead. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
+| Breakdown, more than 5 buckets | ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer. If `totalCount` exceeds what you got, the set is too big to tally — loop the buckets instead. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
 | "Show me the cards that …" | the rows, with only the columns you will print. A second call repeating the same filter AND field list has bought nothing |
 | "All of X" you must print columns for | first ask: can you bound the page without knowing the size? Where you cannot — 20 rows is a list, 2,000 is a summary — send the key alone, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`, never candidate columns. Not before a tally: that is already one page of one field |
-| All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<the account's `Code`>"}` — never their `AccountUUID`: on one customer here that is 389 cards against the 403 the code returns, and the shortfall is silent |
+| All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<the account's `Code`>"}` — never their `AccountUUID`, which returns fewer cards and says nothing about the shortfall |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
 | Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id |
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch, `filter: {"Branch": ["<the ObjectId>"]}` — a branch NAME returns 0 with no error, and only job cards carry a usable branch |
@@ -247,6 +259,13 @@ Give the figure, what it covers, and anything that changes how they read it:
   wording, echo theirs. A column headed "Code" breaks this as surely as a sentence
   does.
 - **A list of customers is a list of links**, not names with one link under them.
+- **TWENTY NAMED RECORDS AT MOST, and the link carries the rest.** A long list is
+  a table by another name and nobody reads it. Name twenty — the twenty the
+  question puts first, or the first twenty that came back where nothing ranks them
+  — say how many more there are, and let the set link open all of them: "…and 43
+  more — [open all 63](<url>)". Twenty is a ceiling, not a target: three matches
+  print three, and a total the planner asked for is never one of the twenty it
+  counts.
 - **A stored name is ONE string.** `Daniil123` is the name, not "Daniil (account
   123)" — splitting it invents a name nobody stored and puts a code on screen.
 - **Never widen a finding past what you filtered.** A count for one account is
@@ -267,7 +286,7 @@ buckets that came back empty unless they asked for them.
 | A count, a breakdown | the figures, then one link to the set. **No table of cards** |
 | "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows |
 | One card, one car, one customer | its own page's link, and the facts they asked for |
-| A named column — "which customers", "what are the plates" | THAT column, every entry linked, then the set link. Not the other ten |
+| A named column — "which customers", "what are the plates" | THAT column, up to TWENTY entries linked, how many more there are, then the set link. Not the other columns |
 
 **Never print a table the link already opens.** A table earns its place only when
 the answer IS the shape of the data — a handful of buckets and their counts — and
