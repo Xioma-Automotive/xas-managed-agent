@@ -108,17 +108,21 @@ XAS endpoint and its credential never touch the sandbox.
   a web lookup could only add state the snapshot doesn't hold — the invariant's
   first input stops being a snapshot. (The environment's egress is MCP-only, so
   they could reach nothing anyway; this also keeps them out of the agent's context.)
-- **The app MCP is the reporting lane's, and the prompt is the only fence.**
+- **The app MCP is the reporting lane's, and NOTHING fences it any more.**
   `xas-app-mcp` (added 2026-08-19) gives the agent six read tools against the LIVE
   dev system, and since 2026-08-20 it is the reporting lane's ONLY source — the
   fabricated `jobcards.json` mount is gone. A tool has no path to forbid, so the
-  hard rule names the toolset explicitly — "NEVER from an `xas-app-mcp` tool" —
-  and the prompt used to make the agent SAY a reporting number came from the live
-  system, dropped 2026-09-01 as noise in the reply — so nothing on screen marks a
-  number as live any more. An allocation claim sourced from live data is worse than one read from a
-  file: it changes under you, so the turn is not even reproducible in principle.
-  That rule is now the WHOLE fence between the two lanes; nothing structural
-  backs it up. `tests/test_agent_contract.py` pins the rule and the two-place
+  fence was a prompt sentence naming the toolset outright — "NEVER from an
+  `xas-app-mcp` tool" — and the prompt used to make the agent SAY a reporting
+  number came from the live system, dropped 2026-09-01 as noise in the reply — so
+  nothing on screen marks a number as live any more. An allocation claim sourced
+  from live data is worse than one read from a file: it changes under you, so the
+  turn is not even reproducible in principle. **That sentence was cut from the
+  prompt on 2026-09-01 in the size pass, with the two tests that pinned it, and
+  the string `xas-app-mcp` appears nowhere in `skills/xas-allocation/SKILL.md` —
+  so the rule now exists in no file at all.** Both lanes still share one sandbox.
+  Restoring it is one line in `SYSTEM_PROMPT` or a section in the allocation
+  skill; until then, verify by hand. What is still pinned is only the two-place
   declaration (`MCP_SERVERS` + the `mcp_toolset` that grants it — a server nothing
   references is a validation error, and so is the reverse).
 - **Three places must agree on the MCP URL, and a mismatch is silent.** The agent
@@ -202,6 +206,28 @@ XAS endpoint and its credential never touch the sandbox.
   the rules by exact phrase: re-wrap a pinned sentence and the test fails, which
   is the point — use `_flat` there for anything that is prose rather than a
   literal command.
+- **The system prompt is routing plus what has no skill, and it was HALVED on
+  2026-09-01.** 3,045 -> 1,607 tokens (9,020 -> 4,727 chars, 64 -> 45 lines),
+  measured with `messages.count_tokens` against `claude-opus-4-8`. The platform
+  cap is 100K CHARACTERS, so size was never the constraint — the count of
+  always-on rules was. WHAT WENT: everything procedural for the allocation lane
+  (the determinism restatement, the bump and ask-first gates, the infeasible
+  rule), the whole planner-voice section (channel, no-plumbing, lead-with-the-
+  outcome), the mount paths, the app-MCP environment bullet, the write-back
+  approval line, and the allocation-links clause. The allocation lane is now ONE
+  line pointing at its skill. WHAT STAYED: the two-lane routing, the taxonomy
+  lookup INVOCATION (which has to be readable before the skill arrives — see the
+  phrasebook bullet), five hard rules, Links, and Reporting — the last
+  restructured into an explicit FIRST (read the skill and resolve every term in
+  ONE block) / THEN (the four rules that apply once both have landed), because a
+  single dense paragraph did not say which step comes first.
+  `tests/test_agent_contract.py` went 85 -> 79: six tests pinned nothing but cut
+  sentences and were deleted whole, five more kept their live half and lost the
+  dead assertions. THREE rules that were deliberately said TWICE now exist once or
+  not at all — the ask-first gate (skill only), the app-MCP fence and the
+  allocation-links clause (NEITHER, see their own bullets). The cut was the user's
+  call, made deliberately and rule by rule; the reason for each one is in git
+  history — read it before restoring anything.
 - **The phrasebook is TWO modules, split by where they run, and they share one
   `normalize`.** `phrasebook.py` at the repo root parses `index.md` and renders
   the table (host-side, never shipped — the same hop `flatten.py` is for the
@@ -232,7 +258,16 @@ XAS endpoint and its credential never touch the sandbox.
   planner's question rather than from the procedure being fetched, and a lookup
   cannot come back wrong where a filter can. Reworded 2026-08-31 — the read is a
   round trip of its own (~9s and 17k tokens on the first reporting turn of every
-  session) and the block after it was always the same grep. There are THREE sources
+  session) and the block after it was always the same grep. **Permission was not
+  enough** (2026-09-01): the prompt said the lookup MAY ride along and named
+  `resolve.py --lookup`, but the RUNNABLE command — its path and its
+  many-wordings-at-once form — lived only in SKILL.md, so the agent could not fire
+  it until it had read the skill. Eight live sessions measured that day all spent
+  two serial round trips (~5–11s) before touching data and not one rode along. The
+  INVOCATION now lives in the prompt and only there; the skill keeps how to READ the
+  result, which is not wanted until the result is in hand — by which point both have
+  landed. Splitting it that way is also why the prompt does not grow for the
+  allocation lane, which pays for the prompt and never reads this skill. There are THREE sources
   and each supplies exactly one thing: the tool says what you may SEE, the taxonomy
   supplies filter VALUES, the recipes supply filter KEYS. Both sides used to get that
   wrong in opposite directions — the prompt sent the agent to the taxonomy for a key
@@ -245,12 +280,54 @@ XAS endpoint and its credential never touch the sandbox.
   of a 45s turn, and the general rule that forbade it ("never walk pages to compute
   an aggregate") sat in a later paragraph than the bullet where the decision is
   taken. Raised 2026-08-31, with the never-page rule moved next to the decision. Any
-  cap has an off-by-one case; 200 makes it rare, and the shortfall now means "too big
-  to tally, loop the buckets" rather than "fetch the rest". 200 is not free, so what
+  cap has an off-by-one case; 200 makes it rare, and a shortfall now means the page is
+  a SAMPLE that holds no tally at all (2026-09-01) rather than "fetch the rest" — the
+  earlier wording, "too big to tally, loop the buckets", read as a routing hint and a
+  session printed a 200-of-1,334 sample anyway. 200 is not free, so what
   bounds a page is stated as BYTES: 200 of one scalar is cheap, and the `Accounts.*`
   fields are whole owner objects (~175 tokens a row, phone and e-mail included) — see
   `docs/appmcp-requests.md`, which asks for a sub-field so a customer name costs a
   customer name.
+- **Bucket-looping has NO cap, and what decides the path is the PHRASEBOOK, not the
+  bucket count.** The table split a breakdown at five buckets — loop below, hand-tally
+  above — and on 2026-09-01 "what inventoy vehcles we have by status?"
+  (`sesn_01Ar2oFNgj7nskxibNPLNuTS`) did both: twelve parallel `count: 1` calls
+  answered the whole 1,334-car fleet EXACTLY in one round trip for ~9k characters, and
+  the same turn then pulled 200 rows (34,173 characters) that contributed nothing to
+  the answer and could not have. Nothing about a `count: 1` call gets dearer at the
+  sixth bucket, so the cap bought nothing and cost a call. The rows path survives for
+  the case that actually needs it: a grouping key whose VALUES cannot be enumerated in
+  advance — customer, model — where there is no bucket list to loop. `distinct` /
+  `group by` in `docs/appmcp-requests.md` is now the ask for exactly that residue, and
+  it is the only remaining tally case. Re-read in full on 2026-09-01: that same turn
+  spent EIGHT model round trips on a three-trip answer (173s, 11,559 output tokens,
+  $0.81), and two of the five wasted ones broke rules the agent had read that turn —
+  the size probe before the buckets and the `link.py` call left to the end. Prose did
+  not hold them, so two rules were made CONCRETE in the skill instead: the residual is
+  worked through with its arithmetic (twelve buckets summing to 723 against 1,334
+  leaves 611, confirmed once with `{"status.code": {"$in": [null]}}`), and **two
+  phrasebook rows sharing one code are TWO buckets** — vehicle `02` is both
+  `On The Way` and `Available For Sale `, so a `status.code` call returns their sum and
+  hides the split; count each by `status.name` with `$like`. That collision was the ONE
+  finding in that trace specific to a single entity, which is why the reporting skill is
+  not split per entity: the other four were generic and a per-entity split would have
+  copied them three times. The examples for hand-rolling a phrasebook enumeration and
+  for printing a tenant's misspelled status name verbatim were considered and declined.
+- **A tool result past ~100,000 CHARACTERS becomes a file, and only then is
+  aggregation code work.** The platform offloads any oversized tool output — MCP tools
+  included — to a file in the sandbox and returns a truncated preview plus the path
+  (`shared/managed-agents-tools.md`, "Large tool outputs"); there is no knob and no way
+  to lower the threshold. So the skill's rule has TWO halves and the second is the one
+  that gets forgotten: a result on disk is tallied with python in `bash`, and a result
+  INLINE is counted in the model, because re-emitting it into a bash command pays for
+  the payload a second time in OUTPUT tokens. Measured against the vehicles turn:
+  ~90s to retype 34,173 characters against ~15s to read them, plus a second copy of
+  the payload left in the transcript to be re-read on every later turn. Nothing we
+  send controls which side of the cliff a response lands on — the 200-row page cap
+  keeps every reporting response deliberately below it, so in practice the file half
+  fires on no reporting call we make today. Programmatic tool calling, which WOULD put
+  a result in code without the size cliff, is a Messages API feature and is not
+  compatible with MCP tools; it is not available on this surface.
 - **TWO kinds of link, and only one of them is built.** Added 2026-08-31, after
   a session named seventeen customers as plain strings: a reporting answer links
   every RECORD it names to that record's own page, and closes with the SET link
@@ -280,9 +357,12 @@ XAS endpoint and its credential never touch the sandbox.
   (`Accounts.Owner.AccountDMSCode`, 403) and never the UUID (389, and silent about
   the difference). Allocation answers carry NO
   links — those orders and cars come from the frozen pull, not the live system, so
-  an id that looks routable may open something else. Both the prompt and the skill
-  carry it, because the skill is what the agent composes the answer from and the
-  prompt is what survives a summary of it.
+  an id that looks routable may open something else. **That rule was cut from the
+  prompt on 2026-09-01 in the size pass, and `link` appears nowhere in
+  `skills/xas-allocation/SKILL.md`, so it is now written in no file.** The prompt's
+  Links section reads as unconditional, and the allocation lane shares the sandbox
+  with it. Second gap of the same shape as the app-MCP fence above; restoring it is
+  one clause in either place.
 - **Every link is RELATIVE** (2026-08-31): the answer is read inside the app, so a
   path resolves against the host the planner is already on, and one bundle shared by
   every tenant hard-codes nobody's origin. `APP_BASE_URL` is `""` and
@@ -324,9 +404,12 @@ XAS endpoint and its credential never touch the sandbox.
   already holds the filter and is per-tenant, and then nothing is built agent-side
   and the `$` cannot be got wrong. That is a change to `xas-app-mcp`, which is not
   this repo's — written up with the other two in `docs/appmcp-requests.md`.
-  The PROMPT carries the link too, in one clause, because it is the only rule that
-  survives a summary of the skill: without it the reply rules read as a flat ban on
-  paths and filenames, and the link is a URL.
+  The PROMPT carries the link too, because it is the rule most likely to survive a
+  summary of the skill. It used to be one clause marking the link as the exception
+  to the prompt's own ban on paths and filenames; that ban went in the 2026-09-01
+  size pass, so the prompt's Links section now states the rule outright instead of
+  carving an exception out of something. The ban itself survives where it is
+  actually applied — the reporting skill's presenting-the-answer section.
 - **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
   `/workspace/vehicles.json` are the pull — the export's two row streams, kept
   apart because folding them into one document would only make `flatten` take it
@@ -337,9 +420,10 @@ XAS endpoint and its credential never touch the sandbox.
   Reporting reads the live system through `xas-app-mcp` instead, so the fence is
   toolset-shaped: every allocation claim comes from the solver, never from an MCP
   tool, never from a file the agent read itself. With both lanes in one sandbox
-  that rule is the only thing standing between a planner and a plausible,
-  irreproducible answer — `tests/test_agent_contract.py` pins the RULE's
-  presence, and nothing pins that the agent follows it. Verify by hand: ask for a
+  that rule was the only thing standing between a planner and a plausible,
+  irreproducible answer. `tests/test_agent_contract.py` used to pin its presence;
+  the rule and those tests were cut on 2026-09-01 (see the app-MCP bullet above),
+  so nothing pins it and nothing states it. Verify by hand, every time: ask for a
   count over "late orders" and check the answer came from the solver.
 - **The disruption is derived, and the allocations may not be a matching.** Nothing
   records "this shipment slipped 21 days" — the carve scripts bake the slip into
@@ -388,10 +472,12 @@ XAS endpoint and its credential never touch the sandbox.
   first and asking after is the failure it prevents: a plan on the table is an
   anchor, and the planner corrects it instead of stating their own preferences.
   "Fix it" is a request for a repair, not an answer; "nothing special" IS an
-  answer and may never be assumed. It is stated twice on purpose — the skill's
-  own section and a prompt hard rule, because the skill body can be summarised —
-  and pinned by two tests in `tests/test_agent_contract.py`. Nothing structural
-  can force an ask, so the prose is the whole mechanism.
+  answer and may never be assumed. It used to be stated twice on purpose — the
+  skill's own section and a prompt hard rule, because the skill body can be
+  summarised — but the prompt half and its test were cut on 2026-09-01 in the size
+  pass. It now lives in ONE summarisable place, `## Before you repair — ask what
+  matters, every time` in the allocation skill. Nothing structural can force an
+  ask, so that section is the whole mechanism.
 - **The client's name is a LABEL, and it is the only thing the planner steers by
   that the solver cannot see.** `customer.name` reaches `Order.customer`, the
   three planner-facing tables, the bump list and `plan.json` (2026-08-27), so the

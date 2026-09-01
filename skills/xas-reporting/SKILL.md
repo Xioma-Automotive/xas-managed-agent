@@ -56,18 +56,12 @@ classification that is ABSENT is not evidence that no card carries it.
 
 ## Resolving a term
 
-**One command does the searching.** Give it the user's term and any other
-wordings you would have tried — translations, plurals, industry terms — in one
-call:
-
-```bash
-python /workspace/skills/xas-reporting/resolve.py --lookup "חלפים" "spare parts" "parts"
-```
-
-It works the ladder and stops at the first rung that hits — the stored form, a code
-or an id read backwards, a substring, word by word, the nearest spelling for a typo
-— and its first line says which wording matched and how. **Proposing the wordings
-is yours**; only one that RETURNS A ROW may be used.
+**The lookup rides in the same block as this read** — your instructions carry the
+command, so it has already run by the time you read this. It works the ladder and
+stops at the first rung that hits — the stored form, a code or an id read
+backwards, a substring, word by word, the nearest spelling for a typo — and its
+first line says which wording matched and how. **Proposing the wordings is
+yours**; only one that RETURNS A ROW may be used.
 
 | Its first line | You do |
 | --- | --- |
@@ -91,7 +85,10 @@ cannot tell is wrong. Every figure traces back to a row.
 1. **Filter on `code`, display `name`, and carry the `entity` with both.** Codes
    are unique per entity, not globally — `Model` exists under both `Model` and
    `VehicleModels` — and `code` and `name` diverge wherever a tenant renamed
-   something (`code=Evaluation` carries `name=Service Lead`).
+   something (`code=Evaluation` carries `name=Service Lead`). **Two rows sharing one
+   code are TWO buckets**: vehicle `02` is both `On The Way` and `Available For Sale `,
+   so filtering `status.code` returns their SUM and hides the split — count each with
+   `{"status.name": {"$like": "<name>"}}` instead.
 2. **Take the planner's word literally; never widen it.** "Open" means the status
    named `Open` — ONE id spanning every classification that has it, so ONE
    array-valued call, never a call per classification. Here an id and its name are 1:1,
@@ -153,11 +150,21 @@ rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.I
 `Accounts.Owner.AccountDMSCode`); vehicle and account keys are lower-camel
 (`status.code`, `code`, `_id`), though their results come back capitalised.
 
+**Operators do not nest, and THAT failure is loud.** On the vehicle and account lane
+an operator's value is a scalar or an array, never another operator:
+`{"$not": {"$in": [...]}}` comes back `500 Cast to string failed`, not 0 rows. What is
+verified on that lane is a bare value, `{"$in": [...]}` — `[null]` included, which is
+how you count the rows carrying no code at all — and `{"$like": "<text>"}` on a name.
+There is no verified negation and you need none: every bucket's count plus the total
+gives the residual by subtraction. Twelve status buckets summing to 723 against a
+`totalCount` of 1,334 leaves 611 carrying no status — subtract, then confirm THAT ONE
+figure with `{"status.code": {"$in": [null]}}`. Never a negation, never a page of rows.
+
 | Goal | Call |
 | --- | --- |
 | A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` → `totalCount` |
-| Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`. Five integers, no cards |
-| Breakdown, more than 5 buckets | ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer. If `totalCount` exceeds what you got, the set is too big to tally — loop the buckets instead. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
+| Breakdown on anything the phrasebook enumerates — status, classification, state, branch | one `paging: {"count": 1}` call PER bucket: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, **all of them in a SINGLE block**. There is NO cap on how many: twelve buckets is twelve calls and ONE round trip, and every answer is a `totalCount` over the WHOLE set. Integers, no cards. Never pull rows to tally a field whose values the phrasebook already lists. **A per-bucket breakdown with `count: 1` per bucket IS the answer once every bucket returns — do not re-query the full set** |
+| Breakdown on anything it does not — customer, model, whatever the rows happen to name | **Rows are for two things only: DISPLAYING records, and grouping on a key whose values cannot be named in advance. A bucket call beats a row pull every time the buckets CAN be named, and ONE page of 200 is still pulling rows.** ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer. **If `totalCount` exceeds what you got, that page is a SAMPLE and holds no tally at all** — say what you can bound and stop; never print it as a breakdown. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
 | "Show me the cards that …" | the rows, with only the columns you will print. A second call repeating the same filter AND field list has bought nothing |
 | "All of X" you must print columns for | first ask: can you bound the page without knowing the size? Where you cannot — 20 rows is a list, 2,000 is a summary — send the key alone, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`, never candidate columns. Not before a tally: that is already one page of one field |
 | All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<the account's `Code`>"}` — never their `AccountUUID`, which returns fewer cards and says nothing about the shortfall |
@@ -166,6 +173,13 @@ rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.I
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch, `filter: {"Branch": ["<the ObjectId>"]}` — a branch NAME returns 0 with no error, and only job cards carry a usable branch |
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification |
 | Everything not closed — **only if they asked for the span** | the `closed=false` ids in one array, from the phrasebook |
+
+**A result that arrives as a FILE is aggregated in CODE.** Past ~100,000 characters
+the platform writes a tool's output to a file in the sandbox and returns a truncated
+preview plus the path. Tally that with python in `bash` — `json.load`,
+`collections.Counter`, print the buckets — never off the preview, which is a
+fragment. Rows that arrive INLINE are already in front of you: count those yourself,
+because re-typing them into a command costs more than the count does.
 
 ### Ask for the fields you need
 

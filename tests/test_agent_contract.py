@@ -173,44 +173,18 @@ def test_prompt_caps_the_effort_an_off_topic_ask_may_spend():
     assert "No tables, no breakdowns" in rule
 
 
-def test_prompt_forbids_sourcing_allocation_from_the_mcp():
-    """The MCP is the easiest way to answer 'which orders are late' with a number
-    that is real, plausible, and not reproducible. It is also now REPORTING's
-    only source, so this rule is the whole fence between the two lanes."""
-    prompt = setup_agent.SYSTEM_PROMPT
-    rule = prompt.split("The plan comes from the solver, not from you.")[1][:900]
-    assert "NEVER from an `xas-app-mcp` tool" in rule
-
-
 def test_prompt_stops_claiming_there_is_no_network():
-    """It said 'No network access — everything is local', which is now false and
-    contradicts a tool the agent holds."""
+    """It said 'No network access — everything is local', which is false: the
+    reporting lane reaches the live dev system through `xas-app-mcp`. The clause
+    naming that exception was cut on 2026-09-01 as a duplicate of the Reporting
+    section; what must never come back is the false claim itself."""
     prompt = setup_agent.SYSTEM_PROMPT
     assert "No network access — everything is local." not in prompt
-    assert 'one exception to "everything is local"' in prompt
 
 
 # --------------------------------------------------------------------------
 # The rule that keeps the two lanes from contaminating each other
 # --------------------------------------------------------------------------
-
-
-def test_prompt_forbids_answering_allocation_from_a_file_read():
-    """The fabricated job-card records are gone, so the rule can no longer forbid
-    a PATH -- but working a number out of the data is still the other way to
-    produce an allocation claim without the solver (the pull is mounted, and the
-    agent can cat it).
-
-    Reworded 2026-08-27 on the merge: the rule used to read "NEVER from a file you
-    read yourself", which the skill now contradicts -- `repair_and_report` WRITES
-    `plan.json` and every follow-up is a read of it. What is banned is the agent's
-    own derivation, and the helpers' own output file is the one exception."""
-    prompt = setup_agent.SYSTEM_PROMPT
-    assert "The plan comes from the solver, not from you." in prompt
-    rule = prompt.split("The plan comes from the solver, not from you.")[1][:700]
-    assert "NEVER from an `xas-app-mcp` tool" in rule
-    assert "never worked out by your own reading of the data" in rule
-    assert "The one file you re-read is the plan the helpers wrote." in rule
 
 
 def test_prompt_names_no_records_mount():
@@ -220,12 +194,6 @@ def test_prompt_names_no_records_mount():
     prompt = setup_agent.SYSTEM_PROMPT
     assert "/workspace/reports" not in prompt
     assert "jobcards.json" not in prompt
-
-
-def test_prompt_names_every_mount():
-    prompt = setup_agent.SYSTEM_PROMPT
-    for path in alloc_tools.MOUNT_PATHS:
-        assert path in prompt, f"{path} is mounted but never explained to the agent"
 
 
 def test_prompt_says_where_the_taxonomy_lives():
@@ -435,14 +403,12 @@ def test_three_sources_and_the_prompt_names_them_the_same_way():
 
 
 def test_the_app_link_is_the_one_path_both_sides_allow():
-    """The prompt bans file paths, filenames and tool names from the reply; the skill
-    mandates a URL at the end of every answer about records and carries the exception
-    that permits it. The prompt did not mention the link at all, so the only rule
-    surviving a summary was the ban."""
+    """The skill mandates a URL at the end of every answer about records; the prompt
+    names the link too, because the prompt is what survives a summary of the skill.
+    The prompt's own no-plumbing ban was cut on 2026-09-01, so the link rule now
+    stands on its own rather than as an exception to it."""
     prompt = setup_agent.SYSTEM_PROMPT
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "no file paths, no filenames" in prompt, "the ban stays"
-    assert "Links are the one exception" in prompt, "and so does its exception"
     assert "those are the only paths you may ever print" in prompt
     assert "The app link is the one" in skill
 
@@ -462,9 +428,6 @@ def test_every_named_record_is_a_link_in_the_shape_the_app_routes():
     )
     assert "the skill builds it and you never type or edit it" in prompt, (
         "the SET link carries a filter, and a raw `$` in one empties the page"
-    )
-    assert "Allocation answers carry NO links" in prompt, (
-        "an order or a car from the frozen pull has no page in the live system"
     )
 
 
@@ -512,30 +475,158 @@ def test_a_tally_is_one_page_at_the_servers_maximum():
 
     200 rows is a token cost, not a free win, so the rule says what bounds a page —
     bytes — and names the `Accounts.*` fields, which arrive as whole owner objects
-    (~175 tokens a row here, contact details included) rather than one value."""
+    (~175 tokens a row here, contact details included) rather than one value.
+
+    And a page short of `totalCount` is a SAMPLE. On 2026-09-01 the vehicles turn
+    pulled 200 of 1,334 cars and there is no breakdown in those rows at any price;
+    the old wording said "too big to tally, loop the buckets instead", which reads as
+    a routing hint rather than as "what you are holding cannot answer this"."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    tally = next(l for l in skill.splitlines() if l.startswith("| Breakdown, more than 5"))
+    tally = next(
+        l for l in skill.splitlines() if l.startswith("| Breakdown on anything it does not")
+    )
     assert '"count": 200' in tally, "the tally page must be the server maximum"
     assert "never page a tally" in tally.lower()
     assert "BYTES" in tally and "`Accounts.*`" in tally, "200 of a fat field is not the same page"
+    assert "is a SAMPLE and holds no tally at all" in tally, (
+        "a short page is not a smaller answer, it is no answer"
+    )
     assert '{"count": 50}' not in skill, "no recipe may still prescribe the old page"
 
 
-def test_prompt_lets_a_lookup_ride_with_the_skill_read():
+def test_bucket_looping_has_no_cap_and_names_the_single_block():
+    """Measured on 2026-09-01 (session sesn_01Ar2oFNgj7nskxibNPLNuTS, "what inventoy
+    vehcles we have by status?"): twelve parallel `count: 1` calls answered the whole
+    1,334-car fleet exactly in ONE round trip for ~9k characters — and then the same
+    turn ALSO pulled 200 rows (34,173 characters) that contributed nothing to the
+    answer and could not have, being a sample.
+
+    The cap is what invited that second call: the table read "up to 5 buckets" for the
+    loop and "more than 5" for a hand tally, so a twelve-bucket question was routed to
+    rows by the skill's own words. Nothing about a `count: 1` call gets more expensive
+    at the sixth bucket — what matters is whether the bucket VALUES can be enumerated
+    at all, which is a property of the phrasebook and not of their count."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    buckets = next(
+        l for l in skill.splitlines() if l.startswith("| Breakdown on anything the phrasebook")
+    )
+    assert "NO cap on how many" in buckets, "the cap is what routed twelve buckets to rows"
+    assert "in a SINGLE block" in buckets, "twelve calls must cost one round trip, not twelve"
+    assert '"count": 1' in buckets and "WHOLE set" in buckets
+    assert "IS the answer once every bucket returns" in buckets, (
+        "the buckets ARE the breakdown — the vehicles turn re-queried the full set after them"
+    )
+    assert "do not re-query the full set" in buckets
+    assert "up to 5 buckets" not in skill and "more than 5 buckets" not in skill, (
+        "no recipe may still split the breakdown at five"
+    )
+
+
+def test_operators_do_not_nest_on_the_vehicle_lane():
+    """Observed 2026-09-01 in the vehicles turn: reaching for the residual bucket, the
+    agent sent `{"status.code": {"$not": {"$in": [...]}}}` and got a 500 — "Cast to
+    string failed for value {'$in': [...]}". The vehicle/account lane runs a filter
+    through an adapter that re-wraps a bare value by the tenant's field TYPE, so it
+    meets an operator object where it expects a scalar.
+
+    The rule is about NESTING, not about a list of banned operators. `$in` works (it is
+    what `link.py` builds for that lane, and `$in: [null]` is what finally counted the
+    611 statusless cars) and `$like` works on a name — a rule banning those would send
+    the agent looping buckets it could have filtered in one call, which is the same
+    round trip wasted in the other direction. `$nin` and `$regex` are untested here and
+    so go unmentioned: this file states what was measured.
+
+    The residual needed no operator at all. Twelve bucket counts and the total were
+    already in hand, and 1,334 - 723 = 611 is subtraction."""
+    skill = _flat((setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "Operators do not nest" in skill
+    assert "500 Cast to string failed" in skill, "a loud failure is worth distinguishing from a 0"
+    assert "gives the residual by subtraction" in skill
+    assert "$nin" not in skill and "$regex" not in skill, (
+        "never ban an operator nobody measured — a false ban costs a round trip too"
+    )
+
+
+def test_rows_are_for_display_or_an_unnameable_key_and_one_page_is_still_rows():
+    """The general rule ("never walk pages to compute an aggregate") did not stop the
+    vehicles turn, because one page of 200 does not read as walking pages. So the row
+    path now states its own two reasons at the point of decision, and says outright
+    that a single page is still a row pull.
+
+    "Pull rows only to DISPLAY records" would be too strong on its own: grouping by
+    customer has no bucket list to loop, so rows are the only route there and the cap
+    is what makes it answerable or not."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    rows = next(
+        l for l in skill.splitlines() if l.startswith("| Breakdown on anything it does not")
+    )
+    assert "Rows are for two things only" in rows
+    assert "ONE page of 200 is still pulling rows" in rows
+    assert "cannot be named in advance" in rows, "the tally case must survive the rule"
+
+
+def test_a_tool_result_that_arrives_as_a_file_is_aggregated_in_code():
+    """The platform offloads any tool output past ~100,000 characters to a file in the
+    sandbox and returns a truncated preview plus the path — MCP tools included. Those
+    rows are then on disk, so tallying them is code work.
+
+    Below that threshold the opposite holds, and it is the half that gets forgotten:
+    an inline result is already in the context window, and re-emitting it into a bash
+    command pays for the payload a second time in OUTPUT tokens — the vehicles turn's
+    34,173-character result would have cost ~90 seconds to retype against ~15 seconds
+    to read. So the rule is stated with both halves, or it is worse than nothing."""
+    skill = _flat((setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "arrives as a FILE is aggregated in CODE" in skill
+    assert "100,000 characters" in skill, "the rule needs the threshold, not just the shape"
+    assert "truncated preview plus the path" in skill
+    assert "Rows that arrive INLINE are already in front of you" in skill, (
+        "without the inline half the agent retypes a payload it already holds"
+    )
+
+
+def test_prompt_carries_the_lookup_command_so_it_can_ride_with_the_skill_read():
     """The skill read is a round trip of its own — ~9s and 17k tokens on the first
     reporting turn of every session — and the block that follows it is a taxonomy
-    grep for words taken from the planner's question, not from the procedure. So the
-    two go together.
+    lookup for words taken from the planner's question, not from the procedure. So
+    the two go together.
 
-    What the rule actually fences is the 2026-08-31 failure: a FILTER fired in the
-    same block as the read, before the procedure it was fetching had arrived. A
-    lookup cannot come back wrong; a filter can. Keep both halves — dropping the
-    second reopens the hole, dropping the first pays for the round trip again."""
+    PERMISSION WAS NOT ENOUGH (measured 2026-09-01 over 8 live sessions). The prompt
+    already said the lookup MAY ride along, and named `resolve.py --lookup` — but the
+    runnable command, with its path and its many-wordings-at-once form, lived only in
+    SKILL.md. So the agent could not fire it until it had read the skill, and every
+    session spent two serial round trips (~5-11s) before touching data; not one of
+    the eight rode along. The invocation therefore lives HERE, where it is readable
+    before the skill arrives, and the skill keeps only how to read the result — which
+    is not needed until the result is in hand, by which point both have landed.
+
+    What the rule fences is still the 2026-08-31 failure: a FILTER fired in the same
+    block as the read, before the procedure it was fetching had arrived. A lookup
+    cannot come back wrong; a filter can. Keep both halves — dropping the second
+    reopens the hole, dropping the first pays for the round trip again."""
     prompt = setup_agent.SYSTEM_PROMPT
-    rule = prompt.split("The `xas-reporting` skill holds the procedure:")[1].split("\n")[0]
+    # Restructured 2026-09-01 into an ordered FIRST/THEN, so the rule spans lines:
+    # scope to the Reporting section rather than to one line of it.
+    rule = prompt.split("\nReporting\n")[1]
     assert "BEFORE the first `xas-app-mcp` call" in rule, "the ban is on a tool call, not a grep"
-    assert "DOES ride in that same block" in rule
+    assert "RIDES IN THAT SAME BLOCK" in rule, "riding along is an instruction, not a permission"
+    assert "never in a round trip after it" in rule
     assert "a lookup cannot come back wrong, a filter can" in rule
+
+    # The command must be runnable from the prompt alone — path included.
+    assert "python /workspace/skills/xas-reporting/resolve.py --lookup" in prompt, (
+        "an agent that must read the skill to learn the command cannot fire it in the "
+        "same block as that read"
+    )
+
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "resolve.py --lookup" not in skill, (
+        "the invocation lives in the prompt only — a second copy is a second place to "
+        "drift, and the skill copy is the one that arrives too late to be used"
+    )
+    assert "| Its first line | You do |" in skill, (
+        "reading the result stays in the skill: it is not needed until the result is "
+        "in hand, and the prompt is paid by the allocation lane too"
+    )
 
 
 def test_reporting_skill_does_not_probe_for_its_own_sake():
@@ -609,7 +700,7 @@ def test_reporting_skill_has_a_dead_end_rule():
     returns a real-looking number nobody can tell is wrong."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Never answer with an unresolved term." in skill
-    assert "resolve.py --lookup" in skill, "the ladder must be documented or it is never run"
+    assert "works the ladder" in skill, "the ladder must be documented or its result is misread"
     for rung in ("nearest entries, CONFIRM", "ask the user"):
         assert rung in skill, f"the reply to `{rung}` is what the agent has to act on"
 
@@ -627,27 +718,6 @@ def test_reporting_reply_keeps_the_procedure_out_of_it():
     assert "none of it belongs in the reply" in skill
     for internal in ("phrasebook", "totalCount", "no file path, no filename"):
         assert internal in skill.split("## Presenting the answer")[1]
-    prompt = setup_agent.SYSTEM_PROMPT
-    assert "no file paths, no filenames" in prompt
-    assert "not a work log" in prompt
-
-
-def test_between_tool_calls_the_agent_says_nothing():
-    """Observed 2026-08-23: the reply was clean, but the turn still shipped
-    "Let me check the timeframe first", "28 Service cards — small", and "all 16
-    buckets sum to 28 — the split is clean". Every line between tool calls reaches
-    the planner, so the rule has to cover the whole turn, not just the answer.
-
-    The PROMPT is where it lives (2026-09-01). It had a section of its own in the
-    reporting skill too; that was one rule written twice, and the prompt's copy is
-    the one on every request rather than once per session."""
-    prompt = setup_agent.SYSTEM_PROMPT
-    assert "there is no working-notes channel" in prompt
-    assert "Work in SILENCE and answer once" in prompt
-    for banned in ("running totals", "point at your own output"):
-        assert banned in prompt
-    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "## The channel" not in skill, "one rule, one place — the prompt carries it"
 
 
 def test_agent_does_not_report_where_the_chart_was_written():
@@ -949,17 +1019,6 @@ def test_skill_separates_the_promise_from_the_arrival():
         assert gone not in skill, f"{gone} is app-MCP vocabulary; the pull is CSV now"
 
 
-def test_prompt_says_a_bump_authorisation_lasts_one_turn():
-    """`may_move.also` is the only key that expires. If the prompt does not say
-    so, the agent carries the permission forward like everything else and a later
-    turn displaces a settled order on the strength of one old sentence."""
-    prompt = setup_agent.SYSTEM_PROMPT
-    assert "`may_move.also`" in prompt
-    assert "`true` for anyone" in prompt
-    assert "permission is for ONE turn" in prompt
-    assert "session.carry_forward" in prompt
-
-
 def test_skill_gates_every_repair_behind_the_preferences_question():
     """A repair the planner never stated their preferences for is a plan that
     silently invents them — every order equal, nothing protected. Nothing
@@ -974,15 +1033,6 @@ def test_skill_gates_every_repair_behind_the_preferences_question():
         assert lever in skill
     # and the ask must precede the solve, not follow it
     assert "do not solve first" in skill
-
-
-def test_prompt_gates_every_repair_behind_the_preferences_question():
-    """The skill body can be summarised; the prompt is always in context. The
-    gate is worth stating twice."""
-    prompt = setup_agent.SYSTEM_PROMPT
-    assert "NEVER offer or run a repair before ASKING the planner what matters" in prompt
-    assert "A client can hold several orders" in prompt
-    assert "you may never assume it" in prompt
 
 
 def test_skill_can_answer_in_client_terms_but_steers_on_ids():

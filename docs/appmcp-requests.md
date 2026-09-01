@@ -74,8 +74,11 @@ endpoint. Then nothing is built agent-side and the `$` cannot be got wrong.
 
 - **A `distinct` or `group by`.** It would have turned this turn's 51-row pull into
   17 values, and it is the biggest win of the four. But it is a new query surface
-  with its own semantics to agree, where the three above are all subtractive. If
-  the tally case keeps coming up, this is the follow-up.
+  with its own semantics to agree, where the three above are all subtractive.
+  Narrowed on 2026-09-01, and it is now the ONLY tally case left: the skill loops
+  buckets with `count: 1` for any field the phrasebook enumerates, at any bucket
+  count, so rows are pulled only to group on a key whose values cannot be listed in
+  advance — a customer, a model. That residue is what this ask is for.
 - **A higher `paging.count`.** 200 is plenty; the 50 that cost a round trip on
   2026-08-31 was our own number, and it is now 200 in the skill.
 - **`OpenJobCards`**, which returns 0 regardless of the data. The tool description
