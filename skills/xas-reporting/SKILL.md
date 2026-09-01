@@ -11,251 +11,122 @@ description: >-
   answers them from the solver; that holds even when phrased as a count.
 ---
 
-# XAS terminology resolution
+# XAS reporting
 
-**`/workspace/skills/xas-reporting/phrasebook.tsv` is there before your first
-turn** — the **only** authority for this tenant's vocabulary, in BOTH directions:
-what the user SAYS becomes what the records store, and what the records RETURN
-becomes what the planner reads. Never guess a code, an ObjectId or a status name
-from memory in either direction. Do not build it, derive it or write it; there is
-no step 0. (If that path is missing, `ls /workspace/skills/*/phrasebook.tsv` finds
-where the skill landed — one call, not one per session.) **Never read it whole**:
-this tenant's is small, production tenants run to megabytes. Grep it; never cat it.
+Counts, breakdowns, lists and charts over this dealership's job-card records.
 
-The records themselves are NOT here and NOT mounted: they come from the
-`xas-app-mcp` read tools, against the live system. Nothing on disk holds job
-cards, so there is no snapshot to fall back on, and a number you cannot get from
-a tool call is a number you do not have.
+## Where things come from
 
-## The channel
+| What you need | Source |
+| --- | --- |
+| the records | the `xas-app-mcp` read tools, against the LIVE system. Nothing is on disk, so a number you cannot get from a tool call is a number you do not have |
+| filter VALUES — codes, ids, status names | the phrasebook |
+| filter KEYS — the field you filter ON | the recipes in **The calls**, or a `source` block a tool echoed |
+| the columns you may ask to SEE | the tool's own `fields` list |
 
-Every character you emit reaches the planner and there is no scratchpad, so work
-in SILENCE and answer ONCE, at the end. That breaks mid-turn, when it does not yet
-feel like presenting anything — two calls deep, something looks off, and
-explaining the next step feels like thinking rather than talking. It is talking.
-**Presenting the answer** below is the only text you ever produce.
+**Never take a filter — key or value — from a tool's `fields` list.** That list
+says what you may SEE, and it names things the server will not filter on. A filter
+built from it comes back as 0 rows rather than an error, so it reads like a real
+answer: `{"inventoryStatus": "InStock"}` returned 0 on a shelf holding 71 cars,
+while the phrasebook had `In Stock` as a vehicle status with code `03`.
 
 ## The phrasebook
 
-One row per **surface string** — every code, name and alias on its own line —
-with a `normalized` first column (casefolded, combining marks stripped), so
-Hebrew typed the normal way (`חלפים`) matches the stored form (`חֲלָפִים`) and a
-lookup is one anchored grep.
+`/workspace/skills/xas-reporting/phrasebook.tsv` is there before your first turn,
+built and ready. It is the only authority for this tenant's vocabulary, and it
+works in BOTH directions: the user's words going in, the records' codes coming
+out. Never guess a code, an id or a status name from memory; never build or edit
+the file. **Grep it; never read it whole** — this tenant's is small, production
+tenants run to megabytes. (Missing at that path?
+`ls /workspace/skills/*/phrasebook.tsv`.)
 
-Columns, tab-separated:
+One row per surface string — every code, name and alias on its own line — with a
+`normalized` first column (casefolded, combining marks stripped), so Hebrew typed
+the normal way (`חלפים`) matches the stored form (`חֲלָפִים`) and a lookup is one
+anchored grep. Tab-separated:
 
 ```
 normalized  surface  role  kind  entity  classification  code  id  name  state  closed  route
 ```
 
-`role` is where the string came from (`code` / `name` / `alias` / `businessType`),
-`kind` is `entity` / `classification` / `status` / `state` / `branch`. `code` is
-what you filter on; `name` is what you display. A `branch` row has no `code` — its
-`id` is the filter value (rule 8). The same surface can appear under two kinds —
-`Closed` is both a status and a state — so read `kind` before acting on a row.
-`route` is on classification rows only: the app page that classification's records
-list on, which is what `link.py --route` takes. It is empty for a classification
-behind no read tool, and an empty route means there is nothing to link.
+- `kind` — `entity` / `classification` / `status` / `state` / `branch`. One surface
+  can appear under two kinds (`Closed` is both a status and a state), so read
+  `kind` before acting on a row.
+- `code` is what you filter on, `name` what you display. A `branch` row has no
+  code: its `id` is the filter value.
+- `route` — classification rows only: the app page those records list on, for
+  `link.py --route`. Empty means there is nothing to link.
+- `role` and the remaining columns are provenance; you never filter on them.
 
-**Read it whether or not the question has a term in it.** A question can need no
-resolution going IN — "job cards opened last week" names nothing to look up — and
-still come back full of codes that must be translated going OUT (step 4). There is
-no reporting turn that does not need this file.
+Everything listed is queryable, so never check whether a type is active — two the
+config marks inactive are listed anyway because they still hold cards. A
+classification that is ABSENT is not evidence that no card carries it.
 
 ## Resolving a term
 
-Work down the ladder and stop at the first step that returns rows. Normalize the
-user's term the same way first: `python resolve.py --normalize "<term>"`.
+Normalize the user's term first — `python resolve.py --normalize "<term>"` — then
+work down and stop at the first step that returns rows.
 
-| Step | Command |
+| Step | Command, and what to watch |
 | --- | --- |
-| 1. **Exact** — the deterministic hit | `grep -P '^<normalized>\t' /workspace/skills/xas-reporting/phrasebook.tsv` |
-| 2. **Loose** — substring, then word-by-word for a multi-word term | `grep -i '<term>' /workspace/skills/xas-reporting/phrasebook.tsv` / `grep -i vehicle … \| grep -i purchase \| grep -i order` |
-| 3. **Synonyms — you propose, `grep` decides** | look up each other wording a person might use (translation, plural, industry term): `parts` → `spare parts`, `spareparts`, `חלפים`, `Ersatzteile`. Only a wording that RETURNS A ROW may be used |
-| 4. **Typo** | `python resolve.py --suggest "<term>"` — letter overlap, the one thing synonym guessing cannot reach (`sapre parts` → `Spare Parts`) |
-| 5. **Ask, and answer nothing else** | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words (or say there were none), then stop |
+| 1. **Exact** | `grep -P '^<normalized>\t' /workspace/skills/xas-reporting/phrasebook.tsv` |
+| 2. **Loose** | `grep -i '<term>' /workspace/skills/xas-reporting/phrasebook.tsv`, one word per grep for a multi-word term. Only after the anchored grep came back empty: `service` anchored returns one row, as a substring thirteen. Read the rows you got — `כרטיס עבודה` hits `Service` and `Invoice` both |
+| 3. **Synonyms** | you propose, grep decides: translations, plurals, industry terms (`parts` → `spare parts`, `spareparts`, `חלפים`). Only a wording that RETURNS A ROW may be used |
+| 4. **Typo** | `python resolve.py --suggest "<term>"` — letter overlap, which synonyms cannot reach (`sapre parts` → `Spare Parts`). One candidate: say how you read it and carry on ("I read *sapre parts* as **Spare Parts**"). Several: list them and ask. Never swap a word silently |
+| 5. **Ask** | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words, and stop. Do not name this file or the command that missed |
 
-Step 2 widens fast — `service` anchored returns one row, as a substring twelve —
-so fall back only when the anchored match returns nothing. On step 4, one
-candidate: say how you read it and carry on ("I read *sapre parts* as **Spare
-Parts**"); several: list them and ask. Never swap a word silently. On step 5, do
-not name this file, the phrasebook, or the command that came back empty.
+**Never answer with an unresolved term.** Not the closest code, not a count for
+"something like it": a wrong-but-close code returns a real-looking number the user
+cannot tell is wrong. Every figure traces back to a row.
 
-**Never answer with an unresolved term.** Not with the closest code, not with a
-count for "something like it". A wrong-but-close code returns a real-looking
-number the user cannot tell is wrong, which is strictly worse than no answer.
-Every figure you report traces back to a row in the phrasebook.
+**Two genuine candidates → ask one short question.** `קריאת שירות` is both
+`ServiceCall` and `Service`: name them in the user's own words and let them pick.
 
-Other recipes:
+### Three rules for reading a row
 
-| Goal | Command |
-| --- | --- |
-| All statuses of a classification | `awk -F'\t' '$4=="status" && $6=="Service"' /workspace/skills/xas-reporting/phrasebook.tsv` — add `&& $11=="true"` for the closed ones only |
-| Every branch, id and name | `awk -F'\t' '$4=="branch" {print $8, $9}' /workspace/skills/xas-reporting/phrasebook.tsv` |
-| Reverse: code or id → human name | `grep '<code-or-objectid>' /workspace/skills/xas-reporting/phrasebook.tsv` |
-| The page a classification lists on (for `link.py --route`) | column 12 of its row: `awk -F'\t' '$7=="VRV" {print $12; exit}' /workspace/skills/xas-reporting/phrasebook.tsv` |
+1. **Filter on what the row gives you, not on what it looks like.** A code carries
+   its `entity` — codes are unique per entity, not globally, so `Model` exists
+   under both `Model` and `VehicleModels` — and `code` and `name` diverge wherever
+   a tenant renamed something (`code=Evaluation` carries `name=Service Lead`).
+   Job-card statuses filter on the status `id`, vehicle statuses on `code` (core
+   enums, no id), branches on the `id` in an array. A branch NAME returns 0 with no
+   error, and branch lives on job cards only — vehicles carry the field with no
+   usable value.
+2. **Take the planner's word literally; never widen it.** "Open" means the status
+   named `Open` — ONE id spanning every classification that has it, so ONE
+   array-valued call, never a call per classification. Here an id and its name are 1:1,
+   so send a classification only when the planner asked for one, and say in the
+   answer what the count covered. Widen only where they widened ("not closed",
+   "all unfinished"): then the `closed` flag or the `state` bucket (`New` /
+   `In Process` / `Pending` / `Closed` / `Has Alert`), and say you read it that way.
+   `closed=true` is `Closed` **and** `Canceled`, so the status is always the
+   narrower reading.
+3. **Never invent what the table does not hold.** A status row with an empty `name`
+   is "unknown status (code NN)", counted separately and never relabelled. Cards
+   with no branch are real, so per-branch buckets do not sum to the total: state
+   the remainder rather than letting it vanish into the biggest branch. Status rows
+   carry no aliases, so a lifecycle word in another language resolves by
+   translating to the English status name (step 3), never by widening to `state`.
 
-## Resolution rules
-
-1. **Carry `entity` with `code`; filter on `code`, display `name`.** Codes are
-   unique per entity, not globally — `code="Model"` exists under both the `Model`
-   and `VehicleModels` entities, so a bare code is ambiguous. And tenants rename
-   things locally, so the two diverge routinely — `code="Evaluation"` carries
-   `name="Service Lead"`. Never infer one from the other.
-2. **Two or more genuine candidates → ask one short question.** `קריאת שירות`
-   resolves to both `ServiceCall` and `Service`. Name them in the user's own
-   words and let them pick; do not silently take the first row.
-3. **Substring search matches more than you meant.** `כרטיס עבודה` hits `Service`
-   (as an alias) and `Invoice` (inside its Hebrew name). Read the rows you got
-   before acting on them.
-4. **Statuses filter the way the phrasebook says.** JobCard statuses filter on the
-   status `id` from the phrasebook; Vehicle statuses have no `id` (they are core
-   enums), so filter those on `code`. In this tenant an id and its name are 1:1, so
-   an id needs no classification to be read — and a status that came BACK carries
-   its own display name, so read that rather than looking it up. But one id SPANS
-   every classification that has it (`…5b6764`, "Closed", covers Parts, ServiceCall,
-   VPO, Service and more), so a count on it is every card type at once. Send a
-   classification only when the planner asked for one, and say in the answer what
-   the count covered.
-5. **A lifecycle word IS a status — take it literally.** "open" means the status
-   named `Open`, not "everything unfinished". Each such word is exactly one `id`
-   spanning every classification that has it — `Open` covers eight of them — so it
-   is ONE array-valued call with that one id, never a call per classification.
-   Look the id up in the phrasebook. Do not widen a word the planner did not
-   widen: only when they say "everything not closed" or "all unfinished" do you
-   reach for the `closed` flag or the `state` bucket (`New` / `In Process` /
-   `Closed` / `Has Alert`) — and say in the answer that you read it that way.
-   They are not the same set: `closed=true` is `Closed` **and** `Canceled`, so the
-   status is always the narrower reading. Status rows carry no aliases, so a
-   lifecycle word in another language resolves by translating to the English
-   status name (ladder step 3), never by widening to `state`.
-6. **A status row with an empty `name` and `state` is one the dictionary is
-   missing.** Report it as "unknown status (code NN)" and count it separately.
-   Never invent a label.
-7. **Everything listed is active.** Inactive classifications are already
-   omitted; no liveness check is needed.
-8. **Send a branch `id` from the phrasebook, and nothing else.** A branch NAME
-   returns 0 with no error, and the tool's own session-branch shortcut is
-   whichever branch the login sits in, not the branch the user named. A value you
-   cannot resolve to a branch name is a count you cannot report. Branch lives on
-   job cards only: vehicle records have the field but no usable value, so "which
-   branch is this car at" has no answer here.
-9. **Job cards with no branch are real**, so per-branch buckets do not sum to
-   the total. Say the remainder rather than letting it disappear into the
-   biggest branch.
-10. **`fields` names come from the tool, filter VALUES from here, filter KEYS
-    from the recipes — three sources, and no source gives you two of them.** The
-    tool's list says what you may ask to SEE — and it lies about
-    that too, advertising names the server never returns, so which ones arrive
-    is read off the response you already wanted, never off a probe. It is not a
-    source of filters: `inventoryStatus: "InStock"` is a field-list guess, and
-    it returned 0 on a shelf holding 71 cars. The phrasebook holds no field
-    names either — a filter KEY is the one thing neither source gives you, so
-    take it from the recipe below or from a `source` block a tool echoed.
-
-## Getting the number
-
-Every question runs the same five steps, in this order. Skipping step 1 cost five
-calls and three rounds on 2026-08-27, and three calls for a one-call count on
-2026-08-31 — the filter was guessed from the tool's field list before the
-phrasebook was read at all. Skipping step 4 put three raw codes in front of the
-planner; skipping step 5 sent the planner a number with no way to see it.
+## Answering a question
 
 **1. Pin down what the question is about, and take its id.** Resolve every business
-term through the phrasebook first (above). A person or a company is an ACCOUNT.
+term through the phrasebook first; a person or a company is an ACCOUNT. An id
+already in this conversation needs no lookup. A name you have not seen goes to
+`get_account_list` as `search`, which returns both handles: `Code` filters that
+customer's cards, `Id` routes their page.
+**`get_account_details` sections are PREVIEWS**: `include: ["jobCards"]` returns 10
+rows however many exist (401 for one account here), with no paging and no `fields`.
+So a customer's cards are `get_job_list` filtered on the owner, and that is the
+FIRST call — never `get_account_details`.
 
-**An id you already hold needs no lookup.** If the name has appeared in this
-conversation — in a card you read, in an answer you gave — you HAVE its id, so
-use it. Fetching the account again to read back a field already in front of you
-is a whole round trip spent on nothing. Only a name you have NOT seen gets looked
-up, with `get_account_list`, the only call that knows how MANY accounts carry it
-— "Daniil" matches two here.
-
-Never search cards for a person's name in place of that. `searchAllFields` matches
-the string anywhere on a card, so a hit is not proof of ownership and a miss is not
-proof of absence: the same account came back as 18 cards by name search and 336 by
-owner id.
-
-**`get_account_details` sections are PREVIEWS.** `include: ["jobCards"]` returns
-10 rows however many exist — 401 for one account here — with no paging and no
-`fields`. It tells you an account HAS 401 cards, never what they are. A
-customer's cards are always `get_job_list` filtered on the owner, and that is the
-FIRST call, not the second.
-
-**2. Send the call you actually need — there is no separate probe to run first.**
-`totalCount` rides on EVERY response, so it costs nothing extra: a count question
-is one call, and a card list is one call that returns the count with the rows.
-Bound `paging.count` to what you will show — or, for a tally, to the one page you
-will count over — and name only the columns you will print. Add ONE narrowing clause
-at a time — never send two clauses you have not proven, because a 0 from `A AND B`
-where neither is established carries NO information, and working out afterwards which
-one killed it costs more calls than doing it in order.
-
-Before any bare `count: 1`, answer one question: **can you bound the page without
-knowing the size?** For a count, a bucket, a named period, one account — anything
-whose whole answer fits ONE page — the answer is yes, so there is no probe and the
-call you were going to make is the whole turn. A size check followed by the call you
-would have made anyway has bought NOTHING: a round trip, a slower answer, and a
-second copy of the same filter to get wrong.
-
-The one "no" is **"all of X" that you must PRINT COLUMNS for**, where 20 is a list
-and 2,000 is a different answer altogether. There, ask for the key alone and nothing
-else: a page of padded cards you then decide not to show is the expensive way to learn
-a number one row would have told you. A tally is NOT this case — it reads one small
-field, so it sends its one page and learns the same thing free, from `returned`
-against `totalCount`. Not candidate columns either: a single row cannot tell you which
-fields this data carries, because presence varies per card — `PlateNo` was missing
-from one sales order and present on 40 of 40 cards sampled across types. A probe that
-names columns to "discover" them learns something false and costs a round trip to do
-it.
-
-**3. Read what came back.**
-
-- **A count is already answered** — `totalCount` IS the number. Stop.
-- **A 0 buys exactly ONE control call.** Re-send with only the clause you GUESSED
-  at — a dotted path you inferred, not a code the phrasebook handed you. Rows on its
-  own means the 0 is real. Never a second control call, and never one that pulls
-  rows: a control reads `totalCount`, so it is always `count: 1`.
-- **Up to 5 buckets** — one filtered count call each. Five integers, no cards.
-- **More than 5** — one call for the cards, tallied yourself. A split by
-  classification is a call per classification the other way, and the phrasebook
-  lists far more than five of them. Ask for `count: 200` — the server's maximum — and
-  **never page a tally**: page 2 costs a whole round trip and almost never changes the
-  answer. On 2026-08-31 a 51-card tally asked for 50, then spent a call on page 2 to
-  find one card whose customer was already in the list. If `totalCount` still exceeds
-  what you were given, the set is too big to tally: loop the buckets instead. 200 is
-  not free — what bounds a page is BYTES, so it is 200 of the ONE small field you
-  group by, and an `Accounts.*` field is not small: it arrives as the whole owner
-  object.
-- **"Show me the cards that …"** — ids, statuses, customers, dates, the cards behind
-  a chart need the records themselves, so this is the case where you ask for rows
-  and name the ones you show. Asking twice buys nothing: a second call repeating the
-  first filter AND the first field list has bought nothing. (A tool result big enough
-  to be offloaded to a file is a symptom: you asked for cards you did not need, and
-  the tokens are spent by the time you read the file.)
-
-**Never walk pages to compute an aggregate.** Paging and adding up costs roughly
-forty times as much: every card you pull stays in this conversation and is re-read
-on every later turn. And a card arrives padded — eleven account-role objects, the
-owner's whole contact list — so name the columns you want. A count needs none.
-
-**4. Translate every code before you print it.** The records answer in codes —
-`VRV`, `VSO`, `Service` — and the planner reads names, so reverse-look up each one
-you are about to show: `grep '<code>' /workspace/skills/xas-reporting/phrasebook.tsv`, then take the
-`name`. Two fields on a card need this and they differ: `JobStatus` arrives as
-`{ID, Code, Label}` and already carries its own label, but `JobState` arrives as a
-BARE ObjectId — grep it the same way and print the `kind=state` row's `name`. An
-ObjectId in a reply is the worst version of this defect. This is not polish. A bare code in the reply is the same class of defect as
-a wrong number, because the planner cannot tell `VRV` from a typo and has no way to
-look it up. A code that will not resolve is NAMED as unresolved — "a card type I
-could not identify" — never printed bare as though it were a name. On 2026-08-27
-three codes reached the planner untranslated, because step 0 had been skipped and
-there was nothing to look them up in.
-
-**5. Build the link BESIDE the call, not after it.** The planner gets a link to the
-page behind the answer (see **Linking the set** below). Emit the `link.py` command and the
-`get_job_list` call **in the same block**, so they run together and their results
-come back together:
+**2. Send the call, and the link beside it.** Take the row from **The calls** below.
+`totalCount` rides on EVERY response, so there is no separate probe to run first,
+and a size check before the call you would have made anyway has bought NOTHING. Add
+one unproven clause at a time: a 0 from `A AND B` where neither is established
+carries NO information. Emit the `link.py` command in the SAME block as the call,
+same filter written once — you hold everything the link needs before the response
+arrives, so waiting for it costs a round trip to format a string:
 
 ```
 get_job_list  filter={"JobClassification":"VRV","JobStatus.ID":["…"]}  fields=[…]  paging={"count":1}
@@ -263,68 +134,59 @@ bash          python /workspace/skills/xas-reporting/link.py --route /vehicle_pl
                 --filter '{"JobClassification":"VRV","JobStatus.ID":["…"]}'
 ```
 
-Same filter in both, written once. You have everything the link needs before the
-call returns — the filter is yours, and the page comes from the tool you are
-calling (or, for a job card, from the phrasebook grep in step 1) — so waiting for
-the response buys nothing and costs a whole round trip to
-format a string: the "size check before the call you were going to make anyway"
-mistake in a different costume.
+**3. Read what came back.** `totalCount` IS the count — stop there. A 0 buys exactly
+ONE control call: re-send with only the clause you GUESSED at — a dotted path you
+inferred, not a code the phrasebook handed you — at `count: 1`, never pulling rows,
+and never a second control. **Never walk pages to compute an aggregate**: every card
+you pull stays in this conversation and is re-read on every later turn.
 
-**Do not fold it into the step-4 grep instead.** That looks equivalent and is not:
-step 4 only runs when there are codes to translate, so on a turn that answers in
-names — "which customers", a list of accounts — there is no step-4 call to ride on
-and the link ends up alone in a round trip of its own. Beside the tool call, it is
-free on every turn.
+**4. Translate every code before you print it.** `JobStatus` arrives as
+`{ID, Code, Label}` and already carries its label; `JobState` arrives as a BARE
+ObjectId, so grep it and print the `kind=state` row's `name`. A code that will not
+resolve is NAMED as unresolved — "a card type I could not identify" — never printed
+bare.
 
 ### The calls
 
-Every row sends `fields`. See below for why, and what to put in it.
+Every row sends `fields`. **Key case differs by lane, and the wrong case returns 0
+rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.ID`,
+`Accounts.Owner.AccountDMSCode`); vehicle and account keys are lower-camel
+(`status.code`, `code`, `_id`), though their results come back capitalised.
 
 | Goal | Call |
 | --- | --- |
-| A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` -> `totalCount` |
-| A size check before an "all of X" you must print columns for | the same call — the key ALONE, never candidate columns. Not before a tally: that is one page of one field |
-| Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` |
-| Breakdown, more than 5 buckets | one call, `fields:` the ONE field you tally on, `paging: {"count": 200}` (the maximum — one page, never a second), and tally the rows by hand |
-| All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<code>"}` — never `get_account_details` |
+| A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` → `totalCount` |
+| Breakdown, up to 5 buckets | one call each: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`. Five integers, no cards |
+| Breakdown, more than 5 buckets | ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer, and at a page of 50 a 51-card tally spends it on a customer already in the list. If `totalCount` exceeds what you got, the set is too big to tally — loop the buckets instead. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
+| "Show me the cards that …" | the rows, with only the columns you will print. A second call repeating the same filter AND field list has bought nothing |
+| "All of X" you must print columns for | first ask: can you bound the page without knowing the size? Where you cannot — 20 rows is a list, 2,000 is a summary — send the key alone, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`, never candidate columns. Not before a tally: that is already one page of one field |
+| All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<the account's `Code`>"}` — never their `AccountUUID`: on one customer here that is 389 cards against the 403 the code returns, and the shortfall is silent |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
-| Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id (rule 4), and the key is lower-case going in |
+| Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id |
 | Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch id, `filter: {"Branch": ["<id>"]}` |
-| Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification (rule 5) |
-| Everything not closed — **only if asked for the span** | the `closed=false` ids in one array, from the phrasebook |
-| The buckets to loop over | the phrasebook, not memory: `awk -F'\t' '$4=="classification" && $5=="JobCard" {print $7}' /workspace/skills/xas-reporting/phrasebook.tsv \| sort -u` |
+| Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification |
+| Everything not closed — **only if they asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 
 ### Ask for the fields you need
 
-A card comes back with its salient fields whether you use them or not, and every
-one of them stays in this conversation for the rest of the session. `fields` is
-the only lever on that, so **send it on every call**:
+A card comes back with all its salient fields whether you use them or not, and they
+stay in this conversation for the session. `fields` is the only lever on that:
 
-- **A count needs no columns.** You read `totalCount`, never a row. Ask for the
-  key alone — it comes back regardless — and the page costs nothing.
+- **A count needs no columns.** You read `totalCount`, never a row: ask for the
+  key alone.
 - **A tally needs one field**: the one you group by.
-- **A card list needs the columns you will actually print.** Decide them from the
-  answer you are about to write, not from what might be interesting.
-
-Two things to know before you trust a response:
-
+- **A card list needs the columns you will print**, decided from the answer you
+  are about to write, not from what might be interesting.
 - **`fields` narrows; it cannot widen.** It picks from what the tool already
-  returns. A name it does not return is dropped in silence — no error, no empty
-  value, no mention.
-- **So an absent field is not an empty value.** A missing date means "not
-  returned here", never "this card has no date", and it is NEVER a business fact
-  to report. If a field you need never arrives on any row, say the live system
-  does not supply it and stop; do not read it as zero, blank, or none.
+  returns; a name it does not return is dropped in silence.
+- **So an absent field is not an empty value.** A missing date means "not returned
+  here", never "this card has no date", and it is NEVER a business fact to report.
+  If a field never arrives on any row, say the live system does not supply it and
+  stop — do not read it as zero, blank or none.
 
-**"Open" is a state; "opened" is a date.** `CreateDateTime` is the only date
-field to filter a period on: it means "opened", every card carries one, and it is
-the only one whose range filter is verified against the live system. *"Opened in
-July and still open"* is that filter and a status filter sent together, and it is
-the common ask. Where the wording could mean the state or the date, answer one and
-say which you took it as.
+### Dates
 
-**Never work a date range out yourself.** `dates.py` ships beside this file and
-already holds the conventions:
+**Never work a date range out yourself** — `dates.py` hands you both halves:
 
 ```bash
 python /workspace/skills/xas-reporting/dates.py "last week"
@@ -332,24 +194,20 @@ python /workspace/skills/xas-reporting/dates.py "last week"
 last week = Mon 17 Aug 2026 to Sun 23 Aug 2026, dealership time
 ```
 
-Send the first line as the `CreateDateTime` filter and tell the planner the span
-from the second. It knows the dealership's clock runs three hours ahead of the
-one the filter compares in, that the week starts Monday, and that the range
-excludes its end — deciding any of that per turn is how a boundary quietly moves
-and a count changes with it. It takes today, yesterday, this/last week,
-this/last month, this/last year, and "last N days". Anything else it refuses
-rather than guessing, and so do you: ask which dates they mean.
+Line one is the `CreateDateTime` filter — the only date field to filter a period on
+— and line two is the span to tell the planner. It takes today, yesterday,
+this/last week, this/last month, this/last year and "last N days"; anything else it
+refuses, and then you ask which dates they mean.
 
 ## The links
 
-There are TWO, and only one of them is built by a command.
+Two kinds, and only one is built by a command.
 
 ### Naming a record
 
 **Every record you name is a link to its own page — write it yourself.** A detail
-page is a path and an id, nothing else: no filter, no query string, so none of the
-encoding that makes a LIST link fragile applies. Compose it inline as you write the
-answer.
+page is a path and an id: no filter, no query string, so none of the encoding that
+makes a set link fragile applies. Compose it inline as you write.
 
 | Naming a | the label they read | the id that routes | the link |
 | --- | --- | --- | --- |
@@ -357,178 +215,89 @@ answer.
 | vehicle | `LicenseNumber`; `VehicleCode` where there is no plate | `VehicleCode` | `[12-345-67](/vehicles/11370)` |
 | customer | `AccountName` | `Accounts.Owner.AccountUUID` on a card, `Id` on an account | `[Hertz](/accounts/655dc47b9c098a054a0791c3)` |
 
-Label and id are DIFFERENT fields on the same record — the job number is what the
-planner knows the card by, the entry is what the page routes on. Print the id and
-you have shown them a number they have never seen.
-
-A card's owner is linkable **from the card**: `Accounts.Owner.AccountUUID` IS that
-account's `Id`, so a list you have already pulled names its customers with no
-second call. A record whose id did not come back is named in plain text — never
-a guessed path.
-
-Seventeen customers is seventeen links, and it is free: you are writing the names
-either way.
+Print the id where the label belongs and you have shown them a number they have
+never seen. A card's owner needs no second call: `Accounts.Owner.AccountUUID` IS
+that account's `Id`. A record whose id did not come back is named in plain text,
+never on a guessed path.
 
 ### Linking the set
 
-**Every answer about records also ends with a link to the whole set.** The planner is one click
-from the real list — sortable, paged, with every column and every action their job
-needs — so a table you retype is a worse copy of a thing they already have, and it
-costs roughly six times the words. Give the figure and the link, never both the
-link and the table it opens.
-
-That one carries a filter, so `link.py` builds it and you never type it:
+**Every answer about records ends with a link to the whole set** — one click and the
+planner has the real list, sorted, paged and actionable. Give the figure and the
+link, never the table that link opens.
 
 ```bash
 python /workspace/skills/xas-reporting/link.py --tool get_vehicle_list --filter '<the filter you sent>'
 python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the filter you sent>'   # job cards
 ```
 
-**Vehicles and accounts need no page at all — pass `--tool`.** Everything
-`get_vehicle_list` returns lists on one page, and so does everything
-`get_account_list` returns, so naming the tool you are calling is naming the page.
-There is nothing to look up and nothing to get wrong.
-
-**Job cards are the one lane that needs `--route`**, because they list on three
-different pages: it is the `route` column on the classification's phrasebook row,
-the same grep you are already running to translate its code. It is not always the
-obvious one — a `VRV` lists on a different page than a `Service`, and both link to
-`/job_cards/<id>` for a SINGLE card. Never type a route from memory; if the filter
-names no classification, there is no single page and no link to build.
-
-Four rules, each of which is a way to hand someone a link that loads cleanly and
-shows the wrong thing:
-
-1. **Link the query you counted.** `--filter` and the tool's `filter` are ONE
-   filter, written once into two commands sent together (step 5). That is what
-   makes them agree — not care in copying them. What breaks the pairing is a
-   turn that moves on: you narrow the filter and re-run, and the first link now
-   opens a set you are not reporting. Discard it and send a new pair. If you ever
-   do find yourself writing a link after the fact, take the filter from the
-   `source` block the tool echoed, never from memory of what you asked.
-2. **Never link a filter you did not run.** If the planner names three cards, that
-   is `{"DMSJCEntry": ["a","b","c"]}` — send it, read the count, then link it. A
-   link to a filter no tool has answered is a guess with a URL on it.
-3. **Never hand-write or edit a SET link.** A raw `$` in one returns an EMPTY page
-   rather than an error, and every vehicle and account filter contains one. Changing
-   a character of a built link is how a planner is shown nothing and told it is
-   five cars. (A detail link has no filter in it, which is why that one you do write
-   yourself.)
-4. **`Branch: true` and `MyJobCards` cannot be linked.** They mean "whoever is
-   logged in", which is you and not them. `link.py` refuses; resolve to explicit
-   ids and link that.
-
-The set link is not a substitute for the answer. It goes AFTER the figure, in a
-sentence that says what it opens.
+- **Vehicles and accounts take `--tool`**: everything those two tools return lists
+  on one page, so naming the tool names the page.
+- **Job cards take `--route`**, from the `route` column of the classification's
+  phrasebook row — never from memory. No classification named, no single page, no
+  link to build.
+- **Link the query you counted.** One filter, written once into both commands and
+  sent in the same block (step 2). Narrow it and re-run: discard the old link, send
+  a new pair. After the fact, take the filter from the `source` block the tool
+  echoed.
+- **Never link a filter you did not run.** Three cards the planner named is
+  `{"DMSJCEntry": ["a","b","c"]}`: send it, read the count, then link it.
+- **Never hand-write or edit a SET link.** A raw `$` returns an EMPTY page rather
+  than an error, and every vehicle and account filter carries one.
+- **`Branch: true` and `MyJobCards` cannot be linked** — they mean whoever opens
+  the link. Resolve to explicit ids and link those.
+- The link goes AFTER the figure, in a sentence saying what it opens.
 
 ## Charts
 
-Write every chart as a **self-contained `.html` file** into
-**`/mnt/session/outputs/`** (`mkdir -p` it first). That directory is what the
-planner's screen renders from — a chart written anywhere else exists only inside
-the sandbox and nobody ever sees it. **Self-contained means the SVG is inlined:**
-never reference a CDN, an external stylesheet or a separate image file — the page
-is opened later in another browser, and anything it must fetch can fail or leak.
-Inline SVG also scales without blurring, keeps labels as selectable text, and is
-typically smaller than the same chart as a PNG.
-
-```python
-import io, pathlib, matplotlib
-
-matplotlib.use("Agg")  # no display in the sandbox
-import matplotlib.pyplot as plt
-
-fig, ax = plt.subplots(figsize=(12, 6))
-# ... plot the numbers you resolved ...
-fig.tight_layout()
-
-buf = io.StringIO()
-fig.savefig(buf, format="svg")  # SVG, not PNG
-out = pathlib.Path("/mnt/session/outputs/late_orders_by_dealer.html")
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(
-    "<!doctype html><meta charset=utf-8>"
-    "<title>Late orders by dealer</title>"
-    # matplotlib writes a FIXED-size SVG; without this the chart is cropped and
-    # grows its own scrollbars inside the chat frame. Scaling on BOTH axes keeps
-    # any aspect ratio fully visible.
-    "<style>html,body{height:100%;margin:0}"
-    "body{display:grid;place-items:center;font-family:system-ui}"
-    "svg{max-width:100%;max-height:100%;width:auto;height:auto}</style>" + buf.getvalue(),
-    encoding="utf-8",
-)
-print(f"wrote {out}")
-```
-
-The `<title>` becomes the browser tab name. **The filename is business-facing:**
-the planner sees it as the caption above the chart, so name it in their words
-(`open-spare-parts-by-branch.html`), never with a code, an id or an internal field
-name. Then ONE line on what the chart shows. Not the filename, not the directory,
-not that a file was written. **Do not read the chart back**; that returns the whole
-file into the conversation to tell you what you just plotted.
+Asked for a chart? **Read `/workspace/skills/xas-reporting/charts.md` first** — the
+recipe is there, and it is what puts a chart on the planner's screen rather than in
+a sandbox nobody sees. Everything else on this page still applies: the numbers come
+from the procedure above, and the answer still closes with the link to the set.
 
 ## Presenting the answer
 
-The planner runs a dealership, not this pipeline. Everything in this file — the
-phrasebook, the lookups, the filters, the tool calls — is HOW you got the answer,
-and none of it belongs in the reply. Give the business answer: the figure, what
-it covers, and anything that changes how they read it.
+Everything above is HOW you got the answer, and none of it belongs in the reply.
+Give the figure, what it covers, and anything that changes how they read it:
 
-**What that silence rules out** (**The channel** above): announcing a step or
-narrating one you just took, running totals, a cross-check that came out fine — one
-that FAILS is worth a sentence, one that passed is not news — pointing at your own
-output, and the buckets that came back empty unless they asked for them.
-
-Say:
-
-- **The figure in one line, in their words**, with what it covers: "184
-  spare-parts cards are Open, Haifa branch, July." Say the status you counted —
-  *"are Open"*, not *"still open"*, which the planner reads as the wider
-  not-closed span (rule 5). Live numbers get a short "from the live system" — the
-  planner cannot tell that from the number.
-- **`name`, never `code`, `id`, or an internal field name.** Where the user
-  supplied their own wording — an alias rather than the stored name, say
-  `קריאת שירות` for what the taxonomy calls `Vehicle Service Order` — echo
-  **their** wording; it is what they will recognise. Chart axis labels and legends follow the same rule. A column headed
-  "Code" breaks this as surely as a sentence does.
-- **Every record you name, as a link to its own page** (**The links** above). A
-  list of customers is a list of links, not a list of names with one link under it.
-- **A stored name is ONE string — print it whole.** An account is its
-  `AccountName` exactly as written: `Daniil123` is the name. Not "Daniil", not
-  "Daniil (account 123)". Splitting it invents two things — a name nobody stored,
-  and a code the planner should not see. Observed 2026-08-27, and it began one turn
-  earlier with a table column of account codes: put a code on screen and it becomes
-  the handle you refer to the customer by.
+- **The figure in one line, in their words**, with what it covers: "184 spare-parts
+  cards are Open, Haifa branch, July." Name the status you counted — *"are Open"*,
+  not *"still open"*, which reads as the wider not-closed span. Add "from the live
+  system".
+- **`name`, never `code`, `id` or a field name.** Where the user gave their own
+  wording, echo theirs. A column headed "Code" breaks this as surely as a sentence
+  does.
+- **Every record you name, as a link to its own page.** A list of customers is a
+  list of links, not names with one link under them.
+- **A stored name is ONE string.** `Daniil123` is the name, not "Daniil (account
+  123)" — splitting it invents a name nobody stored and puts a code on screen.
 - **Never widen a finding past what you filtered.** A count for one account is
-  about that account. "His name appears nowhere in the dealership" is a different
-  query, and if you did not run it, do not write it.
-- **Anything that changes the reading**: which term you took their word to mean, a
-  bucket that is an unknown status, a count that came back empty, the one question
-  you would need answered to go further.
-- **The set link, last, in a sentence naming what it opens.** "184 spare-parts cards
+  about that account, and a query you did not run is not a finding.
+- **Anything that changes the reading**: which term you took their word to mean, an
+  unknown status, a count that came back empty, the one question you would need
+  answered to go further.
+- **The set link last, in a sentence naming what it opens.** "184 spare-parts cards
   are Open, Haifa branch, July — [open the list](<url>)." Not "click here", not a
   bare URL on its own line.
 
-**What to print, by question.** The table is the default answer only because it
-used to be the only one; it almost never is now.
+Do not say: a step you took or are about to take, a running total, a cross-check
+that passed (one that FAILS is worth a sentence), a pointer at your own output, or
+buckets that came back empty unless they asked for them.
 
-| They asked | You give |
+| They asked | You print |
 | --- | --- |
-| A count, a breakdown | the figures, then one link to the set behind them. **No table of cards.** |
-| "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows. |
-| One card, one car, one customer | its own page's link, and the one or two facts they asked for |
-| A named column — "which customers", "what are the plates" | THAT column, every entry linked to its own page, then the set link. Not the other ten. |
+| A count, a breakdown | the figures, then one link to the set. **No table of cards** |
+| "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows |
+| One card, one car, one customer | its own page's link, and the facts they asked for |
+| A named column — "which customers", "what are the plates" | THAT column, every entry linked, then the set link. Not the other ten |
 
-**Never print a table the link already opens** — and every row you print stays in
-this conversation, re-read on every later turn. A table earns its place only when
-the answer IS the shape of the data — a handful of buckets and their counts, which
-no single page shows — and even then it is the buckets, never the cards inside
-them.
+**Never print a table the link already opens.** A table earns its place only when
+the answer IS the shape of the data — a handful of buckets and their counts — and
+even then it is the buckets, never the cards inside.
 
-The prompt's ban on internal vocabulary and plumbing, in this lane's words: never
-say phrasebook, taxonomy, index, normalize, grep, awk, filter, paging,
-`totalCount`, record, row, field, code, ObjectId, UTC, sandbox or token — and
-no file path, no filename, no account of what you ran. **The app link is the one
-exception** — the planner's own system and the answer's other half, so it is the
-only URL or path that may appear. If a step went wrong, one sentence in business
-terms ("the live system returned nothing for July"), never a tool transcript.
+Never say phrasebook, taxonomy, normalize, grep, awk, filter, paging, `totalCount`,
+record, row, field, code, ObjectId, UTC, sandbox or token — and no file path, no filename,
+no account of what you ran. **The app link is the one exception**: it is
+the planner's own system and the answer's other half. If something went wrong, say
+it in business terms ("the live system returned nothing for July"), never as a tool
+transcript.

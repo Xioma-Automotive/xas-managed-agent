@@ -169,8 +169,11 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, not data.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-reporting/` (SKILL.md + `resolve.py` + `dates.py` + `link.py` +
-  `phrasebook.tsv`).
+  `xas-reporting/` (SKILL.md + `charts.md` + `resolve.py` + `dates.py` + `link.py` +
+  `phrasebook.tsv`). `charts.md` is the one file the agent reads ON DEMAND
+  (2026-09-01): charts fire on a minority of reporting turns, so the recipe is not
+  paid for on the first turn of every session — SKILL.md and the prompt both name
+  the path, because a rule you have to fetch is a rule you can skip.
   The DATA is mounted per session by `web.py` — the pull from
   `datasource.get_source(scenario)` — so re-carving a scenario needs no
   re-deploy. The tenant taxonomy is the exception (DECIDE-16): it rides in the
@@ -183,6 +186,21 @@ XAS endpoint and its credential never touch the sandbox.
   every run and that the agent cannot change — and put a second copy of the
   taxonomy in front of a model told not to read it whole. **Change either skill,
   the solver package, or the taxonomy and you must re-run `setup_agent.py`.**
+- **The sandbox already has matplotlib, and the chart recipe must not install
+  it.** Probed live 2026-09-01 on the cloud environment: `matplotlib`, `numpy`,
+  `pandas` and `PIL` are importable, `plotly` is NOT, Python is 3.11.15. So the
+  reporting skill's chart recipe needs no pip line — the allocation lane's
+  `pip install ortools pyyaml` is for the two the image lacks, not a general
+  habit — and a chart written against plotly would fail in the sandbox.
+- **The reporting SKILL.md is a procedure, not a changelog.** Condensed on
+  2026-09-01 (534 -> ~460 lines): every rule kept, the incident narratives behind
+  them removed. The agent re-reads this file on the first reporting turn of every
+  session, so a paragraph explaining WHY a rule exists is paid for on every
+  session and answers a question the agent never asks. The why lives in the
+  docstrings of `tests/test_agent_contract.py` and in this file. Those tests pin
+  the rules by exact phrase: re-wrap a pinned sentence and the test fails, which
+  is the point — use `_flat` there for anything that is prose rather than a
+  literal command.
 - **The phrasebook is TWO modules, split by where they run, and they share one
   `normalize`.** `phrasebook.py` at the repo root parses `index.md` and renders
   the table (host-side, never shipped — the same hop `flatten.py` is for the
@@ -206,8 +224,8 @@ XAS endpoint and its credential never touch the sandbox.
   names the server does not honour (`InventoryStatus` really holds `"1"`–`"5"`),
   and the phrasebook had the answer outright: `In Stock` is a Vehicle STATUS,
   code `03`. Two rules now carry it — the prompt orders the skill read BEFORE the
-  first MCP call and bans filters taken from a field list, and the skill's
-  resolution rule 10 scopes that list to `fields` alone. Neither is structural;
+  first MCP call and bans filters taken from a field list, and the skill's opening
+  **Three sources** table scopes that list to `fields` alone. Neither is structural;
   the prose is the whole mechanism. The ban is on the CALL, not on the block: a
   taxonomy lookup rides WITH the skill read, because its words come from the
   planner's question rather than from the procedure being fetched, and a lookup
@@ -217,8 +235,8 @@ XAS endpoint and its credential never touch the sandbox.
   and each supplies exactly one thing: the tool says what you may SEE, the taxonomy
   supplies filter VALUES, the recipes supply filter KEYS. Both sides used to get that
   wrong in opposite directions — the prompt sent the agent to the taxonomy for a key
-  it does not hold, and rule 10's heading said the same while its last sentence said
-  the opposite. Whichever half was believed, one of them was a dead end, which is the
+  it does not hold, and the skill's own rule said the same in its heading while its
+  last sentence said the opposite. Whichever half was believed, one of them was a dead end, which is the
   shape of the guess above.
 - **A tally is ONE page, and the page is 200 — the server's own maximum, not
   ours.** The skill said 50, so a 51-card tally came back one short and the agent
@@ -237,14 +255,24 @@ XAS endpoint and its credential never touch the sandbox.
   every RECORD it names to that record's own page, and closes with the SET link
   below. A detail page is a path and an id — no filter, nothing to encode — so the
   agent writes those inline itself; `link.py` is not involved and a batch mode for
-  it was tried and reverted. The three shapes are the app's own routes
+  it was tried and reverted. Its `detail_url` helper and the `--card` / `--vehicle`
+  / `--account` flags went the same way on 2026-09-01 — nothing called them, and a
+  second copy of the three shapes is a second copy to drift. The three shapes are
+  the app's own routes
   (`app/src/routes/index.tsx`): `/job_cards/<DMSJCEntry>`, `/vehicles/<VehicleCode>`,
   `/accounts/<Id>`. Each pairs a LABEL with a DIFFERENT field as the target — the
   planner knows a card by its `JobEntryNum`, the page routes on `DMSJCEntry`, which
   is how the app's own list renders it. A card's owner is linkable FROM the card:
   `Accounts.Owner.AccountUUID` IS that account's `Id` (the app writes it from
   `account.Id` and reads it back with `getAccountFromCoreById`), so a list already
-  pulled needs no second call to name its customers. Allocation answers carry NO
+  pulled needs no second call to name its customers. Measured live 2026-09-01, it
+  is right on 389 of one customer's 403 cards: 13 carry an id no account answers to
+  and one carries a DIFFERENT account's, under the same `AccountName`. The app
+  renders it the same way, so the link is faithful, not wrong — but an `Id` from
+  `get_account_list` beats one read off a card when you already hold it. That
+  same asymmetry is why the customer FILTER is the account's `Code`
+  (`Accounts.Owner.AccountDMSCode`, 403) and never the UUID (389, and silent about
+  the difference). Allocation answers carry NO
   links — those orders and cars come from the frozen pull, not the live system, so
   an id that looks routable may open something else. Both the prompt and the skill
   carry it, because the skill is what the agent composes the answer from and the

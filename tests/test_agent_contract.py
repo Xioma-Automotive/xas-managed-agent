@@ -29,6 +29,11 @@ import web
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _flat(text: str) -> str:
+    """Collapse whitespace: a pinned phrase must survive a re-wrap of the prose."""
+    return " ".join(text.split())
+
+
 def _description(skill_md: Path) -> str:
     """The frontmatter `description:` block — what the platform routes on."""
     text = skill_md.read_text(encoding="utf-8")
@@ -292,6 +297,7 @@ def test_reporting_bundle_ships_the_built_table_not_the_index():
     the taxonomy to read."""
     assert [n for n, _ in setup_agent.reporting_bundle()] == [
         "xas-reporting/SKILL.md",
+        "xas-reporting/charts.md",
         "xas-reporting/dates.py",
         "xas-reporting/link.py",
         "xas-reporting/phrasebook.tsv",
@@ -406,7 +412,7 @@ def test_reporting_skill_counts_with_totalcount_not_by_paging_records():
         "index.md is generated taxonomy — date mechanics hand-maintained there are "
         "dropped by the next dump_taxonomy run, and cost two round trips to find"
     )
-    assert "index.md" not in skill.split("## Getting the number")[1], (
+    assert "index.md" not in skill.split("## Answering a question")[1], (
         "and nothing about a date may send the agent to the taxonomy to look it up"
     )
 
@@ -421,9 +427,13 @@ def test_three_sources_and_the_prompt_names_them_the_same_way():
     the taxonomy supplies VALUES, the recipes supply KEYS."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     prompt = setup_agent.SYSTEM_PROMPT
-    rule = skill.split("10. **")[1].split("\n\n")[0]
-    assert "filter VALUES from here, filter KEYS\n    from the recipes" in rule
-    assert "no source gives you two of them" in rule
+    sources = _flat(skill.split("## Where things come from")[1].split("## The phrasebook")[0])
+    assert "filter VALUES" in sources and "the phrasebook" in sources
+    assert "filter KEYS" in sources and "the recipes in **The calls**" in sources
+    assert "the columns you may ask to SEE" in sources and "`fields` list" in sources
+    assert "Never take a filter — key or value — from a tool's `fields` list" in sources, (
+        "the ban is what the three-way split exists to support"
+    )
     assert "VALUES come from the taxonomy and filter KEYS from the skill's recipes" in prompt
     assert "Filter keys and values come from the taxonomy" not in prompt, (
         "the taxonomy holds no filter keys — sending the agent there for one is a dead end"
@@ -472,7 +482,7 @@ def test_the_skill_pairs_a_label_with_the_id_that_routes():
     customers with no second call."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Every record you name is a link to its own page — write it yourself" in skill
-    assert "`Accounts.Owner.AccountUUID` IS that\naccount's `Id`" in skill
+    assert "`Accounts.Owner.AccountUUID` IS that account's `Id`" in _flat(skill)
     for field in ("DMSJCEntry", "VehicleCode", "JobEntryNum", "LicenseNumber"):
         assert field in skill
     assert "Never hand-write or edit a SET link" in skill, (
@@ -492,9 +502,9 @@ def test_a_tally_is_one_page_at_the_servers_maximum():
     bytes — and names the `Accounts.*` fields, which arrive as whole owner objects
     (~175 tokens a row here, contact details included) rather than one value."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    tally = skill.split("- **More than 5**")[1].split('- **"Show me')[0]
-    assert "count: 200" in tally, "the tally page must be the server maximum"
-    assert "never page a tally" in tally
+    tally = next(l for l in skill.splitlines() if l.startswith("| Breakdown, more than 5"))
+    assert '"count": 200' in tally, "the tally page must be the server maximum"
+    assert "never page a tally" in tally.lower()
     assert "50" in tally, "the failure that set the number must stay attached to it"
     assert "BYTES" in tally and "`Accounts.*`" in tally, "200 of a fat field is not the same page"
     assert '{"count": 50}' not in skill, "no recipe may still prescribe the old page"
@@ -615,15 +625,16 @@ def test_between_tool_calls_the_agent_says_nothing():
     buckets sum to 28 — the split is clean". Every line between tool calls reaches
     the planner, so the rule has to cover the whole turn, not just the answer.
 
-    Moved 2026-08-27 into its own `## The channel` block ahead of the work, after
-    the same rule was broken twice more from under the "Presenting the answer"
-    heading — see test_reporting_skill_states_the_channel_before_the_output_contract."""
-    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Every character you emit reaches the planner" in skill
+    The PROMPT is where it lives (2026-09-01). It had a section of its own in the
+    reporting skill too; that was one rule written twice, and the prompt's copy is
+    the one on every request rather than once per session."""
     prompt = setup_agent.SYSTEM_PROMPT
     assert "there is no working-notes channel" in prompt
+    assert "Work in SILENCE and answer once" in prompt
     for banned in ("running totals", "point at your own output"):
         assert banned in prompt
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "## The channel" not in skill, "one rule, one place — the prompt carries it"
 
 
 def test_agent_does_not_report_where_the_chart_was_written():
@@ -632,8 +643,7 @@ def test_agent_does_not_report_where_the_chart_was_written():
     prompt = setup_agent.SYSTEM_PROMPT
     assert "say the filename in your reply" not in prompt
     assert "Not the filename, not the directory" in prompt
-    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Not the filename, not the directory" in skill
+    assert "Not the filename, not the directory" in _charts()
 
 
 def test_the_shipped_resolver_reads_the_table_beside_itself():
@@ -703,21 +713,36 @@ def test_reporting_skill_resolves_periods_with_the_helper():
 OUTPUTS_DIR = "/mnt/session/outputs"
 
 
+CHARTS_MD = "charts.md"
+
+
+def _charts() -> str:
+    return (setup_agent.REPORTING_SKILL_DIR / CHARTS_MD).read_text(encoding="utf-8")
+
+
 def test_agent_is_told_where_charts_must_go():
     """Only /mnt/session/outputs is captured by the Files API. A chart written
     anywhere else runs successfully and is seen by nobody."""
     assert OUTPUTS_DIR in setup_agent.SYSTEM_PROMPT
-    assert OUTPUTS_DIR in (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert OUTPUTS_DIR in _charts()
+
+
+def test_the_chart_recipe_is_a_file_of_its_own_that_the_skill_points_at():
+    """Charts fire on a minority of reporting turns, so the recipe is not paid for
+    on the first turn of every session — but a rule the agent has to fetch is a rule
+    it can skip, so SKILL.md must name the file and the prompt must send it there."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "/workspace/skills/xas-reporting/charts.md" in skill
+    assert "charts.md" in setup_agent.SYSTEM_PROMPT
+    assert "matplotlib" not in skill, "the recipe lives in one place"
+    assert f"xas-reporting/{CHARTS_MD}" in dict(setup_agent.reporting_bundle())
 
 
 def test_agent_is_told_not_to_read_the_chart_back():
     """Reading a PNG back returns base64 -- ~100KB of context for no new information."""
     prompt = setup_agent.SYSTEM_PROMPT.lower()
     assert "do not read the chart back" in prompt
-    assert (
-        "do not read the chart back"
-        in (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
-    )
+    assert "do not read the chart back" in _charts().lower()
 
 
 def test_web_serves_file_content_for_the_browser():
@@ -744,11 +769,11 @@ def test_charts_are_self_contained_html():
     """Inline SVG, not a CDN link: the page is opened later in another browser,
     so anything it must fetch is a dependency that can fail. It also measures
     SMALLER than the equivalent PNG (39.5KB vs 55.5KB for the same chart)."""
-    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "self-contained" in skill.lower()
-    assert 'format="svg"' in skill, "the recipe must save SVG, not PNG"
-    assert "matplotlib.use" in skill, "no display in the sandbox — Agg backend required"
-    assert "never reference a cdn" in skill.lower()
+    charts = _charts()
+    assert "self-contained" in charts.lower()
+    assert 'format="svg"' in charts, "the recipe must save SVG, not PNG"
+    assert "matplotlib.use" in charts, "no display in the sandbox — Agg backend required"
+    assert "never reference a cdn" in charts.lower()
     assert "self-contained" in setup_agent.SYSTEM_PROMPT.lower()
 
 
@@ -791,17 +816,13 @@ def test_reporting_skill_says_an_absent_field_is_not_an_empty_value():
     assert "NEVER a business fact" in skill
 
 
-def test_reporting_skill_states_the_channel_before_the_output_contract():
-    """Observed 2026-08-27: two mid-turn messages reached the planner — "Let me find
-    those tied to Daniil" and "Let me confirm the account filter actually works" —
-    naming an internal code and a filter. The rule existed, filed under "Presenting
-    the answer", which is not what the agent believes it is doing two calls deep. It
-    is now a standing fact about the channel, stated before any of the work."""
+def test_the_reply_contract_is_the_last_thing_the_skill_says():
+    """The skill's own output rules sit at the end, after the procedure that produces
+    the answer, and the mid-turn silence rule is the prompt's (see
+    test_between_tool_calls_the_agent_says_nothing) so it holds on every request
+    rather than once per session."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "## The channel" in skill
-    head = skill.split("## Getting the number", 1)[0]
-    assert "## The channel" in head, "it must come before the work, not after it"
-    assert "It is talking" in skill
+    assert skill.rstrip().split("## ")[-1].startswith("Presenting the answer")
 
 
 def test_reporting_skill_keeps_a_stored_name_whole():
@@ -812,7 +833,7 @@ def test_reporting_skill_keeps_a_stored_name_whole():
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "A stored name is ONE string" in skill
     assert "Daniil123" in skill, "name the observed failure, not the abstraction"
-    assert 'A column headed\n  "Code" breaks this' in skill
+    assert 'A column headed "Code" breaks this' in _flat(skill)
 
 
 def test_reporting_skill_establishes_before_it_narrows():
@@ -856,7 +877,6 @@ def test_reporting_skill_translates_codes_on_the_way_out():
     a code that will not resolve is named as unresolved, never printed bare."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "in BOTH directions" in skill
-    assert "Read it whether or not the question has a term in it" in skill
     assert "Translate every code before you print it" in skill
     assert "NAMED as unresolved" in skill
     assert "once per session" not in skill, "step 0 must not read as conditional"

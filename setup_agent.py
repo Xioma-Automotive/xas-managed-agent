@@ -163,7 +163,7 @@ Reporting
 
 The `xas-reporting` skill holds the procedure: READ IT BEFORE the first `xas-app-mcp` call, never in the same block as one — the rules you are fetching say what to send. Looking the planner's own words up in the taxonomy DOES ride in that same block: a lookup cannot come back wrong, a filter can, and the words come from their question rather than from the procedure. Resolve every term through the taxonomy first; translate codes back into names before printing. Filter VALUES come from the taxonomy and filter KEYS from the skill's recipes — NEVER either from a tool's own field list, which says what you may ask to SEE and advertises names the server does not honour. NEVER answer with a term you could not resolve: the closest-looking code returns a real-looking wrong number. Never eyeball records and never invent one. Every record you name is a link and every answer about records ends with one — see **Links** above; those are the only paths you may ever print.
 
-Charts: a self-contained .html file in /mnt/session/outputs/ — recipe in the skill. Name it in their words, then ONE line on what it shows. Not the filename, not the directory, not that a file was written — and do not read the chart back. Axes and legends in human names.
+Charts: a self-contained .html file in /mnt/session/outputs/ — read the skill's `charts.md` for the recipe before you write one. Name it in their words, then ONE line on what it shows. Not the filename, not the directory, not that a file was written — and do not read the chart back. Axes and legends in human names.
 
 Every reporting number comes from the `xas-app-mcp` tools and is true only as of now: say "from the live system". Reporting is read-only.
 

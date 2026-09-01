@@ -218,21 +218,16 @@ def test_every_link_is_relative():
     writes by hand, which have no host to know."""
     assert link.APP_BASE_URL == ""
     assert link.list_url("/job_cards", {"JobClassification": "Service"}).startswith("/job_cards?")
-    assert link.detail_url(link.ACCOUNT_DETAIL, "abc") == "/accounts/abc"
 
 
-def test_a_single_card_links_to_its_own_page_whatever_its_classification():
-    """There is no `/vehicle_planning/<id>`: the detail route is `/job_cards/<id>`
-    for every classification, even those whose LIST page is somewhere else."""
-    assert link.detail_url(link.CARD_DETAIL, "6813").endswith("/job_cards/6813")
-
-
-def test_a_vehicle_links_by_code_and_an_account_by_id():
-    """The account trap: `Id` and `Code` both look like identifiers on a record
-    and only `Id` routes."""
-    assert link.detail_url(link.VEHICLE_DETAIL, "11370").endswith("/vehicles/11370")
-    account = link.detail_url(link.ACCOUNT_DETAIL, "6a9144209004759d555d03f1")
-    assert account.endswith("/accounts/6a9144209004759d555d03f1")
+def test_the_detail_shapes_live_in_the_skill_not_in_this_file():
+    """A detail page is a path and an id, so the agent writes it inline and link.py
+    builds only the SET link. The three shapes are pinned in SKILL.md instead —
+    nothing here may grow a second, drifting copy of them."""
+    assert not hasattr(link, "detail_url")
+    skill = (REPO_ROOT / "skills" / "xas-reporting" / "SKILL.md").read_text(encoding="utf-8")
+    for shape in ("/job_cards/8745", "/vehicles/11370", "/accounts/655dc47b9c098a054a0791c3"):
+        assert shape in skill
 
 
 # --------------------------------------------------------------------------

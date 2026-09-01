@@ -8,9 +8,9 @@ filterable.
 
     python link.py --tool get_vehicle_list --filter '<the filter you are sending>'
     python link.py --route /vehicle_planning --filter '<the filter you are sending>'
-    python link.py --card 6813          # one job card, whatever its classification
-    python link.py --vehicle 11370
-    python link.py --account 6a9144209004759d555d03f1
+
+A DETAIL page — one card, one car, one account — is a path and an id with no filter
+to encode, so the agent writes those inline and this file is not involved.
 
 This works at all because a list page's result set is a pure function of its query
 string: the page parses `filter` / `paging` / `sort` out of the URL and sends them
@@ -73,13 +73,6 @@ LINK_PAGE_SIZE = 20
 # The pages whose URL filter reaches the backend untouched. Everything else goes
 # through the adapter described in the module docstring.
 VERBATIM_ROUTES = ("/job_cards", "/vehicle_planning", "/contracts")
-
-# Detail pages. The job-card one takes `DMSJCEntry` whatever the classification —
-# there is no `/vehicle_planning/<id>`. The account one takes the account's `Id`,
-# NOT its `Code`: the two both look like identifiers and only one routes.
-CARD_DETAIL = "/job_cards"
-VEHICLE_DETAIL = "/vehicles"
-ACCOUNT_DETAIL = "/accounts"
 
 # The read tools whose records all list on ONE page, so the page is a fact about
 # the call and not something to look up. `get_job_list` is deliberately absent:
@@ -187,10 +180,6 @@ def list_url(route: str, filter_obj: dict, sort: dict | None = None) -> str:
     return f"{APP_BASE_URL}{route}?{query}"
 
 
-def detail_url(page: str, key: str) -> str:
-    return f"{APP_BASE_URL}{page}/{urllib.parse.quote(str(key), safe='')}"
-
-
 def parse_url(url: str) -> dict:
     """The filter a link carries, back as an object. Used by the tests to prove the
     round trip, and by anyone checking a link by hand rather than by clicking it."""
@@ -201,7 +190,10 @@ def parse_url(url: str) -> dict:
 USAGE = """usage:
   link.py --tool get_vehicle_list --filter '<json>'
   link.py --route /job_cards --filter '<json>' [--sort '<json>']
-  link.py --card <DMSJCEntry> | --vehicle <VehicleCode> | --account <Id>
+
+Set links only. A DETAIL page is a path and an id (`/job_cards/<DMSJCEntry>`,
+`/vehicles/<VehicleCode>`, `/accounts/<Id>`) with no filter to encode, so the
+agent writes those inline and this file is not involved.
 
 --tool is the read tool you are calling, for the tools whose records all list on
 one page. --route is for job cards, which do not: it comes from the phrasebook's
@@ -214,15 +206,6 @@ def main() -> None:
     flags = dict(zip(args[::2], args[1::2]))
     if len(args) % 2 or not flags:
         sys.exit(USAGE)
-
-    for flag, page in (
-        ("--card", CARD_DETAIL),
-        ("--vehicle", VEHICLE_DETAIL),
-        ("--account", ACCOUNT_DETAIL),
-    ):
-        if flag in flags:
-            print(detail_url(page, flags[flag]))
-            return
 
     if ("--route" in flags) == ("--tool" in flags) or "--filter" not in flags:
         sys.exit(USAGE)
