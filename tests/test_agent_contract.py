@@ -427,10 +427,10 @@ def test_three_sources_and_the_prompt_names_them_the_same_way():
     the taxonomy supplies VALUES, the recipes supply KEYS."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     prompt = setup_agent.SYSTEM_PROMPT
-    sources = _flat(skill.split("## Where things come from")[1].split("## The phrasebook")[0])
-    assert "filter VALUES" in sources and "the phrasebook" in sources
-    assert "filter KEYS" in sources and "the recipes in **The calls**" in sources
-    assert "the columns you may ask to SEE" in sources and "`fields` list" in sources
+    sources = _flat(skill.split("# XAS reporting")[1].split("## The phrasebook")[0])
+    assert "Filter VALUES come from the phrasebook" in sources
+    assert "filter KEYS from **The calls**" in sources
+    assert "which columns you may SEE" in sources and "`fields` list" in sources
     assert "Never take a filter — key or value — from a tool's `fields` list" in sources, (
         "the ban is what the three-way split exists to support"
     )

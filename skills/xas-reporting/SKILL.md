@@ -13,21 +13,15 @@ description: >-
 
 # XAS reporting
 
-Counts, breakdowns, lists and charts over this dealership's job-card records.
+Counts, breakdowns, lists and charts over this dealership's job-card records. They
+live in the LIVE system and reach you through the `xas-app-mcp` read tools; nothing
+is on disk, so a number you cannot get from a tool call is a number you do not have.
 
-## Where things come from
-
-| What you need | Source |
-| --- | --- |
-| the records | the `xas-app-mcp` read tools, against the LIVE system. Nothing is on disk, so a number you cannot get from a tool call is a number you do not have |
-| filter VALUES — codes, ids, status names | the phrasebook |
-| filter KEYS — the field you filter ON | the recipes in **The calls**, or a `source` block a tool echoed |
-| the columns you may ask to SEE | the tool's own `fields` list |
-
-**Never take a filter — key or value — from a tool's `fields` list.** That list
-says what you may SEE, and it names things the server will not filter on. A filter
-built from it comes back as 0 rows rather than an error, so it reads like a real
-answer: `{"inventoryStatus": "InStock"}` returned 0 on a shelf holding 71 cars,
+Filter VALUES come from the phrasebook, filter KEYS from **The calls** below or
+from a `source` block a tool echoed. **Never take a filter — key or value — from a
+tool's `fields` list**: that list says only which columns you may SEE, and a filter
+built from it comes back as 0 rows rather than an error, which reads exactly like a
+real answer. `{"inventoryStatus": "InStock"}` returned 0 on a shelf holding 71 cars,
 while the phrasebook had `In Stock` as a vehicle status with code `03`.
 
 ## The phrasebook
@@ -82,16 +76,12 @@ cannot tell is wrong. Every figure traces back to a row.
 **Two genuine candidates → ask one short question.** `קריאת שירות` is both
 `ServiceCall` and `Service`: name them in the user's own words and let them pick.
 
-### Three rules for reading a row
+### Reading the row you found
 
-1. **Filter on what the row gives you, not on what it looks like.** A code carries
-   its `entity` — codes are unique per entity, not globally, so `Model` exists
-   under both `Model` and `VehicleModels` — and `code` and `name` diverge wherever
-   a tenant renamed something (`code=Evaluation` carries `name=Service Lead`).
-   Job-card statuses filter on the status `id`, vehicle statuses on `code` (core
-   enums, no id), branches on the `id` in an array. A branch NAME returns 0 with no
-   error, and branch lives on job cards only — vehicles carry the field with no
-   usable value.
+1. **Filter on `code`, display `name`, and carry the `entity` with both.** Codes
+   are unique per entity, not globally — `Model` exists under both `Model` and
+   `VehicleModels` — and `code` and `name` diverge wherever a tenant renamed
+   something (`code=Evaluation` carries `name=Service Lead`).
 2. **Take the planner's word literally; never widen it.** "Open" means the status
    named `Open` — ONE id spanning every classification that has it, so ONE
    array-valued call, never a call per classification. Here an id and its name are 1:1,
@@ -104,9 +94,9 @@ cannot tell is wrong. Every figure traces back to a row.
 3. **Never invent what the table does not hold.** A status row with an empty `name`
    is "unknown status (code NN)", counted separately and never relabelled. Cards
    with no branch are real, so per-branch buckets do not sum to the total: state
-   the remainder rather than letting it vanish into the biggest branch. Status rows
-   carry no aliases, so a lifecycle word in another language resolves by
-   translating to the English status name (step 3), never by widening to `state`.
+   the remainder. Status rows carry no aliases, so a lifecycle word in another
+   language resolves by translating to the English status name, never by widening
+   to `state`.
 
 ## Answering a question
 
@@ -163,7 +153,7 @@ rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.I
 | All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<the account's `Code`>"}` — never their `AccountUUID`: on one customer here that is 389 cards against the 403 the code returns, and the shortfall is silent |
 | Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
 | Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id |
-| Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch id, `filter: {"Branch": ["<id>"]}` |
+| Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch, `filter: {"Branch": ["<the ObjectId>"]}` — a branch NAME returns 0 with no error, and only job cards carry a usable branch |
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification |
 | Everything not closed — **only if they asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 
