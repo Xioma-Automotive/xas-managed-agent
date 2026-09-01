@@ -800,8 +800,9 @@ def test_reporting_skill_sends_fields_on_every_call():
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "Every row sends `fields`" in skill
     assert 'fields: ["DMSJCEntry"]' in skill, "the count row must ask for the key alone"
-    assert "A count needs no columns" in skill
-    assert "A count needs no fields" not in skill, "the two must not both be in the file"
+    count_row = next(l for l in skill.splitlines() if l.startswith("| A count |"))
+    assert 'fields: ["DMSJCEntry"]' in count_row, "a count asks for the key and no columns"
+    assert "A count needs no fields" not in skill, "`fields` is sent on every call"
 
 
 def test_reporting_skill_says_an_absent_field_is_not_an_empty_value():

@@ -46,8 +46,6 @@ normalized  surface  role  kind  entity  classification  code  id  name  state  
 - `kind` — `entity` / `classification` / `status` / `state` / `branch`. One surface
   can appear under two kinds (`Closed` is both a status and a state), so read
   `kind` before acting on a row.
-- `code` is what you filter on, `name` what you display. A `branch` row has no
-  code: its `id` is the filter value.
 - `route` — classification rows only: the app page those records list on, for
   `link.py --route`. Empty means there is nothing to link.
 - `role` and the remaining columns are provenance; you never filter on them.
@@ -160,13 +158,10 @@ rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.I
 ### Ask for the fields you need
 
 A card comes back with all its salient fields whether you use them or not, and they
-stay in this conversation for the session. `fields` is the only lever on that:
+stay in this conversation for the session, so **`fields` names what you will
+actually print** — decided from the answer you are about to write, not from what
+might be interesting. Two things to know before you trust a response:
 
-- **A count needs no columns.** You read `totalCount`, never a row: ask for the
-  key alone.
-- **A tally needs one field**: the one you group by.
-- **A card list needs the columns you will print**, decided from the answer you
-  are about to write, not from what might be interesting.
 - **`fields` narrows; it cannot widen.** It picks from what the tool already
   returns; a name it does not return is dropped in silence.
 - **So an absent field is not an empty value.** A missing date means "not returned
@@ -191,13 +186,10 @@ refuses, and then you ask which dates they mean.
 
 ## The links
 
-Two kinds, and only one is built by a command.
-
 ### Naming a record
 
 **Every record you name is a link to its own page — write it yourself.** A detail
-page is a path and an id: no filter, no query string, so none of the encoding that
-makes a set link fragile applies. Compose it inline as you write.
+page is a path and an id, nothing to encode, so compose it inline as you write.
 
 | Naming a | the label they read | the id that routes | the link |
 | --- | --- | --- | --- |
@@ -212,9 +204,8 @@ never on a guessed path.
 
 ### Linking the set
 
-**Every answer about records ends with a link to the whole set** — one click and the
-planner has the real list, sorted, paged and actionable. Give the figure and the
-link, never the table that link opens.
+**Every answer about records ends with a link to the whole set** — one click and
+the planner has the real list, sorted, paged and actionable.
 
 ```bash
 python /workspace/skills/xas-reporting/link.py --tool get_vehicle_list --filter '<the filter you sent>'
@@ -236,14 +227,12 @@ python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the fil
   than an error, and every vehicle and account filter carries one.
 - **`Branch: true` and `MyJobCards` cannot be linked** — they mean whoever opens
   the link. Resolve to explicit ids and link those.
-- The link goes AFTER the figure, in a sentence saying what it opens.
 
 ## Charts
 
-Asked for a chart? **Read `/workspace/skills/xas-reporting/charts.md` first** — the
-recipe is there, and it is what puts a chart on the planner's screen rather than in
-a sandbox nobody sees. Everything else on this page still applies: the numbers come
-from the procedure above, and the answer still closes with the link to the set.
+Asked for a chart? **Read `/workspace/skills/xas-reporting/charts.md` first** —
+the recipe is there, and it is what puts a chart on the planner's screen rather
+than in a sandbox nobody sees.
 
 ## Presenting the answer
 
@@ -257,8 +246,7 @@ Give the figure, what it covers, and anything that changes how they read it:
 - **`name`, never `code`, `id` or a field name.** Where the user gave their own
   wording, echo theirs. A column headed "Code" breaks this as surely as a sentence
   does.
-- **Every record you name, as a link to its own page.** A list of customers is a
-  list of links, not names with one link under them.
+- **A list of customers is a list of links**, not names with one link under them.
 - **A stored name is ONE string.** `Daniil123` is the name, not "Daniil (account
   123)" — splitting it invents a name nobody stored and puts a code on screen.
 - **Never widen a finding past what you filtered.** A count for one account is
