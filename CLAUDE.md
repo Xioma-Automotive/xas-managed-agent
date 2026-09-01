@@ -113,8 +113,9 @@ XAS endpoint and its credential never touch the sandbox.
   dev system, and since 2026-08-20 it is the reporting lane's ONLY source — the
   fabricated `jobcards.json` mount is gone. A tool has no path to forbid, so the
   hard rule names the toolset explicitly — "NEVER from an `xas-app-mcp` tool" —
-  and the prompt makes the agent say a reporting number came from the live
-  system. An allocation claim sourced from live data is worse than one read from a
+  and the prompt used to make the agent SAY a reporting number came from the live
+  system, dropped 2026-09-01 as noise in the reply — so nothing on screen marks a
+  number as live any more. An allocation claim sourced from live data is worse than one read from a
   file: it changes under you, so the turn is not even reproducible in principle.
   That rule is now the WHOLE fence between the two lanes; nothing structural
   backs it up. `tests/test_agent_contract.py` pins the rule and the two-place

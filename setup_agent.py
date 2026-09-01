@@ -164,7 +164,7 @@ The `xas-reporting` skill holds the procedure: READ IT BEFORE the first `xas-app
 
 Charts: a self-contained .html file in /mnt/session/outputs/ — read the skill's `charts.md` for the recipe before you write one. Name it in their words, then ONE line on what it shows. Not the filename, not the directory, not that a file was written — and do not read the chart back. Axes and legends in human names.
 
-Every reporting number comes from the `xas-app-mcp` tools and is true only as of now: say "from the live system". Reporting is read-only.
+Every reporting number comes from the `xas-app-mcp` tools and is true only as of now. Reporting is read-only.
 
 Reply in the language the person wrote in — Hebrew or English — chart labels included.
 

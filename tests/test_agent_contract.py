@@ -190,12 +190,6 @@ def test_prompt_stops_claiming_there_is_no_network():
     assert 'one exception to "everything is local"' in prompt
 
 
-def test_prompt_makes_the_agent_name_its_reporting_source():
-    """Reporting reads the LIVE system, so a number is only true as of the moment
-    it was asked. The planner cannot tell that from the number."""
-    assert "from the live system" in setup_agent.SYSTEM_PROMPT
-
-
 # --------------------------------------------------------------------------
 # The rule that keeps the two lanes from contaminating each other
 # --------------------------------------------------------------------------

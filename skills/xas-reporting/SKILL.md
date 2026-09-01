@@ -253,8 +253,7 @@ Give the figure, what it covers, and anything that changes how they read it:
 
 - **The figure in one line, in their words**, with what it covers: "184 spare-parts
   cards are Open, Haifa branch, July." Name the status you counted — *"are Open"*,
-  not *"still open"*, which reads as the wider not-closed span. Add "from the live
-  system".
+  not *"still open"*, which reads as the wider not-closed span.
 - **`name`, never `code`, `id` or a field name.** Where the user gave their own
   wording, echo theirs. A column headed "Code" breaks this as surely as a sentence
   does.
