@@ -438,8 +438,46 @@ def test_the_app_link_is_the_one_path_both_sides_allow():
     prompt = setup_agent.SYSTEM_PROMPT
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "no file paths, no filenames" in prompt, "the ban stays"
-    assert "the one URL or path you may ever print" in prompt, "and so does its exception"
+    assert "Links are the one exception" in prompt, "and so does its exception"
+    assert "those are the only paths you may ever print" in prompt
     assert "The app link is the one" in skill
+
+
+def test_every_named_record_is_a_link_in_the_shape_the_app_routes():
+    """A record the live tools returned is named as a link to its own page, always —
+    not only as the one set link that closes an answer. The three shapes are the app's
+    own routes (`app/src/routes/index.tsx`), and each pairs a LABEL the planner reads
+    with a different field as the TARGET: the job number shows, the entry id routes.
+    Get that backwards and the planner is shown an id they have never seen."""
+    prompt = setup_agent.SYSTEM_PROMPT
+    assert "[105374](/job_cards/8333)" in prompt
+    assert "[12-345-67](/vehicles/11370)" in prompt
+    assert "[Delek Motors](/accounts/6a9144209004759d555d03f1)" in prompt
+    assert "written by you from the id on the record itself" in prompt, (
+        "a detail page is a path and an id — no filter, so nothing to encode wrong"
+    )
+    assert "the skill builds it and you never type or edit it" in prompt, (
+        "the SET link carries a filter, and a raw `$` in one empties the page"
+    )
+    assert "Allocation answers carry NO links" in prompt, (
+        "an order or a car from the frozen pull has no page in the live system"
+    )
+
+
+def test_the_skill_pairs_a_label_with_the_id_that_routes():
+    """Naming a record is a link, and the two halves come off DIFFERENT fields: the
+    job number is what the planner knows the card by, the entry is what the page
+    routes on. The customer's id is the one nobody would guess — a card carries its
+    owner's account `Id` under `AccountUUID`, so a list already pulled links its
+    customers with no second call."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Every record you name is a link to its own page — write it yourself" in skill
+    assert "`Accounts.Owner.AccountUUID` IS that\naccount's `Id`" in skill
+    for field in ("DMSJCEntry", "VehicleCode", "JobEntryNum", "LicenseNumber"):
+        assert field in skill
+    assert "Never hand-write or edit a SET link" in skill, (
+        "the encoding hazard is the filter, and only the set link carries one"
+    )
 
 
 def test_a_tally_is_one_page_at_the_servers_maximum():

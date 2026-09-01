@@ -211,6 +211,16 @@ def test_sort_defaults_to_empty_and_is_carried_when_given():
 # --------------------------------------------------------------------------
 
 
+def test_every_link_is_relative():
+    """The answer is read inside the app, so a path resolves against the host the
+    planner is already on. An absolute one hard-codes a tenant's origin into a
+    bundle shared by all of them, and it would not match the detail links the agent
+    writes by hand, which have no host to know."""
+    assert link.APP_BASE_URL == ""
+    assert link.list_url("/job_cards", {"JobClassification": "Service"}).startswith("/job_cards?")
+    assert link.detail_url(link.ACCOUNT_DETAIL, "abc") == "/accounts/abc"
+
+
 def test_a_single_card_links_to_its_own_page_whatever_its_classification():
     """There is no `/vehicle_planning/<id>`: the detail route is `/job_cards/<id>`
     for every classification, even those whose LIST page is somewhere else."""

@@ -232,6 +232,28 @@ XAS endpoint and its credential never touch the sandbox.
   fields are whole owner objects (~175 tokens a row, phone and e-mail included) — see
   `docs/appmcp-requests.md`, which asks for a sub-field so a customer name costs a
   customer name.
+- **TWO kinds of link, and only one of them is built.** Added 2026-08-31, after
+  a session named seventeen customers as plain strings: a reporting answer links
+  every RECORD it names to that record's own page, and closes with the SET link
+  below. A detail page is a path and an id — no filter, nothing to encode — so the
+  agent writes those inline itself; `link.py` is not involved and a batch mode for
+  it was tried and reverted. The three shapes are the app's own routes
+  (`app/src/routes/index.tsx`): `/job_cards/<DMSJCEntry>`, `/vehicles/<VehicleCode>`,
+  `/accounts/<Id>`. Each pairs a LABEL with a DIFFERENT field as the target — the
+  planner knows a card by its `JobEntryNum`, the page routes on `DMSJCEntry`, which
+  is how the app's own list renders it. A card's owner is linkable FROM the card:
+  `Accounts.Owner.AccountUUID` IS that account's `Id` (the app writes it from
+  `account.Id` and reads it back with `getAccountFromCoreById`), so a list already
+  pulled needs no second call to name its customers. Allocation answers carry NO
+  links — those orders and cars come from the frozen pull, not the live system, so
+  an id that looks routable may open something else. Both the prompt and the skill
+  carry it, because the skill is what the agent composes the answer from and the
+  prompt is what survives a summary of it.
+- **Every link is RELATIVE** (2026-08-31): the answer is read inside the app, so a
+  path resolves against the host the planner is already on, and one bundle shared by
+  every tenant hard-codes nobody's origin. `APP_BASE_URL` is `""` and
+  `tests/test_link.py` pins it. The cost is that answers rendered anywhere else —
+  the `web.py` demo chat included — have dead links until that surface resolves them.
 - **A reporting answer ends in a LINK, and the link is the query that produced
   the number.** Added 2026-08-30. A list page's result set is a pure function of
   its query string — the page parses `filter`/`paging`/`sort` out of the URL and

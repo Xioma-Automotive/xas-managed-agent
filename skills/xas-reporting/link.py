@@ -56,10 +56,13 @@ import json
 import sys
 import urllib.parse
 
-# One tenant, one agent, so the host it points at is a constant here for the same
-# reason the taxonomy is (DECIDE-16). A second tenant makes this a per-session
-# value and moves it out of the bundle, exactly as it does for the phrasebook.
-APP_BASE_URL = "https://dev.app.automotivecloud.net"
+# Every link is RELATIVE: the planner reads the answer inside the app, so a path
+# resolves against whatever host they are already on — dev, staging or a tenant's
+# own — and there is no host here to go stale or to leak one tenant's into
+# another's answer. It also matches the links the agent writes by hand for a single
+# record, which have no host to know. Set this to an origin only if the answers are
+# ever rendered somewhere other than the app itself.
+APP_BASE_URL = ""
 
 # What the planner should land on: page one, and enough rows to be a list rather
 # than a keyhole. Deliberately NOT the paging the tool ran — a count question asks

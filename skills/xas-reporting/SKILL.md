@@ -253,7 +253,7 @@ three codes reached the planner untranslated, because step 0 had been skipped an
 there was nothing to look them up in.
 
 **5. Build the link BESIDE the call, not after it.** The planner gets a link to the
-page behind the answer (see **The link** below). Emit the `link.py` command and the
+page behind the answer (see **Linking the set** below). Emit the `link.py` command and the
 `get_job_list` call **in the same block**, so they run together and their results
 come back together:
 
@@ -340,22 +340,48 @@ and a count changes with it. It takes today, yesterday, this/last week,
 this/last month, this/last year, and "last N days". Anything else it refuses
 rather than guessing, and so do you: ask which dates they mean.
 
-## The link
+## The links
 
-**Every answer about records ends with a link to them.** The planner is one click
+There are TWO, and only one of them is built by a command.
+
+### Naming a record
+
+**Every record you name is a link to its own page — write it yourself.** A detail
+page is a path and an id, nothing else: no filter, no query string, so none of the
+encoding that makes a LIST link fragile applies. Compose it inline as you write the
+answer.
+
+| Naming a | the label they read | the id that routes | the link |
+| --- | --- | --- | --- |
+| job card | `JobEntryNum`, the job number | `DMSJCEntry` | `[105374](/job_cards/8745)` |
+| vehicle | `LicenseNumber`; `VehicleCode` where there is no plate | `VehicleCode` | `[12-345-67](/vehicles/11370)` |
+| customer | `AccountName` | `Accounts.Owner.AccountUUID` on a card, `Id` on an account | `[Hertz](/accounts/655dc47b9c098a054a0791c3)` |
+
+Label and id are DIFFERENT fields on the same record — the job number is what the
+planner knows the card by, the entry is what the page routes on. Print the id and
+you have shown them a number they have never seen.
+
+A card's owner is linkable **from the card**: `Accounts.Owner.AccountUUID` IS that
+account's `Id`, so a list you have already pulled names its customers with no
+second call. A record whose id did not come back is named in plain text — never
+a guessed path.
+
+Seventeen customers is seventeen links, and it is free: you are writing the names
+either way.
+
+### Linking the set
+
+**Every answer about records also ends with a link to the whole set.** The planner is one click
 from the real list — sortable, paged, with every column and every action their job
 needs — so a table you retype is a worse copy of a thing they already have, and it
 costs roughly six times the words. Give the figure and the link, never both the
 link and the table it opens.
 
-`link.py` ships beside this file and builds it:
+That one carries a filter, so `link.py` builds it and you never type it:
 
 ```bash
 python /workspace/skills/xas-reporting/link.py --tool get_vehicle_list --filter '<the filter you sent>'
 python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the filter you sent>'   # job cards
-python /workspace/skills/xas-reporting/link.py --card 6813      # one job card
-python /workspace/skills/xas-reporting/link.py --vehicle 11370
-python /workspace/skills/xas-reporting/link.py --account <the account's id>
 ```
 
 **Vehicles and accounts need no page at all — pass `--tool`.** Everything
@@ -383,16 +409,17 @@ shows the wrong thing:
 2. **Never link a filter you did not run.** If the planner names three cards, that
    is `{"DMSJCEntry": ["a","b","c"]}` — send it, read the count, then link it. A
    link to a filter no tool has answered is a guess with a URL on it.
-3. **Never hand-write or edit the URL.** A raw `$` in one returns an EMPTY page
-   rather than an error, and every vehicle and account link contains one. Changing
+3. **Never hand-write or edit a SET link.** A raw `$` in one returns an EMPTY page
+   rather than an error, and every vehicle and account filter contains one. Changing
    a character of a built link is how a planner is shown nothing and told it is
-   five cars.
+   five cars. (A detail link has no filter in it, which is why that one you do write
+   yourself.)
 4. **`Branch: true` and `MyJobCards` cannot be linked.** They mean "whoever is
    logged in", which is you and not them. `link.py` refuses; resolve to explicit
    ids and link that.
 
-A link is not a substitute for the answer. It goes AFTER the figure, in a sentence
-that says what it opens.
+The set link is not a substitute for the answer. It goes AFTER the figure, in a
+sentence that says what it opens.
 
 ## Charts
 
@@ -464,6 +491,8 @@ Say:
   `קריאת שירות` for what the taxonomy calls `Vehicle Service Order` — echo
   **their** wording; it is what they will recognise. Chart axis labels and legends follow the same rule. A column headed
   "Code" breaks this as surely as a sentence does.
+- **Every record you name, as a link to its own page** (**The links** above). A
+  list of customers is a list of links, not a list of names with one link under it.
 - **A stored name is ONE string — print it whole.** An account is its
   `AccountName` exactly as written: `Daniil123` is the name. Not "Daniil", not
   "Daniil (account 123)". Splitting it invents two things — a name nobody stored,
@@ -476,7 +505,7 @@ Say:
 - **Anything that changes the reading**: which term you took their word to mean, a
   bucket that is an unknown status, a count that came back empty, the one question
   you would need answered to go further.
-- **The link, last, in a sentence naming what it opens.** "184 spare-parts cards
+- **The set link, last, in a sentence naming what it opens.** "184 spare-parts cards
   are Open, Haifa branch, July — [open the list](<url>)." Not "click here", not a
   bare URL on its own line.
 
@@ -488,7 +517,7 @@ used to be the only one; it almost never is now.
 | A count, a breakdown | the figures, then one link to the set behind them. **No table of cards.** |
 | "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows. |
 | One card, one car, one customer | its own page's link, and the one or two facts they asked for |
-| A named column — "which customers", "what are the plates" | THAT column, and the link. Not the other ten. |
+| A named column — "which customers", "what are the plates" | THAT column, every entry linked to its own page, then the set link. Not the other ten. |
 
 **Never print a table the link already opens** — and every row you print stays in
 this conversation, re-read on every later turn. A table earns its place only when
