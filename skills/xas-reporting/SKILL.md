@@ -57,21 +57,27 @@ classification that is ABSENT is not evidence that no card carries it.
 ## Resolving a term
 
 **The lookup rides in the same block as this read** — your instructions carry the
-command, so it has already run by the time you read this. It works the ladder and
-stops at the first rung that hits — the stored form, a code or an id read
-backwards, a substring, word by word, the nearest spelling for a typo — and its
-first line says which wording matched and how. **Proposing the wordings is
-yours**; only one that RETURNS A ROW may be used.
+command, so it has already run by the time you read this. It works the ladder —
+the stored form, a code or an id read backwards, a substring, word by word, the
+nearest spelling for a typo — for EVERY wording you sent, and answers all of them:
+the column legend, then one block per wording, best kind of match first.
+**Proposing the wordings is yours**; only one that RETURNS A ROW may be used.
 
-| Its first line | You do |
+Read every block, not just the first: two wordings that answer differently are two
+candidates, not a winner and a loser. A row already printed above is not repeated.
+
+| A block reading | You do |
 | --- | --- |
 | `matched … — exact` or `— code or id` | use the row |
 | `matched … — partial` or `— words` | pick from the rows, or narrow the term and look again; the line says how many it held back |
 | `no match … nearest entries, CONFIRM` | ONE candidate: say how you read it and carry on ("I read *sapre parts* as **Spare Parts**"). Several: list them and ask. Never swap a word silently |
+| `no match '<term>'` on its own | that wording found nothing; another one may still have. It is a dead end only if EVERY block says it |
 | `no match … ask the user` | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words, and stop. Do not name this file or the command that missed |
 
-The table is a plain TSV — grep it directly when you want one column and nothing
-else.
+To enumerate a set rather than resolve a word — every status, every branch, the
+buckets a breakdown loops over — use `--list` (see **The calls**). Guessing the
+values and looking each guess up spends round trips to arrive at a list missing
+whichever one you did not think of.
 
 **Never answer with an unresolved term.** Not the closest code, not a count for
 "something like it": a wrong-but-close code returns a real-looking number the user
@@ -163,7 +169,7 @@ figure with `{"status.code": {"$in": [null]}}`. Never a negation, never a page o
 | Goal | Call |
 | --- | --- |
 | A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` → `totalCount` |
-| Breakdown on anything the phrasebook enumerates — status, classification, state, branch | one `paging: {"count": 1}` call PER bucket: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, **all of them in a SINGLE block**. There is NO cap on how many: twelve buckets is twelve calls and ONE round trip, and every answer is a `totalCount` over the WHOLE set. Integers, no cards. Never pull rows to tally a field whose values the phrasebook already lists. **A per-bucket breakdown with `count: 1` per bucket IS the answer once every bucket returns — do not re-query the full set** |
+| Breakdown on anything the phrasebook enumerates — status, classification, state, branch | **Take the bucket list from the phrasebook, never from your own memory of what a status is called:** `python /workspace/skills/xas-reporting/resolve.py --list kind=status entity=Vehicle` (any `<column>=<value>`: `kind=classification entity=JobCard`, `kind=branch`) prints one row per bucket, code order, the aliases collapsed. Then one `paging: {"count": 1}` call PER bucket: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, **all of them in a SINGLE block**. There is NO cap on how many: twelve buckets is twelve calls and ONE round trip, and every answer is a `totalCount` over the WHOLE set. Integers, no cards. Never pull rows to tally a field whose values the phrasebook already lists. **A per-bucket breakdown with `count: 1` per bucket IS the answer once every bucket returns — do not re-query the full set** |
 | Breakdown on anything it does not — customer, model, whatever the rows happen to name | **Rows are for two things only: DISPLAYING records, and grouping on a key whose values cannot be named in advance. A bucket call beats a row pull every time the buckets CAN be named, and ONE page of 200 is still pulling rows.** ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer. **If `totalCount` exceeds what you got, that page is a SAMPLE and holds no tally at all** — say what you can bound and stop; never print it as a breakdown. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
 | "Show me the cards that …" | the rows, with only the columns you will print. A second call repeating the same filter AND field list has bought nothing |
 | "All of X" you must print columns for | first ask: can you bound the page without knowing the size? Where you cannot — 20 rows is a list, 2,000 is a summary — send the key alone, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`, never candidate columns. Not before a tally: that is already one page of one field |
@@ -174,12 +180,8 @@ figure with `{"status.code": {"$in": [null]}}`. Never a negation, never a page o
 | Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification |
 | Everything not closed — **only if they asked for the span** | the `closed=false` ids in one array, from the phrasebook |
 
-**A result that arrives as a FILE is aggregated in CODE.** Past ~100,000 characters
-the platform writes a tool's output to a file in the sandbox and returns a truncated
-preview plus the path. Tally that with python in `bash` — `json.load`,
-`collections.Counter`, print the buckets — never off the preview, which is a
-fragment. Rows that arrive INLINE are already in front of you: count those yourself,
-because re-typing them into a command costs more than the count does.
+**Rows that arrive INLINE are already in front of you: count those yourself.**
+Re-typing them into a `bash` command pays for the whole payload a second time.
 
 ### Ask for the fields you need
 
@@ -272,13 +274,6 @@ Give the figure, what it covers, and anything that changes how they read it:
   wording, echo theirs. A column headed "Code" breaks this as surely as a sentence
   does.
 - **A list of customers is a list of links**, not names with one link under them.
-- **TWENTY NAMED RECORDS AT MOST, and the link carries the rest.** A long list is
-  a table by another name and nobody reads it. Name twenty — the twenty the
-  question puts first, or the first twenty that came back where nothing ranks them
-  — say how many more there are, and let the set link open all of them: "…and 43
-  more — [open all 63](<url>)". Twenty is a ceiling, not a target: three matches
-  print three, and a total the planner asked for is never one of the twenty it
-  counts.
 - **A stored name is ONE string.** `Daniil123` is the name, not "Daniil (account
   123)" — splitting it invents a name nobody stored and puts a code on screen.
 - **Never widen a finding past what you filtered.** A count for one account is
@@ -299,11 +294,10 @@ buckets that came back empty unless they asked for them.
 | A count, a breakdown | the figures, then one link to the set. **No table of cards** |
 | "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows |
 | One card, one car, one customer | its own page's link, and the facts they asked for |
-| A named column — "which customers", "what are the plates" | THAT column, up to TWENTY entries linked, how many more there are, then the set link. Not the other columns |
+| A named column — "which customers", "what are the plates" | THAT column, up to TWENTY entries linked, how many more there are, then the set link: "…and 43 more — [open all 63](<url>)". Twenty is a ceiling, not a target — three matches print three. Not the other columns |
 
-**Never print a table the link already opens.** A table earns its place only when
-the answer IS the shape of the data — a handful of buckets and their counts — and
-even then it is the buckets, never the cards inside.
+A table earns its place only when the answer IS the shape of the data — a handful
+of buckets and their counts — and even then it is the buckets, never the cards.
 
 Never say phrasebook, taxonomy, normalize, grep, awk, filter, paging, `totalCount`,
 record, row, field, code, ObjectId, UTC, sandbox or token — and no file path, no filename,

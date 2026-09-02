@@ -179,77 +179,217 @@ def test_suggest_returns_one_row_per_candidate_wording(rows):
 
 
 # --------------------------------------------------------------------------
-# --lookup: the whole ladder in one call. It used to be four greps the agent
-# typed itself, in an order only the prose held: run the loose one first and the
-# single right row for `service` is one of nineteen. Order is code's job now;
-# proposing the WORDINGS stays the agent's.
+# --lookup: the whole ladder, over every wording, in one call. It used to be four
+# greps the agent typed itself, in an order only the prose held: run the loose one
+# first and the single right row for `service` is one of nineteen. Order is code's
+# job now; proposing the WORDINGS stays the agent's. What order does NOT do any
+# more is suppress: a rung reached by one wording used to end the whole call.
 # --------------------------------------------------------------------------
+
+
+def _only(matches):
+    """The single block a one-term lookup returns."""
+    assert len(matches) == 1, matches
+    return matches[0]
 
 
 def test_lookup_takes_the_exact_row_over_the_substring_haul(rows):
     """`service` is one stored surface and nineteen substrings. The rung order is
     the whole reason this moved out of the skill's prose."""
-    term, rung, shown, found = resolve.lookup(["service"], rows)
+    term, rung, shown, found = _only(resolve.lookup(["service"], rows))
     assert (term, rung, found) == ("service", "exact", 1)
     assert _cols(shown[0])["name"] == "Vehicle Service Order"
 
 
-def test_lookup_prefers_a_later_wordings_exact_row_to_an_earlier_ones_substring(rows):
-    """Rung before term: the agent proposes wordings in the order they occur to
-    it, and the best MATCH is not usually the first guess. `parts inventory` finds
-    rows by word; `spare parts` is a row."""
-    term, rung, _, _ = resolve.lookup(["parts inventory", "spare parts"], rows)
-    assert (term, rung) == ("spare parts", "exact")
+def test_lookup_leads_with_an_exact_row_whichever_wording_found_it(rows):
+    """Rung before term, in the ORDER the blocks are read: the agent proposes
+    wordings in the order they occur to it, and the best MATCH is not usually the
+    first guess. `parts inventory` finds rows by word; `spare parts` is a row."""
+    matches = resolve.lookup(["parts inventory", "spare parts"], rows)
+    assert (matches[0][0], matches[0][1]) == ("spare parts", "exact")
+
+
+def test_lookup_answers_every_wording_not_only_the_best_one(rows):
+    """The regression this call exists to prevent. The agent is told to send every
+    wording it would have tried; a call that returns the first rung ANY of them
+    reaches makes the extra wordings HARM the answer. Here `in stock` is an exact
+    row and `inventory` is a substring haul holding the two sibling
+    classifications the user's question was actually about -- and a lookup that
+    stopped at `in stock` hid them."""
+    matches = resolve.lookup(["inventory", "in stock"], rows)
+    answered = {term: rung for term, rung, _, _ in matches}
+    assert answered == {"in stock": "exact", "inventory": "partial"}
+    named = {_cols(r)["name"] for _, _, shown, _ in matches for r in shown}
+    assert {"In Stock", "Inventory Vehicles", "Inventory Vehicles (Truck)"} <= named
+
+
+def test_a_wording_that_matches_nothing_is_reported_beside_the_ones_that_did(rows):
+    """Silence would read as "this wording was not tried"."""
+    text = resolve.report(resolve.lookup(["spare parts", "zzqqxx wobble"], rows))
+    assert "matched 'spare parts' — exact" in text
+    assert "no match for 'zzqqxx wobble'" in text
+
+
+def test_the_typo_rung_stays_a_whole_call_fallback(rows):
+    """Per term it would fire on every hedge word the agent invented, and the
+    caller is INSTRUCTED to act on a `CONFIRM` line. `status` is nobody's term
+    here and its nearest neighbour is `Task`; offering it beside a real match is
+    an invitation to answer about tasks."""
+    text = resolve.report(resolve.lookup(["spare parts", "status"], rows))
+    assert "CONFIRM" not in text
+    assert "no match for 'status'" in text
+
+
+def test_the_typo_rung_still_fires_when_no_wording_reached_a_rung(rows):
+    """`sapre parts` has one real word in it, and the rows `parts` alone pulls are
+    every Parts status -- noise, without the `Spare Parts` the user meant. A word
+    that matches nothing drops the whole term to the typo rung."""
+    _, rung, shown, _ = _only(resolve.lookup(["sapre parts"], rows))
+    assert rung == "near"
+    assert "SpareParts" in {_cols(r)["code"] for r in shown}
 
 
 def test_lookup_reads_the_table_backwards_from_an_id(rows):
     """A `JobState` arrives as a bare ObjectId, which is nobody's surface string.
     Without this rung the skill had to send the agent back to a raw grep."""
-    _, rung, shown, _ = resolve.lookup(["6530d9a89c098a15dc784be6"], rows)
+    _, rung, shown, _ = _only(resolve.lookup(["6530d9a89c098a15dc784be6"], rows))
     assert rung == "code or id"
     assert {_cols(r)["name"] for r in shown} == {"Closed"}
-
-
-def test_lookup_sends_a_misspelling_to_the_nearest_spellings(rows):
-    """`sapre parts` has one real word in it, and the rows `parts` alone pulls are
-    every Parts status — noise, without the `Spare Parts` the user meant. A word
-    that matches nothing drops the whole term to the typo rung."""
-    _, rung, shown, _ = resolve.lookup(["sapre parts"], rows)
-    assert rung == "near"
-    assert "SpareParts" in {_cols(r)["code"] for r in shown}
 
 
 def test_lookup_caps_a_broad_rung_and_says_what_it_held_back():
     """Every row printed is re-read on every later turn of the session, so a word
     matching half the table returns a page of it, not the table."""
     many = [(f"widget {n}", f"Widget {n}") + ("",) * 10 for n in range(30)]
-    term, rung, shown, found = resolve.lookup(["widget"], many)
+    matches = resolve.lookup(["widget"], many)
+    _, rung, shown, found = _only(matches)
     assert (rung, len(shown), found) == ("partial", resolve.LOOSE_LIMIT, 30)
-    assert "showing 20 of 30" in resolve.report(term, rung, shown, found)
+    assert "showing 20 of 30" in resolve.report(matches)
+
+
+def test_a_row_two_wordings_both_found_is_printed_once():
+    """Overlap between wordings is the NORMAL case -- the agent sends synonyms --
+    so paying for the same row twice is what would make hedging expensive."""
+    many = [(f"widget {n}", f"Widget {n}") + ("",) * 10 for n in range(5)]
+    text = resolve.report(resolve.lookup(["widget", "widget 1"], many))
+    assert text.count("Widget 1") == 1
+    assert "already above" in text
+
+
+def test_the_whole_call_has_a_row_ceiling_on_top_of_the_per_term_cap():
+    """Eight broad wordings at the per-term cap would be 160 rows in a
+    conversation that re-reads them every later turn. Blocks are emitted
+    best-rung-first, so a ceiling only ever cuts the loosest end."""
+    many = [
+        (f"w{group} {n}", f"W{group} {n}") + ("",) * 10 for group in range(6) for n in range(30)
+    ]
+    text = resolve.report(resolve.lookup([f"w{group}" for group in range(6)], many))
+    printed = sum(1 for line in text.splitlines() if line.startswith("w"))
+    assert printed == resolve.TOTAL_LIMIT
+    assert "held back, the call is full" in text
 
 
 def test_lookup_that_matches_nothing_says_to_ask(rows):
     """The dead-end rung, in the one line the agent acts on: no row, no candidate,
     no code to improvise with."""
-    term, rung, shown, found = resolve.lookup(["zzqqxx wobble"], rows)
+    matches = resolve.lookup(["zzqqxx wobble"], rows)
+    _, rung, shown, _ = _only(matches)
     assert (rung, shown) == ("", [])
-    assert resolve.report(term, rung, shown, found) == (
+    assert resolve.report(matches) == (
         "no match for 'zzqqxx wobble' — ask the user what they meant"
     )
 
 
 def test_report_leads_with_the_column_legend(rows):
-    """The rows are tab-separated columns the agent has to read by name."""
-    lines = resolve.report(*resolve.lookup(["spare parts"], rows)).splitlines()
-    assert lines[0].startswith("matched 'spare parts' — exact")
-    assert lines[1] == "\t".join(resolve.COLUMNS)
+    """The rows are tab-separated columns the agent has to read by name, so the
+    legend comes before the first block rather than inside each one."""
+    lines = resolve.report(resolve.lookup(["spare parts"], rows)).splitlines()
+    assert lines[0] == "\t".join(resolve.COLUMNS)
+    assert lines[1].startswith("matched 'spare parts' — exact")
 
 
 def test_lookup_finds_hebrew_typed_without_niqqud(rows):
     """The miss the phrasebook exists for, end to end through the one command."""
-    _, rung, shown, _ = resolve.lookup(["חלפים"], rows)
+    _, rung, shown, _ = _only(resolve.lookup(["חלפים"], rows))
     assert rung == "exact"
     assert {_cols(r)["code"] for r in shown} == {"SpareParts"}
+
+
+# --------------------------------------------------------------------------
+# --list: the bucket list a breakdown loops over. `--lookup` answers what a word
+# MEANS; this answers what the values ARE. Without it a live session invented
+# status names, looked them up one guess at a time, and still never reached
+# `99 Disabled` -- three round trips to not have the list.
+# --------------------------------------------------------------------------
+
+
+def test_list_enumerates_every_bucket_a_guess_would_have_to_reach(rows):
+    """The failure this verb exists for, on the exact question that hit it: a
+    vehicle-status breakdown is thirteen buckets and `99 Disabled` is the one a
+    session counting 01..12 never sees."""
+    found = resolve.buckets({"kind": "status", "entity": "Vehicle"}, rows)
+    codes = [_cols(row)["code"] for row in found]
+    assert len(found) == 13
+    assert codes == sorted(codes), "a loop is written in code order"
+    assert ("99", "Disabled") in {(_cols(r)["code"], _cols(r)["name"]) for r in found}
+
+
+def test_list_keeps_two_names_under_one_code_as_two_buckets(rows):
+    """Vehicle `02` is both `On The Way` and `Available For Sale`. Collapsing by
+    code would send ONE call and report their sum as one bucket."""
+    found = resolve.buckets({"kind": "status", "entity": "Vehicle"}, rows)
+    assert [_cols(r)["name"].strip() for r in found if _cols(r)["code"] == "02"] == [
+        "Available For Sale",
+        "On The Way",
+    ]
+
+
+def test_list_collapses_the_many_surfaces_of_one_record(rows):
+    """The table is one row per surface string -- a code, a name and four aliases
+    are six rows -- and JobCard status `01 New` is carried by eleven
+    classifications. A loop wants one call for it, not sixty."""
+    every_row = [
+        r for r in rows if _cols(r)["kind"] == "status" and _cols(r)["entity"] == "JobCard"
+    ]
+    found = resolve.buckets({"kind": "status", "entity": "JobCard"}, rows)
+    assert len(every_row) > 100 and len(found) == 21
+    assert [_cols(r)["name"] for r in found].count("New") == 1
+
+
+def test_list_shows_the_printable_row_of_a_record_not_an_alias(rows):
+    """`Inventory Vehicles (Truck)` is reachable as `1212`, `333` and `Truck`.
+    The bucket has to print as the name a planner would recognise."""
+    found = resolve.buckets({"kind": "classification", "entity": "Vehicle"}, rows)
+    truck = next(r for r in found if _cols(r)["code"] == "Truck")
+    assert _cols(truck)["surface"] == _cols(truck)["name"] == "Inventory Vehicles (Truck)"
+
+
+def test_list_rejects_a_column_the_table_does_not_have(rows):
+    """A filter on a column that does not exist would match nothing, and nothing
+    reads exactly like a tenant that has none of these."""
+    with pytest.raises(SystemExit) as raised:
+        resolve.parse_filters(["nonsense=x"])
+    assert "column one of" in str(raised.value)
+
+
+def test_list_says_plainly_when_a_real_filter_matches_nothing(rows):
+    filters = {"kind": "status", "entity": "Account"}
+    assert resolve.bucket_report(filters, resolve.buckets(filters, rows)) == (
+        "no rows for kind=status entity=Account"
+    )
+
+
+def test_list_is_bounded_and_says_so():
+    """A tenant with hundreds of classifications should not put all of them in
+    the conversation, and a loop that long is not one anybody wants either."""
+    many = [
+        ("", f"C{n}", "name", "classification", "JobCard", "", f"C{n}", "", f"C{n}", "", "", "")
+        for n in range(resolve.BUCKET_LIMIT + 40)
+    ]
+    filters = {"kind": "classification"}
+    text = resolve.bucket_report(filters, resolve.buckets(filters, many))
+    assert text.startswith(f"{resolve.BUCKET_LIMIT + 40} buckets — kind=classification (showing ")
+    assert len(text.splitlines()) == resolve.BUCKET_LIMIT + 2
 
 
 def test_state_ids_resolve_to_printable_names(rows):

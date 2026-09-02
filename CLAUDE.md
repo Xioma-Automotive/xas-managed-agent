@@ -206,6 +206,21 @@ XAS endpoint and its credential never touch the sandbox.
   the rules by exact phrase: re-wrap a pinned sentence and the test fails, which
   is the point — use `_flat` there for anything that is prose rather than a
   literal command.
+  **Trimmed again 2026-09-02, 21,228 -> 20,054 characters**, after a live run
+  measured that read at 23,038 characters of tool result on the first reporting
+  turn. Five cuts, and the argument is the count of always-on rules, not the bytes:
+  the read is cached INPUT and 1,174 characters is ~300 tokens. (1) The FILE half
+  of the aggregation rule — the platform offloads a tool result past ~100,000
+  characters to a file, but our own 200-row page cap keeps every reporting response
+  below that, so six lines described a branch nothing can reach; the INLINE half
+  stays, it is the one that gets forgotten. (2) The twenty-record cap was written
+  THREE times (prompt, a bullet, and the named-column row); the bullet went and its
+  "ceiling, not a target" clause moved into the row, so it now reads twice — the
+  prompt, which survives a summary, and the row where the decision is taken. (3)
+  "Never print a table the link already opens" restated the two table rows directly
+  above it. (4) "grep it directly" — the third path `--list` exists to replace. (5)
+  The block-reading paragraph compressed into the table under it. Two tests changed
+  with them and say in their docstrings what was cut and when to put it back.
 - **The system prompt is routing plus what has no skill, and it was HALVED on
   2026-09-01.** 3,045 -> 1,607 tokens (9,020 -> 4,727 chars, 64 -> 45 lines),
   measured with `messages.count_tokens` against `claude-opus-4-8`. The platform
@@ -242,6 +257,42 @@ XAS endpoint and its credential never touch the sandbox.
   equalling `normalize(surface)` and the exact rung would miss in silence.
   `tests/test_phrasebook.py` pins that equality over the BUNDLED bytes, and that
   the parser is absent from every shipped file.
+  **`--lookup` answers EVERY wording, and that is a 2026-09-02 fix.** It used to
+  work rung-before-term and RETURN at the first rung any wording reached, so the
+  other wordings were discarded in silence — which made the prompt's own
+  instruction (send every wording you would have tried, in one call) actively
+  harmful: a hedge that hit a higher rung hid the wording that meant what was
+  asked. Live, "inventory vehicles by status" hedged with "in stock" and got back
+  one status row, with both `Inventory Vehicles` classifications hidden. Now each
+  wording gets its own best rung, the rungs ORDER the blocks (exact first) instead
+  of suppressing them, rows already printed are not repeated, and a whole-call
+  ceiling (`TOTAL_LIMIT`) sits on top of the per-term `LOOSE_LIMIT`. The
+  nearest-spelling rung stays a WHOLE-CALL fallback deliberately: per wording it
+  fires on every hedge word the agent invented — `status` is nobody's term here
+  and its nearest neighbour is `Task` — and the skill instructs the agent to act on
+  a `CONFIRM` line. Two things this does NOT fix and that were considered
+  separately: an exact hit still says nothing about near-siblings that merely
+  CONTAIN the term (a live run on 2026-09-02 saw both `Inventory Vehicles`
+  classifications in one block and still answered about one of them without
+  asking), and enumerating a bucket list is not a lookup — see the next bullet.
+- **`--list` is the SECOND verb, and it exists because a bucket list is not a
+  lookup.** `--lookup` answers what a word MEANS; nothing answered what the values
+  ARE, so a session that needed every vehicle status invented plausible names
+  (`Sold`, `Delivered`, `In Transit`), looked each guess up, then guessed codes
+  `12`/`13`/`14` — three round trips to arrive at a list still missing `99
+  Disabled` (2026-09-01 spent a 15-iteration shell loop on the same hole; the awk
+  recipe that used to answer it was cut in `96ab2a4`). `resolve.py --list
+  kind=status entity=Vehicle` takes any `<column>=<value>` and prints ONE row per
+  RECORD in code order: distinctness is (code, name, id), so the eleven JobCard
+  classifications sharing `01 New` collapse to one bucket while vehicle `02` stays
+  TWO — the collision rule again, this time enforced by the output rather than by
+  prose. Aliases collapse into the printable name row (`1212` -> `Inventory
+  Vehicles (Truck)`), and `BUCKET_LIMIT` caps a tenant whose classifications run
+  to hundreds. It lives in the SKILL, not the prompt: unlike the lookup it is
+  never wanted before the skill has landed, and the allocation lane pays for every
+  prompt line. `tests/test_agent_contract.py` pins the invocation INSIDE the
+  bucket-loop row — a command one paragraph away from the decision is the shape
+  that got cut last time.
 - **A filter guessed from the MCP's own `fields` enum returns 0, not an error.**
   On 2026-08-31 a session read SKILL.md and fired `{"inventoryStatus": "InStock"}`
   in the SAME block — so it filtered before it had the procedure it was fetching —

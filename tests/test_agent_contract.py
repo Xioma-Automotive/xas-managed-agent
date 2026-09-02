@@ -456,12 +456,15 @@ def test_a_named_list_stops_at_twenty_and_the_link_carries_the_rest():
     prompt = setup_agent.SYSTEM_PROMPT
     assert "Name at most TWENTY records in one answer" in prompt
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "TWENTY NAMED RECORDS AT MOST, and the link carries the rest" in skill
-    assert "Twenty is a ceiling, not a target" in _flat(skill), (
-        "three matches print three — the cap must not pad an answer out to twenty"
-    )
+    # Said TWICE, not three times (2026-09-02): the prompt, which survives a summary
+    # of the skill, and the row where the decision is taken. The bullet that carried
+    # a third copy two paragraphs above that row was 491 characters read on every
+    # reporting session to repeat what the row already said.
     assert "up to TWENTY entries linked, how many more there are" in skill, (
         "the named-column row is where the decision is taken"
+    )
+    assert "Twenty is a ceiling, not a target" in _flat(skill), (
+        "three matches print three — the cap must not pad an answer out to twenty"
     )
 
 
@@ -565,22 +568,22 @@ def test_rows_are_for_display_or_an_unnameable_key_and_one_page_is_still_rows():
     assert "cannot be named in advance" in rows, "the tally case must survive the rule"
 
 
-def test_a_tool_result_that_arrives_as_a_file_is_aggregated_in_code():
-    """The platform offloads any tool output past ~100,000 characters to a file in the
-    sandbox and returns a truncated preview plus the path — MCP tools included. Those
-    rows are then on disk, so tallying them is code work.
+def test_an_inline_result_is_counted_in_the_model_not_retyped_into_bash():
+    """An inline result is already in the context window, and re-emitting it into a
+    bash command pays for the payload a second time in OUTPUT tokens — the vehicles
+    turn's 34,173-character result would have cost ~90 seconds to retype against ~15
+    seconds to read.
 
-    Below that threshold the opposite holds, and it is the half that gets forgotten:
-    an inline result is already in the context window, and re-emitting it into a bash
-    command pays for the payload a second time in OUTPUT tokens — the vehicles turn's
-    34,173-character result would have cost ~90 seconds to retype against ~15 seconds
-    to read. So the rule is stated with both halves, or it is worse than nothing."""
+    The skill used to carry the other half of this too: past ~100,000 characters the
+    platform writes a tool's output to a file and returns a preview plus the path, so
+    THOSE rows are code work. Cut on 2026-09-02, because nothing we send can land on
+    that side of the cliff — the 200-row page cap keeps every reporting response
+    below it, so those six lines were read on every session to describe a branch that
+    cannot be reached. Reinstate them the day a call is allowed to return more."""
     skill = _flat((setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
-    assert "arrives as a FILE is aggregated in CODE" in skill
-    assert "100,000 characters" in skill, "the rule needs the threshold, not just the shape"
-    assert "truncated preview plus the path" in skill
-    assert "Rows that arrive INLINE are already in front of you" in skill, (
-        "without the inline half the agent retypes a payload it already holds"
+    assert "Rows that arrive INLINE are already in front of you: count those yourself" in skill
+    assert "pays for the whole payload a second time" in skill, (
+        "the reason is the rule: without it, retyping looks free"
     )
 
 
@@ -623,7 +626,7 @@ def test_prompt_carries_the_lookup_command_so_it_can_ride_with_the_skill_read():
         "the invocation lives in the prompt only — a second copy is a second place to "
         "drift, and the skill copy is the one that arrives too late to be used"
     )
-    assert "| Its first line | You do |" in skill, (
+    assert "| A block reading | You do |" in skill, (
         "reading the result stays in the skill: it is not needed until the result is "
         "in hand, and the prompt is paid by the allocation lane too"
     )
@@ -692,6 +695,28 @@ def test_prompt_routes_the_everyday_words():
     prompt = setup_agent.SYSTEM_PROMPT.lower()
     for phrase in ("deliveries", "vehicle purchase order", "what's late"):
         assert phrase in prompt
+
+
+def test_the_bucket_list_command_sits_where_the_loop_is_decided():
+    """`--lookup` answers what a word MEANS; `--list` answers what the values ARE.
+    Without the second, a session invents status names, looks each guess up, and
+    still misses the one it did not think of -- measured live on 2026-09-02, three
+    round trips that never reached `99 Disabled`.
+
+    The command belongs in the row where the loop is DECIDED, not in a recipes
+    section further down: the awk one-liner it replaces lived in such a section
+    and was cut on 2026-09-01 without anything noticing it was load-bearing. It
+    stays in the SKILL rather than the prompt because, unlike the lookup, it is
+    never wanted before the skill has landed -- and the allocation lane pays for
+    every line of the prompt."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    loop_row = next(
+        line for line in skill.splitlines() if "call PER bucket" in line and "|" in line
+    )
+    assert "resolve.py --list" in loop_row, (
+        "a command in a different paragraph from the decision is a command that does not get run"
+    )
+    assert "never from your own memory" in loop_row
 
 
 def test_reporting_skill_has_a_dead_end_rule():

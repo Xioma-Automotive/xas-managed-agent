@@ -5,15 +5,17 @@ One verb, and it is all the agent ever runs:
     python resolve.py --lookup "חלפים" "spare parts" "parts"
 
 The rungs that are pure lookup live HERE — exact surface, code or id, substring,
-word-by-word, then nearest spelling — tried in that order and stopped at the
-first that returns rows. Typing them out one grep at a time is what the skill
-used to ask for, and a ladder written by hand is a ladder that can be climbed in
-the wrong order: the loose search run first returns nineteen rows for `service`
-where the anchored one returns the single right row.
+word-by-word, then nearest spelling. EVERY term gets its own best rung and every
+one of them is reported: the rungs ORDER the answer, they no longer suppress it.
+Typing them out one grep at a time is what the skill used to ask for, and a
+ladder written by hand is a ladder that can be climbed in the wrong order: the
+loose search run first returns nineteen rows for `service` where the anchored one
+returns the single right row. Ordering keeps that; answering every term keeps the
+other seven wordings the agent was told to send.
 
 Proposing the alternative WORDINGS stays the agent's judgment — this takes
 several terms in one call so its proposals cost one round trip, not three — and
-so does what to say about the row that comes back.
+so does what to say about the rows that come back.
 
 The table it reads, `phrasebook.tsv`, ships built beside this file — see the
 repo-root `phrasebook.py`, which builds it at deploy time and imports `normalize`
@@ -54,6 +56,9 @@ COLUMNS = (
 
 CODE_COLUMN = COLUMNS.index("code")
 ID_COLUMN = COLUMNS.index("id")
+ROLE_COLUMN = COLUMNS.index("role")
+NAME_COLUMN = COLUMNS.index("name")
+SURFACE_COLUMN = COLUMNS.index("surface")
 
 
 def normalize(text: str) -> str:
@@ -171,8 +176,9 @@ def _by_word(term: str, rows: list[tuple[str, ...]]) -> list[tuple[str, ...]]:
     return [row for _, _, row in sorted(scored)]
 
 
-# Each rung is (label, finder, capped). Order is the whole point: the exact rungs
-# run before anything broad, so the single right row is never buried in thirteen.
+# Each rung is (label, finder, capped). Order is presentation, not suppression:
+# every term is answered, and the exact rungs are printed first so the single
+# right row is never read after thirteen loose ones.
 RUNGS = (
     ("exact", _exact, False),
     ("code or id", _by_identifier, False),
@@ -180,59 +186,200 @@ RUNGS = (
     ("words", _by_word, True),
 )
 
+RUNG_ORDER = {label: position for position, (label, _, _) in enumerate(RUNGS)}
 
-def lookup(
-    terms: list[str], rows: list[tuple[str, ...]]
-) -> tuple[str, str, list[tuple[str, ...]], int]:
-    """Work the ladder over ``terms``; stop at the first rung any of them hits.
+# The whole call's row budget, on top of the per-term cap. Eight broad wordings
+# at LOOSE_LIMIT each would put 160 rows in a conversation that re-reads them
+# every later turn; the blocks are emitted best-rung-first, so what a ceiling
+# cuts is always the loosest end.
+TOTAL_LIMIT = 60
 
-    Rung before term, not term before rung: an exact match on the third wording
-    the agent proposed beats a substring match on the first.
+Match = tuple[str, str, list[tuple[str, ...]], int]
 
-    Returns (term, rung, rows to show, rows found). ``rung`` is "near" for the
-    nearest-spelling candidates, which are the caller's to CONFIRM and never to
-    use, and "" when nothing matched at all.
-    """
+
+def best_rung(term: str, rows: list[tuple[str, ...]]) -> Match:
+    """The highest rung this ONE term reaches: (term, rung, rows to show, rows found)."""
     for label, finder, capped in RUNGS:
-        for term in terms:
-            found = finder(term, rows)
-            if found:
-                shown = found[:LOOSE_LIMIT] if capped else found
-                return term, label, shown, len(found)
+        found = finder(term, rows)
+        if found:
+            return term, label, (found[:LOOSE_LIMIT] if capped else found), len(found)
+    return term, "", [], 0
+
+
+def lookup(terms: list[str], rows: list[tuple[str, ...]]) -> list[Match]:
+    """Answer EVERY term, best rung first.
+
+    The agent is told to send every wording it would have tried in one call, so a
+    call that answers one of them and drops the rest makes extra wordings HARM the
+    answer: a hedge that happens to hit a higher rung hides the wording that meant
+    what the user asked. This used to stop at the first rung any term reached —
+    right for synonyms of one thing, wrong for hedges across different things, and
+    the caller cannot tell which it is doing at the time it calls. So the rungs
+    rank the blocks and nothing is discarded.
+
+    The nearest-spelling rung stays a WHOLE-CALL fallback rather than running per
+    term: a hedge word that is nobody\'s term ("status") has near neighbours that
+    are nobody\'s answer ("Task"), and the caller is instructed to act on a
+    "CONFIRM" line. It fires only when no term reached a real rung.
+
+    ``rung`` is "near" for those candidates, which are the caller\'s to CONFIRM and
+    never to use, and "" for a term that matched nothing.
+    """
+    matches = [best_rung(term, rows) for term in terms]
+    if any(rung for _, rung, _, _ in matches):
+        # Stable by the order the agent proposed them, so equal rungs read as typed.
+        ranked = sorted(
+            enumerate(matches),
+            key=lambda pair: (RUNG_ORDER.get(pair[1][1], len(RUNGS)), pair[0]),
+        )
+        return [match for _, match in ranked]
 
     for term in terms:
         near = suggest(term, rows)
         if near:
-            return term, "near", near, len(near)
+            return [(term, "near", near, len(near))]
 
-    return terms[0], "", [], 0
+    return [(terms[0], "", [], 0)]
 
 
-def report(term: str, rung: str, shown: list[tuple[str, ...]], found: int) -> str:
-    """What the agent reads: which term matched and how, then the rows."""
-    if not rung:
-        return f"no match for {term!r} — ask the user what they meant"
-
+def _headline(term: str, rung: str, shown: list[tuple[str, ...]], found: int) -> str:
     if rung == "near":
-        head = f"no match for {term!r} — nearest entries, CONFIRM before using one:"
-    else:
-        head = f"matched {term!r} — {rung}"
+        return f"no match for {term!r} — nearest entries, CONFIRM before using one:"
+    head = f"matched {term!r} — {rung}"
     if found > len(shown):
         head += f" (showing {len(shown)} of {found}; narrow the term for the rest)"
+    return head
 
-    lines = [head, "\t".join(COLUMNS)]
-    lines += ["\t".join(row) for row in shown]
+
+def report(matches: list[Match]) -> str:
+    """What the agent reads: the column legend, then one block per wording.
+
+    A row already printed under an earlier wording is not printed twice — the
+    block says so instead, because two wordings finding the same row is the
+    normal case and paying for it twice is what makes a hedge expensive.
+    """
+    if len(matches) == 1 and not matches[0][1]:
+        return f"no match for {matches[0][0]!r} — ask the user what they meant"
+
+    lines = ["\t".join(COLUMNS)]
+    seen: set[tuple[str, ...]] = set()
+    budget = TOTAL_LIMIT
+    for term, rung, shown, found in matches:
+        if not rung:
+            lines.append(f"no match for {term!r}")
+            continue
+        head = _headline(term, rung, shown, found)
+        fresh = [row for row in shown if row not in seen]
+        repeated = len(shown) - len(fresh)
+        held = max(0, len(fresh) - budget)
+        fresh = fresh[: len(fresh) - held]
+        seen.update(fresh)
+        budget -= len(fresh)
+        if repeated:
+            head += f" — {repeated} already above"
+        if held:
+            head += f" — {held} held back, the call is full"
+        lines.append(head)
+        lines += ["\t".join(row) for row in fresh]
     return "\n".join(lines)
+
+
+# --list: the bucket list a breakdown loops over. `--lookup` answers "what does
+# this word mean"; nothing answered "what are all the values", so a session
+# invented status names one at a time and looked each one up — three round trips
+# that still missed `99 Disabled`.
+#
+# A tenant with hundreds of classifications should not put all of them in the
+# conversation at once, and a list that long is not a loop anybody wants either.
+BUCKET_LIMIT = 100
+
+# Which surface stands for a record when several point at it: the printable name
+# first, then the code. A loop filters on the code and prints the name, and an
+# alias row (`1212`) is neither.
+ROLE_RANK = {"name": 0, "code": 1}
+
+
+def _cell(row: tuple[str, ...], index: int) -> str:
+    return row[index] if index < len(row) else ""
+
+
+def buckets(filters: dict[str, str], rows: list[tuple[str, ...]]) -> list[tuple[str, ...]]:
+    """Every distinct RECORD matching `column=value`, one row each.
+
+    The table is one row per surface string, so a record with a code, a name and
+    four aliases is six rows and a loop wants one. Distinctness is
+    (code, name, id): the eleven JobCard classifications that share status
+    `01 New` collapse to ONE bucket, while vehicle `02` stays TWO, because
+    `On The Way` and `Available For Sale` are two names under one code and a loop
+    that sent that code once would silently sum them.
+    """
+    wanted = {COLUMNS.index(column): normalize(value) for column, value in filters.items()}
+    best: dict[tuple[str, ...], tuple[int, tuple[str, ...]]] = {}
+    for row in rows:
+        if any(normalize(_cell(row, index)) != value for index, value in wanted.items()):
+            continue
+        identity = (
+            _cell(row, CODE_COLUMN),
+            _cell(row, NAME_COLUMN),
+            _cell(row, ID_COLUMN),
+        )
+        # An ENTITY row carries none of the three, so it is its own bucket.
+        key = identity if any(identity) else (_cell(row, SURFACE_COLUMN),)
+        rank = ROLE_RANK.get(_cell(row, ROLE_COLUMN), len(ROLE_RANK))
+        if key not in best or rank < best[key][0]:
+            best[key] = (rank, row)
+    return sorted(
+        (row for _, row in best.values()),
+        key=lambda row: (_cell(row, CODE_COLUMN), _cell(row, NAME_COLUMN)),
+    )
+
+
+def bucket_report(filters: dict[str, str], found: list[tuple[str, ...]]) -> str:
+    """What the agent reads: how many buckets there are, then one row each."""
+    asked = " ".join(f"{column}={value}" for column, value in filters.items())
+    if not found:
+        return f"no rows for {asked}"
+    shown = found[:BUCKET_LIMIT]
+    head = f"{len(found)} buckets — {asked}"
+    if len(shown) < len(found):
+        head += f" (showing {len(shown)}; add another column=value to narrow)"
+    return "\n".join([head, "\t".join(COLUMNS)] + ["\t".join(row) for row in shown])
+
+
+def parse_filters(pairs: list[str]) -> dict[str, str]:
+    """`kind=status entity=Vehicle` -> {"kind": "status", "entity": "Vehicle"}.
+
+    An unknown column is an error naming the real ones rather than an empty list:
+    a filter that silently matches nothing reads exactly like a tenant that has
+    none of these.
+    """
+    filters: dict[str, str] = {}
+    for pair in pairs:
+        column, sep, value = pair.partition("=")
+        if not sep or column not in COLUMNS:
+            sys.exit(f"{pair!r}: expected <column>=<value>, column one of {', '.join(COLUMNS)}")
+        filters[column] = value
+    return filters
 
 
 def main() -> None:
     if len(sys.argv) > 2 and sys.argv[1] == "--lookup":
         if not PHRASEBOOK_PATH.is_file():
             sys.exit(f"No phrasebook at {PHRASEBOOK_PATH} (it ships in this skill)")
-        print(report(*lookup(sys.argv[2:], read_rows(PHRASEBOOK_PATH))))
+        print(report(lookup(sys.argv[2:], read_rows(PHRASEBOOK_PATH))))
         return
 
-    sys.exit('usage: resolve.py --lookup "<term>" ["<other wording>" …]')
+    if len(sys.argv) > 2 and sys.argv[1] == "--list":
+        if not PHRASEBOOK_PATH.is_file():
+            sys.exit(f"No phrasebook at {PHRASEBOOK_PATH} (it ships in this skill)")
+        filters = parse_filters(sys.argv[2:])
+        print(bucket_report(filters, buckets(filters, read_rows(PHRASEBOOK_PATH))))
+        return
+
+    sys.exit(
+        'usage: resolve.py --lookup "<term>" ["<other wording>" …]\n'
+        "       resolve.py --list <column>=<value> [<column>=<value> …]"
+    )
 
 
 if __name__ == "__main__":

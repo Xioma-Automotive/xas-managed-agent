@@ -88,11 +88,16 @@ normalized phrasebook (one row per surface string, casefolded and stripped of
 combining marks) so Hebrew typed without niqqud still matches, then resolves
 it with one `resolve.py --lookup` call, which climbs the whole ladder — the
 stored form, a code or id read backwards, a substring, word by word, then the
-nearest spelling for a misspelling — over every wording the agent proposes in
-that call, and stops at the first rung that hits. A term that survives
+nearest spelling for a misspelling — for every wording the agent proposes in
+that call, and answers ALL of them: the ladder orders the blocks, it does not
+suppress them. A term that survives
 all of that unresolved gets no answer: the skill makes the agent name it, offer
 the nearest entries and ask, because the closest-looking code returns a
-real-looking number nobody can tell is wrong.
+real-looking number nobody can tell is wrong. Enumerating a set rather than
+resolving a word — every vehicle status, every branch, the buckets a breakdown
+loops over — is the same file's other verb, `resolve.py --list kind=status
+entity=Vehicle`, which prints one row per record so a loop cannot miss a value
+nobody thought to guess.
 
 The taxonomy itself ships **inside the `xas-reporting` skill** (DECIDE-16): one
 tenant, so static config beats a per-session upload, at the cost of a redeploy
