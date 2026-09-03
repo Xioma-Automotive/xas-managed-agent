@@ -177,7 +177,7 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, not data.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-reporting/` (SKILL.md + `charts.md` + `resolve.py` + `dates.py` + `link.py` +
+  `xas-reporting/` (SKILL.md + `charts.md` + `resolve.py` + `dates.py` +
   `phrasebook.tsv`). `charts.md` is the one file the agent reads ON DEMAND
   (2026-09-01): charts fire on a minority of reporting turns, so the recipe is not
   paid for on the first turn of every session — SKILL.md and the prompt both name
@@ -252,7 +252,7 @@ XAS endpoint and its credential never touch the sandbox.
   `variants/minimal/xas-reporting.SKILL.md` in place of the reporting SKILL.md
   (see `variants/README.md`); unset deploys the full pair, so the default run and
   the whole suite are untouched. Everything else — `resolve.py`, `dates.py`,
-  `link.py`, `charts.md`, the rendered `phrasebook.tsv`, the allocation bundle —
+  `charts.md`, the rendered `phrasebook.tsv`, the allocation bundle —
   ships identically either way, which is what makes the two comparable. Both
   files must exist or the run exits naming the missing one, and `main()` prints
   which pair went out. `minimal` (2026-09-03) is the experiment in saying what
@@ -419,7 +419,7 @@ XAS endpoint and its credential never touch the sandbox.
   it is the only remaining tally case. Re-read in full on 2026-09-01: that same turn
   spent EIGHT model round trips on a three-trip answer (173s, 11,559 output tokens,
   $0.81), and two of the five wasted ones broke rules the agent had read that turn —
-  the size probe before the buckets and the `link.py` call left to the end. Prose did
+  the size probe before the buckets and the set link left to the end. Prose did
   not hold them, so two rules were made CONCRETE in the skill instead: the residual is
   worked through with its arithmetic (twelve buckets summing to 723 against 1,334
   leaves 611, confirmed once with `{"status.code": {"$in": [null]}}`), and **two
@@ -445,88 +445,58 @@ XAS endpoint and its credential never touch the sandbox.
   fires on no reporting call we make today. Programmatic tool calling, which WOULD put
   a result in code without the size cliff, is a Messages API feature and is not
   compatible with MCP tools; it is not available on this surface.
-- **TWO kinds of link, and only one of them is built.** Added 2026-08-31, after
-  a session named seventeen customers as plain strings: a reporting answer links
-  every RECORD it names to that record's own page, and closes with the SET link
-  below. Capped at TWENTY named records on 2026-09-01: "every entry linked" had no
-  ceiling, so "which vehicles does Hertz hold" printed 63 linked rows — the table
-  the set link already opens, and 63 rows re-read on every later turn. Past twenty
-  the set link IS the list; twenty is a ceiling, not a target. (The cap was ten for
-  the first few hours of that day; twenty is the number that stuck.) A detail page is a
-  path and an id — no filter, nothing to encode — so the
-  agent writes those inline itself; `link.py` is not involved and a batch mode for
-  it was tried and reverted. Its `detail_url` helper and the `--card` / `--vehicle`
-  / `--account` flags went the same way on 2026-09-01 — nothing called them, and a
-  second copy of the three shapes is a second copy to drift. The three shapes are
-  the app's own routes
-  (`app/src/routes/index.tsx`): `/job_cards/<DMSJCEntry>`, `/vehicles/<VehicleCode>`,
-  `/accounts/<Id>`. Each pairs a LABEL with a DIFFERENT field as the target — the
-  planner knows a card by its `JobEntryNum`, the page routes on `DMSJCEntry`, which
-  is how the app's own list renders it. A card's owner is linkable FROM the card:
-  `Accounts.Owner.AccountUUID` IS that account's `Id` (the app writes it from
-  `account.Id` and reads it back with `getAccountFromCoreById`), so a list already
-  pulled needs no second call to name its customers. Measured live 2026-09-01, it
-  is right on 389 of one customer's 403 cards: 13 carry an id no account answers to
-  and one carries a DIFFERENT account's, under the same `AccountName`. The app
-  renders it the same way, so the link is faithful, not wrong — but an `Id` from
-  `get_account_list` beats one read off a card when you already hold it. That
-  same asymmetry is why the customer FILTER is the account's `Code`
-  (`Accounts.Owner.AccountDMSCode`, 403) and never the UUID (389, and silent about
-  the difference). Allocation answers carry NO
-  links — those orders and cars come from the frozen pull, not the live system, so
-  an id that looks routable may open something else. **That rule was cut from the
-  prompt on 2026-09-01 in the size pass, and `link` appears nowhere in
-  `skills/xas-allocation/SKILL.md`, so it is now written in no file.** The prompt's
-  Links section reads as unconditional, and the allocation lane shares the sandbox
-  with it. Second gap of the same shape as the app-MCP fence above; restoring it is
-  one clause in either place.
-- **Every link is RELATIVE** (2026-08-31): the answer is read inside the app, so a
-  path resolves against the host the planner is already on, and one bundle shared by
-  every tenant hard-codes nobody's origin. `APP_BASE_URL` is `""` and
-  `tests/test_link.py` pins it. The cost is that answers rendered anywhere else —
-  the `web.py` demo chat included — have dead links until that surface resolves them.
-- **A reporting answer ends in a LINK, and the link is the query that produced
-  the number.** Added 2026-08-30. A list page's result set is a pure function of
-  its query string — the page parses `filter`/`paging`/`sort` out of the URL and
-  sends them to the same endpoint the read tools call — so `link.py` (in the
-  reporting bundle) turns the `source` block a tool echoed into a URL to the very
-  same set. That is what lets the agent stop retyping tables: twenty rows is ~400
-  output tokens of a list the planner has properly one click away, and those rows
-  are re-read on every later turn. Three things bite. **A raw `$` in the query
-  string returns an EMPTY page, not an error** — verified against the live app on
-  a filter matching five cars — and every vehicle and account link needs `$in`,
-  so the URL is built by code and never typed or edited by hand. **The two lanes
-  parse the URL differently**: job-card pages take the filter verbatim, while
-  vehicles/accounts run it through an adapter that lowercases each dotted segment
-  and re-wraps bare values by the tenant's field TYPE (`$like` for a string — a
-  substring match reported as exact); `adapt_for_core` meets its passthrough
-  branch instead, ucFirst plus an explicit `{"$in": [...]}`, so the round trip is
-  exact by construction. And **the link's paging is not the agent's**: a count
-  question runs `count: 1`, so passing it through would put a one-row page under
-  a total of 89. `Branch: true` / `MyJobCards` are refused outright — they
-  resolve against whoever OPENS the link. And **two of the three lanes need no page
-  looked up at all** (2026-08-31): everything `get_vehicle_list` returns lists on
-  `/vehicles` and everything `get_account_list` returns on `/accounts`, so `--tool`
-  names the page and `--route` is now the JOB-CARD flag only. That is not a
-  convenience — the `route` column is filled on classification rows only, and a
-  vehicle question ("in stock") resolves to a STATUS row, so the rule "take the
-  route from the phrasebook, never from memory" had nothing to take and a session
-  typed `/vehicles` from memory. The same hole is still open for a job-card filter
-  naming no classification, and correctly so: those list on three pages, so there
-  is no single page to link. The two tool routes and `phrasebook.ENTITY_ROUTES`
-  are the same fact written twice — `link.py` cannot import the builder — and
-  `tests/test_link.py` is the joint, alongside the round trip over both dialects
-  and each of those failures.
-  The obvious next move is for the MCP to return the URL in `source` itself: it
-  already holds the filter and is per-tenant, and then nothing is built agent-side
-  and the `$` cannot be got wrong. That is a change to `xas-app-mcp`, which is not
-  this repo's — written up with the other two in `docs/appmcp-requests.md`.
-  The PROMPT carries the link too, because it is the rule most likely to survive a
-  summary of the skill. It used to be one clause marking the link as the exception
-  to the prompt's own ban on paths and filenames; that ban went in the 2026-09-01
-  size pass, so the prompt's Links section now states the rule outright instead of
-  carving an exception out of something. The ban itself survives where it is
-  actually applied — the reporting skill's presenting-the-answer section.
+- **The app MCP returns the links now, and every path we built is DELETED
+  (2026-09-03).** Probed live against the dev tenant that day: all six read tools
+  return a `Url` per record (`/job_cards/61`, `/vehicles/11330`,
+  `/accounts/<Id>` — nested `include:` sections too), and the three list tools a
+  top-level `ListUrl` over exactly the filter just run. So `skills/xas-reporting/link.py`
+  and `tests/test_link.py` are GONE, with the skill's link-building rules, the
+  prompt's, and both `variants/minimal/` files'. Verified equivalent before
+  deleting, against the app's own parser (`app/src/services/searchParams.ts`): a
+  URL with only `filter` reads back as page 1 / count 20 / no sort / no kpi —
+  identical to what `link.py` emitted with its `LINK_PAGE_SIZE = 20`. And the
+  server does the three things that file existed for: it percent-encodes `$` (a
+  raw one returned an EMPTY page, not an error), it normalizes a bare value into
+  `{"$in": [...]}` for the vehicles/accounts dialect rather than letting the page's
+  adapter re-wrap it as a `$like`, and it picks the classification's page itself
+  (`VSO` -> `/vehicle_planning`, `Contract` -> `/contracts`). The rule is now one
+  line in both prompts: **use what came back, build nothing.** Four things to know.
+  (1) **`ListUrl` echoes `Branch: true` / `MyJobCards` verbatim** where `link.py`
+  refused them. That was never really a link bug — the agent asks as the
+  integration login, so the COUNT is already about the wrong person — so it
+  survives as a FILTER ban in the skill, not a link rule. (2) **A card still has
+  no link to its customer or its car.** `Accounts.Owner` carries `AccountUUID` +
+  `AccountName` and no `Url`; a vehicle row's `Owner` carries `Code` and the
+  account page routes on `Id`, so that one cannot even be composed. Composing
+  `/accounts/<AccountUUID>` was right on 389 of one customer's 403 cards (13 ids
+  no account answers to, one a DIFFERENT account's under the same name), so the
+  skill now names customers in PLAIN TEXT rather than on a 3.5%-wrong path. That
+  asymmetry is still why the customer FILTER is `Accounts.Owner.AccountDMSCode`
+  (403) and never the UUID (389, and silent about the difference). (3) **TWENTY
+  named records is still the cap** — "which vehicles does Hertz hold" printed 63
+  linked rows on 2026-09-01, the table the set link already opens, re-read on every
+  later turn. Past twenty the set link IS the list; twenty is a ceiling, not a
+  target. The `minimal` pair says TEN, deliberately unreconciled. (4) **Allocation
+  answers carry NO links** — those orders and cars come from the frozen pull, so an
+  id that looks routable may open something else — and that rule is STILL written
+  in no file: it was cut from the prompt on 2026-09-01 and `link` appears nowhere in
+  `skills/xas-allocation/SKILL.md`. Both prompts' Links sections read as
+  unconditional, and now every MCP row hands over a ready path, which makes the gap
+  worse rather than better. Restoring it is one clause in either place.
+  Every link is still RELATIVE (2026-08-31) and now unavoidably so — the server
+  returns paths, not origins — so answers rendered outside the app, the `web.py`
+  demo chat included, have dead links until that surface resolves them.
+  What survives of the old machinery is the phrasebook's **`route` column, whose
+  job was never really the link**: it groups a job card's types into the three
+  business areas a planner asks for by NAME ("vehicle sales", "sales cards"), which
+  `--list route=/vehicle_planning` enumerates and the `minimal` prompt renders as
+  headings. Its four tests moved whole from `tests/test_link.py` into
+  `tests/test_phrasebook.py`. Two things that column does NOT solve, both open: the
+  FULL pair carries no type list and no GROUP rows in its table, so `--lookup
+  "vehicle sales"` substring-matches 3 of the 10 vehicle-planning types and says
+  nothing about the other 7 — putting GROUP rows in the table was considered on
+  2026-09-03 and declined by the user; and a job-card filter naming no
+  classification has no single area, where the server just picks `/job_cards`.
 - **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
   `/workspace/vehicles.json` are the pull — the export's two row streams, kept
   apart because folding them into one document would only make `flatten` take it

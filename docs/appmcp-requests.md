@@ -1,6 +1,6 @@
 # What the reporting lane needs from `xas-app-mcp`
 
-Three asks, all of them things no rule in this repo can fix, because they are
+Two asks, both of them things no rule in this repo can fix, because they are
 properties of what the tools RETURN. Each one is measured against the dev tenant,
 not estimated — reproduce every figure with `uv run python -m appmcp` (see
 `appmcp-connect.md`). `xas-app-mcp` is a different repo; this file is the request,
@@ -11,6 +11,14 @@ enters the agent's conversation and is re-read on **every later model request** 
 the session. One 51-card answer was read four more times before the turn ended.
 The skill can choose fewer rows and fewer columns; it cannot choose what a column
 weighs.
+
+**Answered 2026-09-03: the list-page URL.** Every read tool now returns a `Url`
+per record and the list tools a top-level `ListUrl` over the filter just run, so
+`skills/xas-reporting/link.py` is deleted and nothing is built agent-side — see
+`CLAUDE.md`. What is still open from that lane: a `Url` on the nested account
+role, so a job card's customer and a vehicle's owner can be linked (today
+`Accounts.Owner` carries a name and no path, and a vehicle's `Owner.Code` cannot
+be composed into one at all, because the account page routes on `Id`).
 
 ## 1. Let `fields` name a sub-field of `Accounts.*`
 
@@ -37,6 +45,12 @@ addresses.
 dotted sub-path is a schema violation, and `fields` cannot widen or reshape what
 it picks from.
 
+**Half done as of 2026-09-03**, which makes the remaining half odder rather than
+smaller: `get_vehicle_list` and `get_account_list` now take dotted sub-paths
+(`Owner.Name`, `Contacts.Name`), and re-measured over 60 job cards the owner
+object still ships 29 phone numbers, 28 e-mails and 6 federal ids. Job cards are
+the one entity where the enum still stops at the role.
+
 Note the asymmetry that makes this surprising: `Accounts.Owner.AccountDMSCode` is
 already a documented **filter** key. Filtering on a sub-field works; asking to see
 one does not.
@@ -47,8 +61,11 @@ Every `get_job_list` response appends five state objects — `Locales`, `Color`,
 `__v`, `CompanyDB`, `_id` and `Id` for the same value, and `Count: 0` on all five:
 
 ```
-1,523 bytes per response (~400 tokens), on every job-card call, always identical
+1,065 bytes per response (~270 tokens), on every job-card call, always identical
 ```
+
+(1,523 when first measured on 2026-08-31; re-measured 2026-09-03. Smaller, still
+unconditional.)
 
 Nothing reads it. `appmcp.py` strips it by default and needs `--raw` to keep it,
 which is the local admission that it says nothing — but the agent talks to the MCP
@@ -58,23 +75,11 @@ directly and gets it raw, twice in a two-call turn.
 `get_*_details` handles sub-resources. Either is fine; the current behaviour is the
 only one that cannot be opted out of.
 
-## 3. Return the list-page URL in `source`
-
-Recorded already in `CLAUDE.md` under the link rules; repeated here because it
-belongs with the others. A reporting answer ends in a link to the page behind the
-number, and `link.py` builds that URL agent-side from the filter — which means the
-sandbox holds a second copy of the tenant's route table and its two URL dialects,
-and a raw `$` in the query string returns an EMPTY page rather than an error.
-
-**Ask:** put the URL in the `source` block the response already echoes. `source`
-holds the filter, the paging and the sort; the server knows the tenant and the
-endpoint. Then nothing is built agent-side and the `$` cannot be got wrong.
-
 ## Not asked for, deliberately
 
 - **A `distinct` or `group by`.** It would have turned this turn's 51-row pull into
-  17 values, and it is the biggest win of the four. But it is a new query surface
-  with its own semantics to agree, where the three above are all subtractive.
+  17 values, and it is the biggest win of the three. But it is a new query surface
+  with its own semantics to agree, where the two above are both subtractive.
   Narrowed on 2026-09-01, and it is now the ONLY tally case left: the skill loops
   buckets with `count: 1` for any field the phrasebook enumerates, at any bucket
   count, so rows are pulled only to group on a key whose values cannot be listed in

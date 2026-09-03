@@ -46,8 +46,9 @@ normalized  surface  role  kind  entity  classification  code  id  name  state  
 - `kind` — `entity` / `classification` / `status` / `state` / `branch`. One surface
   can appear under two kinds (`Closed` is both a status and a state), so read
   `kind` before acting on a row.
-- `route` — classification rows only: the app page those records list on, for
-  `link.py --route`. Empty means there is nothing to link.
+- `route` — classification rows only: the business area those types belong to.
+  `--list route=/vehicle_planning` enumerates every type in one, which is how you
+  answer a question about a whole area ("vehicle sales", "sales cards").
 - `role` and the remaining columns are provenance; you never filter on them.
 
 Everything listed is queryable, so never check whether a type is active — two the
@@ -116,26 +117,19 @@ cannot tell is wrong. Every figure traces back to a row.
 **1. Pin down what the question is about, and take its id.** Resolve every business
 term through the phrasebook first; a person or a company is an ACCOUNT. An id
 already in this conversation needs no lookup. A name you have not seen goes to
-`get_account_list` as `search`, which returns both handles: `Code` filters that
-customer's cards, `Id` routes their page.
+`get_account_list` as `search`, which returns both halves: `Code` filters that
+customer's cards, and the row's own `Url` is their page.
 **`get_account_details` sections are PREVIEWS**: `include: ["jobCards"]` returns 10
 rows however many exist, with no paging and no `fields`.
 So a customer's cards are `get_job_list` filtered on the owner, and that is the
 FIRST call — never `get_account_details`.
 
-**2. Send the call, and the link beside it.** Take the row from **The calls** below.
-`totalCount` rides on EVERY response, so there is no separate probe to run first,
-and a size check before the call you would have made anyway has bought NOTHING. Add
-one unproven clause at a time: a 0 from `A AND B` where neither is established
-carries NO information. Emit the `link.py` command in the SAME block as the call,
-same filter written once — you hold everything the link needs before the response
-arrives, so waiting for it costs a round trip to format a string:
-
-```
-get_job_list  filter={"JobClassification":"VRV","JobStatus.ID":["…"]}  fields=[…]  paging={"count":1}
-bash          python /workspace/skills/xas-reporting/link.py --route /vehicle_planning \
-                --filter '{"JobClassification":"VRV","JobStatus.ID":["…"]}'
-```
+**2. Send the call.** Take the row from **The calls** below. `totalCount` rides on
+EVERY response, so there is no separate probe to run first, and a size check before
+the call you would have made anyway has bought NOTHING. Add one unproven clause at a
+time: a 0 from `A AND B` where neither is established carries NO information. The
+links come back WITH the response — a `Url` per record and one `ListUrl` for the set
+— so there is nothing to build and no second command to send.
 
 **3. Read what came back.** `totalCount` IS the count — stop there. A 0 buys exactly
 ONE control call: re-send with only the clause you GUESSED at — a dotted path you
@@ -214,47 +208,47 @@ refuses, and then you ask which dates they mean.
 
 ## The links
 
+**Every link arrives with the data.** Each record carries its own `Url` — a
+relative path to its page in the app — and each list response carries a `ListUrl`
+over exactly the filter you sent. Those are the only paths you may print. Never
+build one, never guess one, never edit one: a record that came back without a
+`Url` is named in plain text.
+
 ### Naming a record
 
-**Every record you name is a link to its own page — write it yourself.** A detail
-page is a path and an id, nothing to encode, so compose it inline as you write.
+**Every record you name is a link to its own page**, always — in a sentence or in
+a table cell, not only at the end. The LABEL is what the planner knows the record
+by; the `Url` is the target.
 
-| Naming a | the label they read | the id that routes | the link |
-| --- | --- | --- | --- |
-| job card | `JobEntryNum`, the job number | `DMSJCEntry` | `[105374](/job_cards/8745)` |
-| vehicle | `LicenseNumber`; `VehicleCode` where there is no plate | `VehicleCode` | `[12-345-67](/vehicles/11370)` |
-| customer | `AccountName` | `Accounts.Owner.AccountUUID` on a card, `Id` on an account | `[Hertz](/accounts/655dc47b9c098a054a0791c3)` |
+| Naming a | the label they read | the link |
+| --- | --- | --- |
+| job card | `JobEntryNum`, the job number | `[105374](/job_cards/8745)` |
+| vehicle | `LicenseNumber`; `VehicleCode` where there is no plate | `[12-345-67](/vehicles/11370)` |
+| customer | `AccountName` | `[Hertz](/accounts/655dc47b9c098a054a0791c3)` |
 
 Print the id where the label belongs and you have shown them a number they have
-never seen. A card's owner needs no second call: `Accounts.Owner.AccountUUID` IS
-that account's `Id`. A record whose id did not come back is named in plain text,
-never on a guessed path.
+never seen.
+
+**A card carries no link to its customer.** `Accounts.Owner` gives you the name,
+which is what you print; only a row from `get_account_list` or
+`get_account_details` carries an account's own `Url`. Same for a card's car — the
+row has the plate, not a vehicle page. Name them in plain text and link the cards.
 
 ### Linking the set
 
-**Every answer about records ends with a link to the whole set** — one click and
-the planner has the real list, sorted, paged and actionable.
+**Every answer about records ends with the `ListUrl` of the call you counted** —
+one click and the planner has the real list, sorted, paged and actionable.
 
-```bash
-python /workspace/skills/xas-reporting/link.py --tool get_vehicle_list --filter '<the filter you sent>'
-python /workspace/skills/xas-reporting/link.py --route <page> --filter '<the filter you sent>'   # job cards
-```
-
-- **Vehicles and accounts take `--tool`**: everything those two tools return lists
-  on one page, so naming the tool names the page.
-- **Job cards take `--route`**, from the `route` column of the classification's
-  phrasebook row — never from memory. No classification named, no single page, no
-  link to build.
-- **Link the query you counted.** One filter, written once into both commands and
-  sent in the same block (step 2). Narrow it and re-run: discard the old link, send
-  a new pair. After the fact, take the filter from the `source` block the tool
-  echoed.
-- **Never link a filter you did not run.** Three cards the planner named is
-  `{"DMSJCEntry": ["a","b","c"]}`: send it, read the count, then link it.
-- **Never hand-write or edit a SET link.** A raw `$` returns an EMPTY page rather
-  than an error, and every vehicle and account filter carries one.
-- **`Branch: true` and `MyJobCards` cannot be linked** — they mean whoever opens
-  the link. Resolve to explicit ids and link those.
+- **The link is the query.** `ListUrl` is built by the server from the filter it
+  just ran, so it cannot disagree with the number above it.
+- **Narrowed the filter and re-ran? The old link is stale.** Close with the
+  `ListUrl` of the call whose count you are reporting.
+- **Never link a set you did not count.** Three cards the planner named is
+  `{"DMSJCEntry": ["a","b","c"]}`: send it, read the count, use its `ListUrl`.
+- **`Branch: true` and `MyJobCards` are not filters you may send.** They mean
+  whoever is asking — the integration login, not the planner — so the COUNT comes
+  back about the wrong person and the link opens a different set again. Resolve to
+  explicit ids and filter those.
 
 ## Charts
 

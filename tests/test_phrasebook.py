@@ -537,8 +537,11 @@ def test_classification_block_carries_every_filterable_type_with_its_route():
     in the repo, free to drift from the first. So what is pinned here is that the
     generated block holds EVERY classification of the three entities a read tool
     can filter (job cards, vehicles, accounts) and nothing from the entities it
-    cannot (Item, Activity, Model), and that each job-card line carries the page
-    its set link opens.
+    cannot (Item, Activity, Model), and that the job-card types are grouped under
+    the index's GROUP names. The grouping is what a planner asking for a whole
+    area by name — "vehicle sales", "sales cards" — is answered from; the PAGE the
+    heading used to carry went with link building on 2026-09-03, because the read
+    tools return their own `ListUrl`.
     """
     block = phrasebook.classification_block()
 
@@ -552,10 +555,19 @@ def test_classification_block_carries_every_filterable_type_with_its_route():
         assert f"`{code}`" in block, f"{code} is missing from the prompt's type list"
 
     assert "SpareParts" not in block and "TestDrive" not in block
-    # Vehicles and accounts list on one page each, so `--tool` names it and a
-    # route on those lines would be a third way to say the same thing.
+
+    # Declaration order: the reader meets the areas as the taxonomy names them.
+    assert (
+        block.index("\nVehicle service:")
+        < block.index("\nVehicle sales:")
+        < block.index("\nContracts:")
+    )
+    assert "`Service` Vehicle Service Order  (also:" in block
+    assert "`VPO` Vehicle Purchase Order  (also: הזמנת רכש רכב)" in block
+    # No page anywhere in the block: the route column groups the types, it no
+    # longer targets a link, and a path in a prompt is a path free to drift.
     assert "`InventoryVehicles` Inventory Vehicles\n" in block
-    assert "/vehicles" not in block
+    assert "/vehicles" not in block and "/vehicle_planning" not in block
 
 
 def _index_lines():
@@ -575,7 +587,63 @@ def test_the_variant_prompt_leaves_no_marker_unsubstituted():
     setup_agent = importlib.reload(setup_agent)
     try:
         assert setup_agent.CLASSIFICATIONS_MARKER not in setup_agent.SYSTEM_PROMPT
-        assert "`Service` Vehicle Service Order — /job_cards" in setup_agent.SYSTEM_PROMPT
+        assert "\nVehicle service:" in setup_agent.SYSTEM_PROMPT
     finally:
         del os.environ["XAS_VARIANT"]
         importlib.reload(setup_agent)
+
+
+# --------------------------------------------------------------------------
+# The route column. It was `link.py --route`'s target until 2026-09-03; the app
+# MCP returns `ListUrl` now, so what survives is its OTHER job — grouping a job
+# card's types into the three business areas a planner asks for by name
+# ("vehicle sales", "sales cards"), which is what the variant prompt renders as
+# headings. Moved here whole from the deleted `tests/test_link.py`.
+# --------------------------------------------------------------------------
+
+
+def test_the_bundled_phrasebook_carries_the_route_for_every_classification():
+    """The column is the group map, so `--list route=/vehicle_planning` enumerates
+    an area. Checked against the BUNDLED bytes for the same reason the normalizer
+    is: a table built from a different split is the failure nobody would see."""
+    import setup_agent
+
+    table = dict(setup_agent.reporting_bundle())["xas-reporting/phrasebook.tsv"]
+    rows = [tuple(line.split("\t")) for line in table.decode().splitlines()[1:] if line]
+    cols = {name: i for i, name in enumerate(phrasebook.COLUMNS)}
+    routes = {
+        (row[cols["entity"]], row[cols["code"]]): row[cols["route"]]
+        for row in rows
+        if row[cols["kind"]] == "classification"
+    }
+
+    assert routes[("JobCard", "VRV")] == "/vehicle_planning"
+    assert routes[("JobCard", "Service")] == "/job_cards"
+    assert routes[("JobCard", "Reservation")] == "/contracts"
+    assert routes[("Vehicle", "Vehicle")] == "/vehicles"
+    assert routes[("Account", "customer")] == "/accounts"
+    # Every job card belongs to an area: the app's own fallback is `/job_cards`.
+    assert all(route for (entity, _), route in routes.items() if entity == "JobCard")
+
+
+def test_an_entity_with_no_read_tool_gets_no_route():
+    """Activities and Items are in the taxonomy but behind no tool, so the agent
+    can never have counted anything about them. An empty route keeps them out of
+    every group rather than inventing an area for them."""
+    assert phrasebook.route_for("classification", "Item", "SpareParts") == ""
+    assert phrasebook.route_for("classification", "Activity", "Task") == ""
+
+
+def test_only_classification_rows_carry_a_route():
+    """A status or a branch is a filter VALUE, not a type — giving those a group
+    invites an area enumerated from the wrong rows."""
+    assert phrasebook.route_for("status", "JobCard", "Open") == ""
+    assert phrasebook.route_for("branch", "", "") == ""
+
+
+def test_the_three_way_split_matches_the_app_and_is_disjoint():
+    """Transcribed from the app's enums; a code in both sets would make the group
+    depend on which branch ran first."""
+    assert not (phrasebook.VEHICLE_PLANNING & phrasebook.CONTRACTS)
+    assert len(phrasebook.VEHICLE_PLANNING) == 14
+    assert len(phrasebook.CONTRACTS) == 8

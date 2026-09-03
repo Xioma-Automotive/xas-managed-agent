@@ -107,7 +107,7 @@ def route_for(kind: str, entity: str, code: str) -> str:
 
 # Only real records; the header legend documents the format with the same
 # `key=<placeholder>` syntax and must not be parsed as data.
-RECORD = re.compile(r"^(ENTITY|CLASSIFICATION|STATUS|STATE|BRANCH)\s+(.*)$")
+RECORD = re.compile(r"^(ENTITY|CLASSIFICATION|STATUS|STATE|BRANCH|GROUP)\s+(.*)$")
 
 # Strings are quoted, booleans and counts are not — match both forms.
 FIELD = re.compile(r'(\w+)=(?:"([^"]*)"|(\S+))')
@@ -163,6 +163,10 @@ def build(
         kind, fields = parsed
         if kind == "classification" and not include_classifications:
             continue
+        # A GROUP names a business area for the prompt's type list; it is not a
+        # term a user says, so it has no surface string and no row here.
+        if kind == "group":
+            continue
         entity = fields.get("entity", "")
         # An ENTITY's own code IS its entity name; a CLASSIFICATION owns itself.
         classification = fields.get("classification") or (
@@ -193,7 +197,7 @@ def build(
 # behind them, so putting those in a prompt buys weight the agent can never use.
 # `type` on an account also accepts customer / supplier / lid directly.
 FILTERABLE = {
-    "JobCard": "Job cards — filter `JobClassification`; the page is what its set link opens",
+    "JobCard": "Job cards — filter `JobClassification`",
     "Vehicle": "Vehicles — filter `vehicleClassification`",
     "Account": "Accounts — filter `type`",
 }
@@ -206,9 +210,23 @@ def classification_block(index_path: Path = INDEX_PATH) -> str:
     prompt carrying the list cannot drift from the taxonomy the way a hand-typed
     one would. Statuses, branches and states stay OUT — there are 245 of them,
     and they are what `resolve.py` is for.
+
+    Job-card types are grouped under the index's GROUP names (vehicle service /
+    vehicle sales / contracts), keyed by the app page each area lists on because
+    that split IS the app's own. The grouping is the point: a planner asks for a
+    whole area by its name — "vehicle sales", "sales cards" — and the heading is
+    what tells the model that means every type beneath it. The page itself no
+    longer appears, since the read tools return their own `ListUrl`.
     """
-    groups: dict[str, list[str]] = {entity: [] for entity in FILTERABLE}
-    for line in index_path.read_text(encoding="utf-8").splitlines():
+    lines = index_path.read_text(encoding="utf-8").splitlines()
+    group_names = {
+        fields["route"]: fields["name"]
+        for kind, fields in filter(None, (parse_line(line) for line in lines))
+        if kind == "group"
+    }
+
+    entries: dict[str, dict[str, list[str]]] = {entity: {} for entity in FILTERABLE}
+    for line in lines:
         parsed = parse_line(line)
         if not parsed:
             continue
@@ -218,17 +236,28 @@ def classification_block(index_path: Path = INDEX_PATH) -> str:
             continue
         code = fields.get("code", "")
         entry = f"- `{code}` {fields.get('name', '')}"
-        if entity == "JobCard":
-            entry += f" — {route_for(kind, entity, code)}"
         aliases = [alias.strip() for alias in fields.get("aliases", "").split("|") if alias.strip()]
         if aliases:
             entry += "  (also: " + ", ".join(aliases) + ")"
-        groups[entity].append(entry)
+        # One unnamed group per entity where the index declares none; job cards
+        # are the only entity whose types split by page.
+        route = route_for(kind, entity, code) if entity == "JobCard" else ""
+        entries[entity].setdefault(route, []).append(entry)
 
     blocks = []
     for entity, heading in FILTERABLE.items():
-        if groups[entity]:
-            blocks.append(heading + ":\n" + "\n".join(groups[entity]))
+        # Declaration order, so the reader meets the areas in the order the
+        # taxonomy names them rather than the order the dump happens to list.
+        routes = [route for route in group_names if route in entries[entity]]
+        routes += [route for route in entries[entity] if route not in group_names]
+        if len(routes) == 1 and not group_names.get(routes[0]):
+            blocks.append(heading + ":\n" + "\n".join(entries[entity][routes[0]]))
+            continue
+        block = [heading + ":"]
+        for route in routes:
+            block.append(f"\n{group_names[route]}:")
+            block.append("\n".join(entries[entity][route]))
+        blocks.append("\n".join(block))
     return "\n\n".join(blocks)
 
 

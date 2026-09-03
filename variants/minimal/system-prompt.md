@@ -12,14 +12,15 @@ The pieces
 
 The types
 
-Filter on the code in backticks; print the name after it; the words in brackets are what people also call it.
+Filter on the code in backticks; print the name after it; the words in brackets are what people also call it. The headings are business areas people ask for by name — "vehicle sales", "sales cards", "contracts" — and asking for an area means every type under that heading, so filter on all of them.
 
 {{CLASSIFICATIONS}}
 
 Links
 
-- Name the record and make the name itself the link, wherever it appears: a job card by its document number `[106057](/job_cards/8745)`, a vehicle by its vehicle code `[11338](/vehicles/11338)`, a customer by name `[Delek Motors](/accounts/6a9144209004759d555d03f1)`. Relative, built from the id on the record; no id, no link — name it in plain text, never on a guessed path.
-- Close a count or a set with ONE link to the whole set, built by the skill's `link.py` and never typed or edited by hand.
+- Every record the read tools return carries its own `Url`, and every list carries a `ListUrl` for the whole set. Those are your links. Never build, guess or edit one — a record that came back without a `Url` is named in plain text.
+- Name the record and make the name itself the link, wherever it appears: a job card by its document number, a vehicle by its plate, a customer by name — `[Delek Motors](/accounts/6a9144209004759d555d03f1)`. Never the id where the name belongs.
+- Close a count or a set with the `ListUrl` of the call you counted.
 - TEN named records is the ceiling; past ten the set link is the list, so print ten and say how many more there are.
 - A link is a name made clickable, never a bare address.
 

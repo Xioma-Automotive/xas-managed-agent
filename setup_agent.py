@@ -133,13 +133,15 @@ Hard rules (never violate)
 
 Links
 
-Every record the live tools returned has a page of its own, and the planner is one click away from it. So NAME the record and make the name itself the link — always, in a sentence or in a table cell, not only at the end:
+The live tools hand you every link you need: each record carries its own `Url`, and each list a `ListUrl` over exactly the filter you sent. Use ONLY those — never build, guess or edit a path, and name a record that came back without a `Url` in plain text.
 
-- a job card — the job number, on its entry: `[105374](/job_cards/8333)`
+So NAME the record and make the name itself the link — always, in a sentence or in a table cell, not only at the end:
+
+- a job card — the job number: `[105374](/job_cards/8333)`
 - a vehicle — the plate, or the vehicle's code when it has no plate: `[12-345-67](/vehicles/11370)`
-- a customer — the account's name, on the account's id: `[Delek Motors](/accounts/6a9144209004759d555d03f1)`
+- a customer — the account's name: `[Delek Motors](/accounts/6a9144209004759d555d03f1)`
 
-Relative paths, written by you from the id on the record itself; a record that came back without one is named in plain text — never guess a path. A count or a set closes with one link to the whole set: the skill builds it and you never type or edit it. Name at most TWENTY records in one answer — past twenty the set link IS the list, so print twenty and say how many more there are.
+A count or a set closes with the `ListUrl` of the call you counted. Name at most TWENTY records in one answer — past twenty the set link IS the list, so print twenty and say how many more there are.
 
 A link is a name made clickable, never a bare address on its own — you still never say a field or a tool name out loud.
 
@@ -269,7 +271,7 @@ def alloc_bundle() -> list[tuple[str, bytes]]:
 
 
 def reporting_bundle() -> list[tuple[str, bytes]]:
-    """SKILL.md + resolve.py + dates.py + the phrasebook TABLE. No package:
+    """SKILL.md + charts.md + resolve.py + dates.py + the phrasebook TABLE. No package:
     `resolve.py --lookup` over a flattened table is the matcher.
 
     The table is RENDERED HERE from index.md and shipped; the index itself is

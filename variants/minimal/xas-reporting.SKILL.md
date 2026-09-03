@@ -24,7 +24,6 @@ In `/workspace/skills/xas-reporting/`:
 | --- | --- |
 | `resolve.py --lookup "<wording>" ["<wording>" …]` | this dealership's vocabulary BEYOND the types your instructions already list — statuses, branches, lifecycle states — both directions: the user's words (any language, however typed) to the codes you filter on, and a record's code to the name you print. One call takes every wording you would have tried, and it is the ONLY way you read that table |
 | `resolve.py --list kind=status entity=Vehicle` (any `<column>=<value>`: `kind=branch`, `kind=state`) | the VALUES of a set, one row per bucket, aliases collapsed. The bucket list for a breakdown by status or branch — a breakdown by TYPE loops the types in your instructions instead |
-| `link.py --tool <get_vehicle_list \| get_account_list> --filter '<the filter you sent>'`, or `--route <page> --filter '<…>'` for job cards | the set link below — never hand-write or edit one |
 | `charts.md` | the chart recipe. Read it before writing a chart |
 
 Filter values come from your instructions' type list or from `--lookup`, never
@@ -41,34 +40,34 @@ filter built from it returns 0 rather than an error.
   list, `{"count": 1}` for a count — `totalCount` comes either way. A bigger page
   (200 max) is SLOW: needed only to tally by customer or model, or to hunt one
   record — say why and ask first.
-- Emit the `link.py` command in the SAME block as that call — one filter, written
-  once into both.
+- **`Branch: true` and `MyJobCards` mean whoever is asking** — you, not the
+  planner. Never filter on either: the count comes back scoped to the wrong
+  person. Resolve to explicit ids and filter those.
 - `get_account_details` sections are PREVIEWS: 10 rows however many exist, no
   paging. A customer's cards or vehicles come from `get_job_list` /
   `get_vehicle_list` filtered on the owner.
 
 ## The links
 
-**A record you name IS a link to its own page** — relative, from the id on the
-record:
+**Every link comes back with the data.** Each record carries its own `Url`;
+each list carries a `ListUrl` over exactly the filter you sent. Use those and
+build nothing — a record with no `Url` is named in plain text.
 
-| Naming a | the label they read | the id that routes |
-| --- | --- | --- |
-| job card | `JobEntryNum`, the document number | `DMSJCEntry` → `[106057](/job_cards/8745)` |
-| vehicle | `VehicleCode` | `VehicleCode` → `[11338](/vehicles/11338)` |
-| customer | `AccountName` | `Id` on an account, `Accounts.Owner.AccountUUID` on a card → `[Hertz](/accounts/655dc47b9c098a054a0791c3)` |
-
-No id came back, plain text — never a guessed path. TEN named records is the
-ceiling; past ten say how many more there are.
+**A record you name IS a link**, its name made clickable. The name is what the
+planner reads, never the id: a card by its `JobEntryNum`, a vehicle by its plate
+(`VehicleCode` where there is none), a customer by `AccountName` —
+`[Hertz](/accounts/655dc47b9c098a054a0791c3)`. TEN named records is the ceiling;
+past ten say how many more there are.
 
 **Several types, several links.** Break the figure up by type — each its own
-count and its own set link — then the total.
+count and its own `ListUrl` — then the total.
 
-**The answer ends with ONE link to the whole set**, over the filter you sent:
-`--route` for job cards, taking the page from the type list in your instructions
-and never from memory — no type named, no single page, no set link; `--tool` for
-vehicles and accounts. `Branch: true` and `MyJobCards` mean whoever opens the
-link, so resolve them to explicit ids first.
+**The answer ends with the `ListUrl` of the call you counted.** Narrowed the
+filter and re-ran? The old link is stale — close with the new one.
+
+A card's own row carries no link to its car or its customer: `Accounts.Owner`
+gives you the customer's NAME, which is what you print, and only
+`get_account_list` gives an account a page.
 
 ## Never show the kitchen
 

@@ -152,6 +152,17 @@ CLASSIFICATION  entity="Item"  code="ModelPackages"  name="Model Package"  field
 CLASSIFICATION  entity="Item"  code="Labor"  name="Labor"  fields=21  statuses=0  aliases=""
 CLASSIFICATION  entity="Item"  code="ModelItem"  name="Model Item"  fields=15  statuses=0  aliases=""
 
+A job card's TYPE belongs to one of three business areas, and the app lists each
+area on its own page. The GROUP lines below name them, in the order a reader
+should see them, keyed by that page: the split itself is the app's own
+(`app/src/types/tenant/classifications.ts`, transcribed in `phrasebook.py`), so a
+group and the page its set link opens cannot disagree. Like the BRANCH and STATE
+blocks these are hand-maintained and a regeneration from the config drops them.
+
+GROUP           route="/job_cards"  name="Vehicle service"
+GROUP           route="/vehicle_planning"  name="Vehicle sales"
+GROUP           route="/contracts"  name="Contracts"
+
 ENTITY          entity="JobCard"  businessType="jobs"  classifications=23  statuses=96
 CLASSIFICATION  entity="JobCard"  code="Contract"  name="0510"  fields=133  statuses=0  aliases="Contract"
 CLASSIFICATION  entity="JobCard"  code="Parts"  name="Parts Order"  fields=89  statuses=17  aliases="Parts Order External"

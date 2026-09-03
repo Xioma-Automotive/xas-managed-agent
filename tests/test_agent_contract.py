@@ -262,7 +262,6 @@ def test_reporting_bundle_ships_the_built_table_not_the_index():
         "xas-reporting/SKILL.md",
         "xas-reporting/charts.md",
         "xas-reporting/dates.py",
-        "xas-reporting/link.py",
         "xas-reporting/phrasebook.tsv",
         "xas-reporting/resolve.py",
     ]
@@ -414,38 +413,40 @@ def test_the_app_link_is_the_one_path_both_sides_allow():
     assert "The app link is the one" in skill
 
 
-def test_every_named_record_is_a_link_in_the_shape_the_app_routes():
+def test_every_named_record_is_a_link_and_the_tools_supply_the_path():
     """A record the live tools returned is named as a link to its own page, always —
-    not only as the one set link that closes an answer. The three shapes are the app's
-    own routes (`app/src/routes/index.tsx`), and each pairs a LABEL the planner reads
-    with a different field as the TARGET: the job number shows, the entry id routes.
-    Get that backwards and the planner is shown an id they have never seen."""
+    not only as the one set link that closes an answer. Since 2026-09-03 the app MCP
+    returns the path itself (`Url` per record, `ListUrl` per list), so the rule is
+    USE what came back rather than compose it: the `$`-encoding hazard, the two URL
+    dialects and the classification route table are all the server's problem now.
+    The three examples stay, because each pairs a LABEL the planner reads with a
+    path — get that backwards and they are shown an id they have never seen."""
     prompt = setup_agent.SYSTEM_PROMPT
     assert "[105374](/job_cards/8333)" in prompt
     assert "[12-345-67](/vehicles/11370)" in prompt
     assert "[Delek Motors](/accounts/6a9144209004759d555d03f1)" in prompt
-    assert "written by you from the id on the record itself" in prompt, (
-        "a detail page is a path and an id — no filter, so nothing to encode wrong"
+    assert "each record carries its own `Url`" in prompt
+    assert "never build, guess or edit a path" in prompt, (
+        "the one link rule left: every path comes off the response"
     )
-    assert "the skill builds it and you never type or edit it" in prompt, (
-        "the SET link carries a filter, and a raw `$` in one empties the page"
+    assert "closes with the `ListUrl` of the call you counted" in prompt, (
+        "the set link is the query the server just ran, so it cannot disagree"
     )
 
 
-def test_the_skill_pairs_a_label_with_the_id_that_routes():
-    """Naming a record is a link, and the two halves come off DIFFERENT fields: the
-    job number is what the planner knows the card by, the entry is what the page
-    routes on. The customer's id is the one nobody would guess — a card carries its
-    owner's account `Id` under `AccountUUID`, so a list already pulled links its
-    customers with no second call."""
+def test_the_skill_takes_the_link_off_the_record_and_the_label_off_a_field():
+    """Naming a record is a link whose two halves come from different places: the
+    LABEL is the field the planner knows the record by, the TARGET is the `Url` the
+    tool returned. And the customer is the case that does NOT come free — a card's
+    `Accounts.Owner` carries a name but no page, so it is named in plain text
+    instead of on a path composed from `AccountUUID` (right on 389 of one
+    customer's 403 cards, and silent about the other 14)."""
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Every record you name is a link to its own page — write it yourself" in skill
-    assert "`Accounts.Owner.AccountUUID` IS that account's `Id`" in _flat(skill)
-    for field in ("DMSJCEntry", "VehicleCode", "JobEntryNum", "LicenseNumber"):
+    assert "Every link arrives with the data" in skill
+    assert "Never build one, never guess one, never edit one" in _flat(skill)
+    assert "A card carries no link to its customer" in skill
+    for field in ("JobEntryNum", "LicenseNumber", "VehicleCode", "AccountName"):
         assert field in skill
-    assert "Never hand-write or edit a SET link" in skill, (
-        "the encoding hazard is the filter, and only the set link carries one"
-    )
 
 
 def test_a_named_list_stops_at_twenty_and_the_link_carries_the_rest():
@@ -534,7 +535,7 @@ def test_operators_do_not_nest_on_the_vehicle_lane():
     meets an operator object where it expects a scalar.
 
     The rule is about NESTING, not about a list of banned operators. `$in` works (it is
-    what `link.py` builds for that lane, and `$in: [null]` is what finally counted the
+    what the tool's own `ListUrl` opens for that lane, and `$in: [null]` is what counted the
     611 statusless cars) and `$like` works on a name — a rule banning those would send
     the agent looping buckets it could have filtered in one call, which is the same
     round trip wasted in the other direction. `$nin` and `$regex` are untested here and
