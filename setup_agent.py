@@ -50,6 +50,14 @@ REPO_ROOT = Path(__file__).resolve().parent
 ALLOC_SKILL_DIR = REPO_ROOT / "skills" / "xas-allocation"
 REPORTING_SKILL_DIR = REPO_ROOT / "skills" / "xas-reporting"
 
+# A whole prompt+skill pair, swapped by one env var: `XAS_VARIANT=minimal uv run
+# python setup_agent.py` deploys `variants/minimal/` instead of the prompt in this
+# file and `skills/xas-reporting/SKILL.md`. Unset = the full pair, so the default
+# deploy and the tests are untouched. Only those two files are swapped: the
+# helpers, the taxonomy and the allocation skill ship the same either way.
+VARIANT = os.environ.get("XAS_VARIANT", "")
+VARIANT_DIR = REPO_ROOT / "variants" / VARIANT if VARIANT else None
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
 ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
@@ -81,11 +89,10 @@ MODEL = "claude-opus-4-8"
 # Effort has to be set HERE, on the agent. An `effort` inside a per-session
 # `model` override is silently ignored — not an error, just no effect — and
 # web.py sends exactly such an override for the model picker, so a session
-# always runs at the agent's level. `low` because effort drives how many tool
-# calls a turn spends: lower means fewer and more consolidated ones, which is
-# what a reporting question wants, and both lanes follow a written procedure
-# rather than reasoning their way to one. Raise it if repair quality drops — by
-# hand, since no test reaches it.
+# always runs at the agent's level. It is sent explicitly rather than omitted
+# because an omitted `effort` is only preserved while the model id is unchanged.
+# Effort drives how many tool calls a turn spends, so this is a cost knob as much
+# as a quality one; no test reaches what changing it does to a turn.
 EFFORT = "low"
 
 
@@ -105,22 +112,16 @@ REPORTING_SKILL_TITLE = "XAS reporting (cloud sandbox)"
 
 # §10 — the system prompt carries identity, the two-lane routing, and the rules
 # that have no skill to live in. Everything procedural belongs in the skill that
-# needs it: the allocation lane is one pointer here and its whole procedure in
-# `xas-allocation`. The taxonomy lookup is the exception that must stay — the
-# agent has to be able to fire it in the same block as the skill read, so the
-# command cannot live in the file it would have to wait for.
+# needs it: the allocation lane is one pointer on its routing bullet and its whole
+# procedure in `xas-allocation`. The taxonomy lookup is the exception that must
+# stay — the agent has to be able to fire it in the same block as the skill read,
+# so the command cannot live in the file it would have to wait for. It sits in the
+# Reporting section, beside the step that fires it, not in a section of its own.
 SYSTEM_PROMPT = """\
 You are the XAS Agent for Xioma Automotive. Two jobs, one skill each — route on their words, not ours:
 
-- ALLOCATION REPAIR (`xas-allocation`): repair a vehicle-to-order allocation after a disruption — a delayed shipment, a changed inbound, manual steering. Their words: deliveries, arrivals, "what's late", a VSO / vehicle sales order / customer order, a delay in supply or in a VPO / vehicle purchase order, which car an order gets.
+- ALLOCATION REPAIR (`xas-allocation`): repair a vehicle-to-order allocation after a disruption — a delayed shipment, a changed inbound, manual steering. Their words: deliveries, arrivals, "what's late", a VSO / vehicle sales order / customer order, a delay in supply or in a VPO / vehicle purchase order, which car an order gets. The skill holds the procedure: read it before any allocation step.
 - REPORTING (`xas-reporting`): counts, breakdowns, branches, statuses and charts over the dealership's job-card records.
-
-Environment
-
-- The `xas-allocation` skill holds the procedure for allocation repair: read it before any allocation step.
-- Taxonomy: `phrasebook.tsv` ships inside the `xas-reporting` skill directory — the ONLY authority for business words to system codes, and codes back to names. ONE call takes every wording you would have tried — their word, translations, plurals, the industry term — at once:
-  `python /workspace/skills/xas-reporting/resolve.py --lookup "חלפים" "spare parts" "parts"`
-  That command is the ONLY way you read the taxonomy — for exploring it as much as for resolving one term. Never open, grep, `cat`, `awk` or otherwise read `phrasebook.tsv` yourself, and never quote a code you did not get back from it. The skill says how to read what comes back.
 
 Hard rules (never violate)
 
@@ -144,17 +145,48 @@ A link is a name made clickable, never a bare address on its own — you still n
 
 Reporting
 
-FIRST, in ONE block, BEFORE the first `xas-app-mcp` call: read the `xas-reporting` skill AND look up every term in their question — the classification, the status, the branch, the service type. The lookup RIDES IN THAT SAME BLOCK as the read, never in a round trip after it: the rules you are fetching say what to send, and a lookup cannot come back wrong, a filter can.
+FIRST, in ONE block, BEFORE the first `xas-app-mcp` call: read the `xas-reporting` skill AND look up every term in their question — the classification, the status, the branch, the service type. ONE call takes every wording you would have tried — their word, translations, plurals, the industry term:
+  `python /workspace/skills/xas-reporting/resolve.py --lookup "חלפים" "spare parts" "parts"`
+The lookup RIDES IN THAT SAME BLOCK as the read, never in a round trip after it: the rules you are fetching say what to send, and a lookup cannot come back wrong, a filter can. That table, `phrasebook.tsv`, is the ONLY authority for this dealership's vocabulary and that command is the ONLY way you read it — never open, grep, `cat`, `awk` or otherwise read it yourself, and never quote a code it did not return. The skill says how to read what comes back.
 
 THEN, once both have landed:
 
-- Resolve every term through the taxonomy before you filter; translate codes back into names before printing. NEVER answer with a term you could not resolve — the closest-looking code returns a real-looking wrong number.
+- Resolve every term before you filter; print the name, never the code. NEVER answer with a term you could not resolve — the closest-looking code returns a real-looking wrong number.
 - Filter VALUES come from the taxonomy and filter KEYS from the skill's recipes — NEVER either from a tool's own field list, which says what you may ask to SEE and advertises names the server does not honour.
 - Never eyeball records and never invent one.
+- Already in this conversation? If a previous turn holds the data they need — same filter, same records — format from what you have. Do not re-query and do not re-reason through the rows: the answer is the same rows, presented as asked.
 - Every record you name is a link and every answer about records ends with one — see **Links** above; those are the only paths you may ever print.
 
 Charts: a self-contained .html file in /mnt/session/outputs/ — read the skill's `charts.md` for the recipe before you write one. Name it in their words, then ONE line on what it shows. Not the filename, not the directory, not that a file was written — and do not read the chart back. Axes and legends in human names.
 """
+
+
+def variant_file(name: str) -> Path:
+    """One file of the selected variant, or exit naming what is missing."""
+    path = VARIANT_DIR / name
+    if not path.is_file():
+        sys.exit(f"XAS_VARIANT={VARIANT}: no {path}")
+    return path
+
+
+# A variant prompt may carry the tenant's classification list inline instead of
+# making the agent look it up. It is SUBSTITUTED at deploy time from the same
+# index.md the phrasebook is built from — a hand-typed list in a prompt is a
+# second copy of the taxonomy, free to drift.
+CLASSIFICATIONS_MARKER = "{{CLASSIFICATIONS}}"
+
+# True once the prompt carries the type list itself, which is also what takes the
+# type rows OUT of the shipped table: two copies of the same taxonomy in front of
+# one model is what the marker exists to avoid, not a fallback to keep.
+TYPES_IN_PROMPT = False
+
+if VARIANT_DIR is not None:
+    SYSTEM_PROMPT = variant_file("system-prompt.md").read_text()
+    TYPES_IN_PROMPT = CLASSIFICATIONS_MARKER in SYSTEM_PROMPT
+    if TYPES_IN_PROMPT:
+        SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
+            CLASSIFICATIONS_MARKER, phrasebook.classification_block()
+        )
 
 # Both entries matter on every update: agents.update() PRESERVES omitted array
 # fields, so a tools list that is not sent is a tools list that does not change.
@@ -254,7 +286,7 @@ def reporting_bundle() -> list[tuple[str, bytes]]:
     mount (`datasource.get_taxonomy` + /workspace/reports/); do NOT fix it by
     bundling every tenant's taxonomy, which shows each session all the others.
     """
-    table = phrasebook.render(phrasebook.build())
+    table = phrasebook.render(phrasebook.build(include_classifications=not TYPES_IN_PROMPT))
     # index.md is the source and stays here; a phrasebook.tsv left on disk by a
     # local `phrasebook.py` run is IGNORED — the table that ships is always the
     # one rendered a line above, never a stale file that happens to be lying there.
@@ -265,6 +297,9 @@ def reporting_bundle() -> list[tuple[str, bytes]]:
         if not name.endswith(skipped)
     ]
     files.append((f"{REPORTING_SKILL_DIR.name}/phrasebook.tsv", table.encode()))
+    if VARIANT_DIR is not None:
+        variant_md = variant_file("xas-reporting.SKILL.md").read_bytes()
+        files = [(name, variant_md if name.endswith("/SKILL.md") else blob) for name, blob in files]
     return sorted(files)
 
 
@@ -377,6 +412,9 @@ def main() -> None:
     allocation skill are live, the reporting skill is not. That path creates one skill
     and updates the agent to carry both — it never creates a second agent.
     """
+    # Which pair is going out is not something to infer from the diff afterwards.
+    print(f"Prompt + reporting skill: {VARIANT_DIR if VARIANT_DIR else 'full (default)'}\n")
+
     if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)
 

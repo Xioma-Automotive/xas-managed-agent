@@ -490,29 +490,92 @@ def test_the_builder_borrows_the_skill_normalizer_rather_than_defining_one():
     assert "COLUMNS = (" not in builder_source
 
 
-def test_the_inactive_classifications_that_hold_cards_survive_into_the_bundle():
-    """`VGR` and `LeaseContract` are flagged inactive in the tenant config and so
-    are NOT emitted by `dump_taxonomy` — they are hand-maintained in `index.md`,
-    and the next regeneration drops them exactly like the BRANCH block.
+def test_the_inactive_classifications_are_excluded_everywhere():
+    """`VGR` and `LeaseContract` are inactive in the tenant config and were
+    hand-maintained in `index.md` until 2026-09-03, when the list went ACTIVE
+    ONLY at the user's call.
 
-    They are there because inactive is a config flag, not an empty set: between
-    them they own 39 live job cards. Without these rows a breakdown by type files
-    those 39 under "a type I could not identify" — observed 2026-08-30 on a chart
-    of one customer's jobs. That is a wrong answer that looks like a careful one,
-    so the loss has to fail here rather than in front of a planner.
+    They hold 39 live job cards between them (24 + 15, counted 2026-08-30), so
+    the accepted cost is that a breakdown by type now reports those 39 under no
+    type at all — the earlier version of this test pinned the opposite, and git
+    history holds it. What is pinned now is that nothing brings them back by
+    halves: absent from the index, absent from the prompt's type list, and absent
+    from the table under either variant.
     """
     import setup_agent
 
-    table = dict(setup_agent.reporting_bundle())["xas-reporting/phrasebook.tsv"]
-    rows = [tuple(line.split("\t")) for line in table.decode().splitlines()[1:] if line]
+    for code in ("VGR", "LeaseContract"):
+        assert code not in phrasebook.classification_block()
+        rows = [r for r in phrasebook.build() if r[6] == code]
+        assert not rows, f"{code} is back in the index — regenerated from the config?"
 
-    for code, name, route in (
-        ("VGR", "Vehicle Goods Receipt", "/vehicle_planning"),
-        ("LeaseContract", "Lease Contract", "/contracts"),
-    ):
-        hits = [r for r in rows if r[3] == "classification" and r[6] == code]
-        assert hits, f"{code} is missing from the bundled phrasebook — regenerated over?"
-        assert {r[8] for r in hits} == {name}
-        # A route is what makes the classification linkable; an empty one reads as
-        # "nothing to link" and would hide the loss rather than report it.
-        assert {r[11] for r in hits} == {route}
+    table = dict(setup_agent.reporting_bundle())["xas-reporting/phrasebook.tsv"].decode()
+    assert "VGR" not in table and "LeaseContract" not in table
+
+
+def test_the_shipped_table_drops_the_types_the_prompt_carries():
+    """One taxonomy, one place. A prompt with the type list inline (the `minimal`
+    variant) ships a table of statuses, branches and states only; a prompt
+    without it ships the types too, because there is then nowhere else to
+    resolve one from. Both come off the same index."""
+    with_types = phrasebook.build(include_classifications=True)
+    without = phrasebook.build(include_classifications=False)
+
+    kinds = {row[3] for row in without}
+    assert "classification" not in kinds
+    assert kinds == {"entity", "status", "state", "branch"}
+    # Nothing else moved: the difference is exactly the classification rows.
+    assert [r for r in with_types if r[3] != "classification"] == without
+
+
+def test_classification_block_carries_every_filterable_type_with_its_route():
+    """The `minimal` variant's prompt lists the tenant's types inline instead of
+    making the agent look them up (2026-09-03), and `{{CLASSIFICATIONS}}` is
+    substituted at deploy time from index.md — the same source as the table.
+
+    Hand-typing that list into the prompt would put a second copy of the taxonomy
+    in the repo, free to drift from the first. So what is pinned here is that the
+    generated block holds EVERY classification of the three entities a read tool
+    can filter (job cards, vehicles, accounts) and nothing from the entities it
+    cannot (Item, Activity, Model), and that each job-card line carries the page
+    its set link opens.
+    """
+    block = phrasebook.classification_block()
+
+    expected = {
+        (fields["entity"], fields["code"])
+        for kind, fields in filter(None, (phrasebook.parse_line(line) for line in _index_lines()))
+        if kind == "classification" and fields["entity"] in phrasebook.FILTERABLE
+    }
+    assert len(expected) == 31, "the taxonomy changed — is the prompt still the right size?"
+    for _, code in expected:
+        assert f"`{code}`" in block, f"{code} is missing from the prompt's type list"
+
+    assert "SpareParts" not in block and "TestDrive" not in block
+    # Vehicles and accounts list on one page each, so `--tool` names it and a
+    # route on those lines would be a third way to say the same thing.
+    assert "`InventoryVehicles` Inventory Vehicles\n" in block
+    assert "/vehicles" not in block
+
+
+def _index_lines():
+    return (phrasebook.INDEX_PATH).read_text(encoding="utf-8").splitlines()
+
+
+def test_the_variant_prompt_leaves_no_marker_unsubstituted():
+    """A prompt that still says `{{CLASSIFICATIONS}}` when it reaches the agent is
+    a prompt with a hole in it, and the deploy would not complain."""
+    import os
+
+    os.environ["XAS_VARIANT"] = "minimal"
+    import importlib
+
+    import setup_agent
+
+    setup_agent = importlib.reload(setup_agent)
+    try:
+        assert setup_agent.CLASSIFICATIONS_MARKER not in setup_agent.SYSTEM_PROMPT
+        assert "`Service` Vehicle Service Order — /job_cards" in setup_agent.SYSTEM_PROMPT
+    finally:
+        del os.environ["XAS_VARIANT"]
+        importlib.reload(setup_agent)

@@ -198,10 +198,11 @@ def test_prompt_names_no_records_mount():
 
 def test_prompt_says_where_the_taxonomy_lives():
     """It is no longer a mount (DECIDE-16), so the prompt must send the agent to
-    the skill directory instead of a path that does not exist — and to the TABLE,
-    not the index it was built from, which no longer ships."""
+    the TABLE, not the index it was built from, which no longer ships. The
+    locating sentence was folded into the ban on 2026-09-02: the command carries
+    the full path, and a second address is a second address to drift."""
     prompt = setup_agent.SYSTEM_PROMPT
-    assert "`phrasebook.tsv` ships inside the `xas-reporting` skill directory" in prompt
+    assert "`phrasebook.tsv`, is the ONLY authority" in prompt
     assert "/workspace/reports/index.md" not in prompt
     assert "index.md" not in prompt
 
@@ -615,11 +616,15 @@ def test_prompt_carries_the_lookup_command_so_it_can_ride_with_the_skill_read():
     assert "never in a round trip after it" in rule
     assert "a lookup cannot come back wrong, a filter can" in rule
 
-    # The command must be runnable from the prompt alone — path included.
-    assert "python /workspace/skills/xas-reporting/resolve.py --lookup" in prompt, (
+    # The command must be runnable from the prompt alone — path included — and it
+    # sits INSIDE this section (moved out of a separate `Environment` block on
+    # 2026-09-02): a command one section away from the decision is the shape that
+    # got `--list` cut, and got this command left in SKILL.md before that.
+    assert "python /workspace/skills/xas-reporting/resolve.py --lookup" in rule, (
         "an agent that must read the skill to learn the command cannot fire it in the "
         "same block as that read"
     )
+    assert "ONLY way you read it" in rule, "the ban belongs beside the path it protects"
 
     skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "resolve.py --lookup" not in skill, (
@@ -732,6 +737,16 @@ def test_reporting_skill_has_a_dead_end_rule():
 
 def test_prompt_forbids_answering_an_unresolved_term():
     assert "NEVER answer with a term you could not resolve" in setup_agent.SYSTEM_PROMPT
+
+
+def test_prompt_reuses_data_already_in_the_conversation():
+    """A follow-up over rows a previous turn already returned is a formatting job,
+    not a query: turn 3 of a live session spent 20s re-reasoning over records
+    that were still on screen. It is in the PROMPT rather than the skill because
+    the turn it fires on is the one where the skill read is furthest behind."""
+    prompt = _flat(setup_agent.SYSTEM_PROMPT)
+    assert "same filter, same records" in prompt
+    assert "Do not re-query and do not re-reason through the rows" in prompt
 
 
 def test_reporting_reply_keeps_the_procedure_out_of_it():

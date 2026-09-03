@@ -144,13 +144,25 @@ def surfaces(kind: str, fields: dict[str, str]) -> list[tuple[str, str]]:
     return [(text, role) for text, role in found if text]
 
 
-def build(index_path: Path = INDEX_PATH) -> list[tuple[str, ...]]:
+def build(
+    index_path: Path = INDEX_PATH, include_classifications: bool = True
+) -> list[tuple[str, ...]]:
+    """Every surface string in the index, as table rows.
+
+    `include_classifications=False` drops the type rows: a prompt that carries
+    the type list inline (see `classification_block`) makes them a second copy in
+    front of the same model, and the shipped table is then statuses, branches,
+    states and entities only. The default keeps them, because a prompt WITHOUT
+    that list has nowhere else to resolve a type from.
+    """
     rows: set[tuple[str, ...]] = set()
     for line in index_path.read_text(encoding="utf-8").splitlines():
         parsed = parse_line(line)
         if not parsed:
             continue
         kind, fields = parsed
+        if kind == "classification" and not include_classifications:
+            continue
         entity = fields.get("entity", "")
         # An ENTITY's own code IS its entity name; a CLASSIFICATION owns itself.
         classification = fields.get("classification") or (
@@ -174,6 +186,50 @@ def build(index_path: Path = INDEX_PATH) -> list[tuple[str, ...]]:
                 )
             )
     return sorted(rows)
+
+
+# The three entities a read tool can filter on, with the filter key each one
+# takes. Activities, Items and Models have classifications too, but no tool
+# behind them, so putting those in a prompt buys weight the agent can never use.
+# `type` on an account also accepts customer / supplier / lid directly.
+FILTERABLE = {
+    "JobCard": "Job cards — filter `JobClassification`; the page is what its set link opens",
+    "Vehicle": "Vehicles — filter `vehicleClassification`",
+    "Account": "Accounts — filter `type`",
+}
+
+
+def classification_block(index_path: Path = INDEX_PATH) -> str:
+    """This tenant's card / vehicle / account types, rendered for a prompt.
+
+    Built from the same index as the table and substituted at deploy time, so a
+    prompt carrying the list cannot drift from the taxonomy the way a hand-typed
+    one would. Statuses, branches and states stay OUT — there are 245 of them,
+    and they are what `resolve.py` is for.
+    """
+    groups: dict[str, list[str]] = {entity: [] for entity in FILTERABLE}
+    for line in index_path.read_text(encoding="utf-8").splitlines():
+        parsed = parse_line(line)
+        if not parsed:
+            continue
+        kind, fields = parsed
+        entity = fields.get("entity", "")
+        if kind != "classification" or entity not in FILTERABLE:
+            continue
+        code = fields.get("code", "")
+        entry = f"- `{code}` {fields.get('name', '')}"
+        if entity == "JobCard":
+            entry += f" — {route_for(kind, entity, code)}"
+        aliases = [alias.strip() for alias in fields.get("aliases", "").split("|") if alias.strip()]
+        if aliases:
+            entry += "  (also: " + ", ".join(aliases) + ")"
+        groups[entity].append(entry)
+
+    blocks = []
+    for entity, heading in FILTERABLE.items():
+        if groups[entity]:
+            blocks.append(heading + ":\n" + "\n".join(groups[entity]))
+    return "\n\n".join(blocks)
 
 
 def render(rows: list[tuple[str, ...]]) -> str:

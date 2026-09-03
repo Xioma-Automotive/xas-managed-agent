@@ -3,7 +3,7 @@
 A Claude **Managed Agent** for Xioma Automotive, running against an
 **Anthropic-hosted** sandbox. The agent's bash and file tools execute in
 Anthropic's container; nothing on your machine runs them. Uses the Managed
-Agents REST surface via the Python `anthropic` SDK, model `claude-opus-4-8` (Opus 5 / Sonnet 5 / Haiku 4.5 selectable per session).
+Agents REST surface via the Python `anthropic` SDK, model `claude-sonnet-5` (Opus 5 / Opus 4.8 / Haiku 4.5 selectable per session).
 
 > The self-hosted variant is on `claude/agent-spec-managed-i6tn8r`. It runs the
 > agent's shell as your own uid — in testing, an agent there enumerated every
@@ -230,6 +230,17 @@ uv run uvicorn web:app --port 8000    # the only process — open localhost:8000
 ```
 
 No worker, no environment key, no `.env.worker`. One process.
+
+**To deploy the minimal prompt + reporting skill instead**, add one variable:
+
+```bash
+XAS_VARIANT=minimal uv run python setup_agent.py   # variants/minimal/ — see variants/README.md
+uv run python setup_agent.py                       # back to the full pair
+```
+
+Both are re-runnable in place against the same IDs, and setup prints which pair
+it deployed. Only those two files change; every helper, the taxonomy and the
+allocation skill ship the same either way.
 
 | Where | Holds | Runs |
 | --- | --- | --- |

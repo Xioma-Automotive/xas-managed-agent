@@ -153,7 +153,10 @@ XAS endpoint and its credential never touch the sandbox.
   `test_credential_config_is_read_after_the_environment_loads`, and `web.py` now
   names the missing vars in a warning.
 - **`effort` only works on the agent, and the failure is silence.** `setup_agent.model_config()`
-  sends `{"id": MODEL, "effort": "low"}` (lowered from `medium` on 2026-09-01). An `effort` inside a per-session
+  sends `{"id": MODEL, "effort": EFFORT}` — `claude-opus-4-8` back at **`low`** on
+  2026-09-03, after a few minutes at `medium` the same day. It is sent
+  EXPLICITLY rather than omitted, because `agents.update()` preserves an omitted
+  `effort` only while the model id is unchanged. An `effort` inside a per-session
   `model` override is IGNORED — not rejected — and `web.py` sends exactly such an
   override for the model picker, so a session always runs at the agent's level.
   Effort drives how many tool calls a turn spends, so this is a cost knob as much
@@ -243,6 +246,63 @@ XAS endpoint and its credential never touch the sandbox.
   allocation-links clause (NEITHER, see their own bullets). The cut was the user's
   call, made deliberately and rule by rule; the reason for each one is in git
   history — read it before restoring anything.
+- **A whole prompt+skill pair swaps on one env var, and only that pair.**
+  `XAS_VARIANT=minimal uv run python setup_agent.py` deploys
+  `variants/minimal/system-prompt.md` in place of `SYSTEM_PROMPT` and
+  `variants/minimal/xas-reporting.SKILL.md` in place of the reporting SKILL.md
+  (see `variants/README.md`); unset deploys the full pair, so the default run and
+  the whole suite are untouched. Everything else — `resolve.py`, `dates.py`,
+  `link.py`, `charts.md`, the rendered `phrasebook.tsv`, the allocation bundle —
+  ships identically either way, which is what makes the two comparable. Both
+  files must exist or the run exits naming the missing one, and `main()` prints
+  which pair went out. `minimal` (2026-09-03) is the experiment in saying what
+  each component is FOR and leaving the reasoning to the model: it keeps the two
+  link kinds and the never-show-the-kitchen rule, drops every procedure, and its
+  prompt says NOTHING about allocation — the `xas-allocation` skill's own
+  description is the only thing routing to it. `tests/test_agent_contract.py`
+  pins the FULL pair by phrase, so it passes under either and proves nothing
+  about a variant: a variant is verified by hand.
+- **The `minimal` prompt carries the tenant's TYPES inline, and they are
+  GENERATED, never typed.** 2026-09-03: `{{CLASSIFICATIONS}}` in
+  `variants/minimal/system-prompt.md` is substituted at deploy by
+  `phrasebook.classification_block()`, from the same `index.md` the table is
+  built from — a hand-written list in a prompt is a second copy of the taxonomy,
+  free to drift. It holds the 33 classifications of the three entities a read
+  tool can FILTER (job cards 23 with their link page, vehicles 5, accounts 3);
+  the 19 under Item / Activity / Model / SalesModelObjects / VehicleModels stay
+  out because no tool can filter them. The price is ~1,050 tokens on EVERY turn,
+  the allocation lane's included (prompt 558 -> 1,617 tokens), against one saved
+  round trip on the turns where a type was the only word needing translation —
+  not the ones that also need a date range or a status list. Pinned by tests in
+  `tests/test_phrasebook.py`, including that no `{{...}}` marker survives the
+  substitution.
+- **One taxonomy, one place: the shipped table drops what the prompt carries.**
+  `build(include_classifications=...)`, keyed off `setup_agent.TYPES_IN_PROMPT`
+  (true when the variant prompt held the marker). Under `minimal` the bundled
+  `phrasebook.tsv` is 244 rows — statuses, branches, states, entities — and
+  `--lookup`/`--list` answer for those only; under the full pair it keeps its 373
+  and nothing changes, because that prompt has no type list and nowhere else to
+  resolve a type from. Two copies of one taxonomy in front of one model is what
+  the marker exists to avoid.
+- **The taxonomy index is ACTIVE ONLY as of 2026-09-03, and that is a decision
+  with a known cost.** `VGR` and `LeaseContract` were inactive in the tenant
+  config, hand-maintained in `index.md`, and kept until this date because they
+  hold **39 live job cards** (24 + 15, counted 2026-08-30). They are now removed
+  along with their STATUS lines — 51 classifications, 109 statuses — at the
+  user's call, twice stated. So a breakdown by type reports those 39 cards under
+  NO type, which is exactly the failure the previous test pinned against; the
+  test now pins the exclusion instead (absent from the index, the prompt list and
+  the table), and git history holds the old one. All three status names those
+  types carried (`Active`, `QUOTAION`, `Vehicle Ready`) still exist under active
+  types, so no status became unresolvable. A regeneration from the config drops
+  them anyway, which is why nothing has to be re-excluded by hand later.
+- **A follow-up over rows already in the transcript is a formatting job.** Added
+  to the prompt's Reporting list on 2026-09-02: a live turn 3 spent 20s
+  re-reasoning over records a previous turn had already returned, same filter,
+  same records. The rule is in the PROMPT, not the reporting skill, because the
+  turn it fires on is the one furthest from the skill read — and it is scoped
+  under Reporting, so the allocation lane pays for one line and no procedure.
+  `tests/test_agent_contract.py` pins it by phrase.
 - **The phrasebook is TWO modules, split by where they run, and they share one
   `normalize`.** `phrasebook.py` at the repo root parses `index.md` and renders
   the table (host-side, never shipped — the same hop `flatten.py` is for the
@@ -317,7 +377,13 @@ XAS endpoint and its credential never touch the sandbox.
   two serial round trips (~5–11s) before touching data and not one rode along. The
   INVOCATION now lives in the prompt and only there; the skill keeps how to READ the
   result, which is not wanted until the result is in hand — by which point both have
-  landed. Splitting it that way is also why the prompt does not grow for the
+  landed. **Moved again 2026-09-02, out of its own `Environment` section and into
+  the Reporting step that fires it**, with the ban on reading the table any other
+  way; `Environment` held nothing else and is gone, the allocation lane's "read
+  your skill" riding on its routing bullet instead. Same fix as `--list` beside the
+  bucket row: a command one section from the decision is a command that is not run.
+  The both-directions clause was said in both places and now reads once, in the
+  THEN bullet where each direction is acted on. Splitting it that way is also why the prompt does not grow for the
   allocation lane, which pays for the prompt and never reads this skill. There are THREE sources
   and each supplies exactly one thing: the tool says what you may SEE, the taxonomy
   supplies filter VALUES, the recipes supply filter KEYS. Both sides used to get that
