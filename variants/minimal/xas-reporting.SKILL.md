@@ -37,8 +37,10 @@ filter built from it returns 0 rather than an error.
   `CreateDateTime` over the span your date command returned and says nothing
   about status; "open cards" filters the status and says nothing about when.
   Asked for both, send both.
-- `totalCount` rides on every response, so there is no size to check first: send
-  the call you meant to send.
+- **Ten rows is all you print, so ask for ten**: `paging: {"count": 10}` for a
+  list, `{"count": 1}` for a count — `totalCount` comes either way. A bigger page
+  (200 max) is SLOW: needed only to tally by customer or model, or to hunt one
+  record — say why and ask first.
 - Emit the `link.py` command in the SAME block as that call — one filter, written
   once into both.
 - `get_account_details` sections are PREVIEWS: 10 rows however many exist, no
@@ -58,6 +60,9 @@ record:
 
 No id came back, plain text — never a guessed path. TEN named records is the
 ceiling; past ten say how many more there are.
+
+**Several types, several links.** Break the figure up by type — each its own
+count and its own set link — then the total.
 
 **The answer ends with ONE link to the whole set**, over the filter you sent:
 `--route` for job cards, taking the page from the type list in your instructions
