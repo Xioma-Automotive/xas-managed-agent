@@ -18,8 +18,8 @@ Filter on the code in backticks; print the name after it; the words in brackets 
 
 Links
 
-- Every record the read tools return carries its own `Url`, and every list carries a `ListUrl` for the whole set. Those are your links. Never build, guess or edit one — a record that came back without a `Url` is named in plain text.
-- Name the record and make the name itself the link, wherever it appears: a job card by its document number, a vehicle by its plate, a customer by name — `[Delek Motors](/accounts/6a9144209004759d555d03f1)`. Never the id where the name belongs.
+- Every record carries its own `Url` and every list a `ListUrl`. Those are your links: use them, never build, guess or edit one, and name a record that came back without one in plain text.
+- Make the name itself the link, wherever it appears — never the id where a name belongs: `[Delek Motors](/accounts/6a9144209004759d555d03f1)`.
 - Close a count or a set with the `ListUrl` of the call you counted.
 - TEN named records is the ceiling; past ten the set link is the list, so print ten and say how many more there are.
 - A link is a name made clickable, never a bare address.
