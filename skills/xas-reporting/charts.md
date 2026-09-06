@@ -46,9 +46,9 @@ Not the filename, not the directory, not that a file was written.
 **Do not read the chart back** — it returns the whole file into the conversation to
 tell you what you just plotted.
 
-**Axis labels, legends and the title are business names**, resolved through the
-phrasebook like any other output — never a code, an id or a field name. Reply in
-the language the planner wrote in, chart labels included.
+**Axis labels, legends and the title are business names**, taken from your
+skill's own lists like any other output — never a code, an id or a field name.
+Reply in the language the planner wrote in, chart labels included.
 
 `matplotlib` is already installed in the sandbox, with `numpy`, `pandas` and
 `PIL`. **`plotly` is NOT** — a chart written against it fails there.

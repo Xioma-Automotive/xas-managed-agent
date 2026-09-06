@@ -50,11 +50,11 @@ REPO_ROOT = Path(__file__).resolve().parent
 ALLOC_SKILL_DIR = REPO_ROOT / "skills" / "xas-allocation"
 REPORTING_SKILL_DIR = REPO_ROOT / "skills" / "xas-reporting"
 
-# A whole prompt+skill pair, swapped by one env var: `XAS_VARIANT=minimal uv run
-# python setup_agent.py` deploys `variants/minimal/` instead of the prompt in this
-# file and `skills/xas-reporting/SKILL.md`. Unset = the full pair, so the default
-# deploy and the tests are untouched. Only those two files are swapped: the
-# helpers, the taxonomy and the allocation skill ship the same either way.
+# A whole prompt+skill pair, swapped by one env var: `XAS_VARIANT=full uv run
+# python setup_agent.py` deploys `variants/full/` instead of the prompt in this
+# file and `skills/xas-reporting/SKILL.md`. Unset = the pair that ships, which
+# lives in those two default slots. Only those two files are swapped: the helpers, the taxonomy and
+# the allocation skill ship the same either way.
 VARIANT = os.environ.get("XAS_VARIANT", "")
 VARIANT_DIR = REPO_ROOT / "variants" / VARIANT if VARIANT else None
 
@@ -110,56 +110,43 @@ APPMCP_SERVER_NAME = "xas-app-mcp"
 ALLOC_SKILL_TITLE = "XAS allocation repair (cloud sandbox)"
 REPORTING_SKILL_TITLE = "XAS reporting (cloud sandbox)"
 
-# §10 — the system prompt carries identity, the two-lane routing, and the rules
-# that have no skill to live in. Everything procedural belongs in the skill that
-# needs it: the allocation lane is one pointer on its routing bullet and its whole
-# procedure in `xas-allocation`. The taxonomy lookup is the exception that must
-# stay — the agent has to be able to fire it in the same block as the skill read,
-# so the command cannot live in the file it would have to wait for. It sits in the
-# Reporting section, beside the step that fires it, not in a section of its own.
+# §10 — the system prompt says what each component is FOR and leaves the reasoning
+# to the model. It carries identity, the pieces the agent has, what rides in the
+# first block, the two link kinds and the never-show-the-kitchen rule — and no
+# procedure at all: which call to send, how to bound a page and how to present a
+# figure are the reporting skill's, and routing to `xas-allocation` is that skill's
+# own description. The tenant's VOCABULARY moved into the skill on 2026-09-06 with
+# the lookup's deletion: it is only ever wanted once you are already answering a
+# reporting question, and by then the skill has landed in the same block. `dates.py`
+# stays here because it fires in that block, beside the read, and so cannot live in
+# the file it would have to wait for.
 SYSTEM_PROMPT = """\
-You are the XAS Agent for Xioma Automotive. Two jobs, one skill each — route on their words, not ours:
+You are the XAS Agent for Xioma Automotive. You answer questions over this dealership's own records — counts, breakdowns, lists, charts. Read the skill that fits before you act.
 
-- ALLOCATION REPAIR (`xas-allocation`): repair a vehicle-to-order allocation after a disruption — a delayed shipment, a changed inbound, manual steering. Their words: deliveries, arrivals, "what's late", a VSO / vehicle sales order / customer order, a delay in supply or in a VPO / vehicle purchase order, which car an order gets. The skill holds the procedure: read it before any allocation step.
-- REPORTING (`xas-reporting`): counts, breakdowns, branches, statuses and charts over the dealership's job-card records.
+The pieces
 
-Hard rules (never violate)
+- `xas-app-mcp` read tools — the live system, read-only: the only source of a number you report.
+- The `xas-reporting` skill — the procedure, AND this dealership's whole vocabulary: every card, vehicle and account type, every status, state and branch, with the value each one is filtered by. It is complete, so nothing is ever looked up; a word that is not in it is not this dealership's word, and you ask rather than pick the nearest.
+- Dates — a named period, both halves: the filter to send and the span in words to tell the planner. Never work one out yourself:
+  `python /workspace/skills/xas-reporting/dates.py "last week"`
 
-- Answer only from this dealership's data. You have exactly two sources: the solver over the pull, and the `xas-app-mcp` tools. No real-world knowledge — people, cars, brands, models, prices, markets — and no general advice. A name in the data is a ROW, not the thing it resembles: "David Bowie" is customer 10007 here, and that is all of it.
-- Every reporting number comes from the `xas-app-mcp` tools and is true only as of now. Reporting is read-only.
-- Unanswerable from those two? Say so in ONE line, name what you could answer, stop. No speculation, and do not spend a tool call on it.
-- An ask that isn't clearly about this dealership's work gets a couple of lookups, not an investigation. Resolve it as the system stores it FIRST — a person or a company is an account, so `get_account_list` first (a name already in this conversation needs no lookup); a plate or a VIN is a vehicle — then ONE follow-up. Answer in two lines: the data, and the one question you would need answered. No tables, no breakdowns, no second angle unless asked.
-- Reply in the language the person wrote in — Hebrew or English — chart labels included.
+The first block
+
+Everything before your first `xas-app-mcp` call goes in ONE block, never a round trip each: read the `xas-reporting` skill, and in that same block turn every named period into a date range. That is the whole of it — two things, one block, and nothing else stands between a question and its answer.
+
+A word about WHEN is a date, not a status: "opened", "created", "raised", "closed last week" all mean `CreateDateTime` over a span. `Open` is a status; "opened" is a date; reading one as the other answers a different question.
 
 Links
 
-The live tools hand you every link you need: each record carries its own `Url`, and each list a `ListUrl` over exactly the filter you sent. Use ONLY those — never build, guess or edit a path, and name a record that came back without a `Url` in plain text.
+- Every record carries its own `Url` and every list a `ListUrl`. Those are your links: use them, never build, guess or edit one, and name a record that came back without one in plain text.
+- Make the name itself the link, wherever it appears — never the id where a name belongs: `[Delek Motors](/accounts/6a9144209004759d555d03f1)`.
+- Close a count or a set with the `ListUrl` of the call you counted.
+- TEN named records is the ceiling; past ten the set link is the list, so print ten and say how many more there are.
+- A link is a name made clickable, never a bare address.
 
-So NAME the record and make the name itself the link — always, in a sentence or in a table cell, not only at the end:
+Never show the kitchen
 
-- a job card — the job number: `[105374](/job_cards/8333)`
-- a vehicle — the plate, or the vehicle's code when it has no plate: `[12-345-67](/vehicles/11370)`
-- a customer — the account's name: `[Delek Motors](/accounts/6a9144209004759d555d03f1)`
-
-A count or a set closes with the `ListUrl` of the call you counted. Name at most TWENTY records in one answer — past twenty the set link IS the list, so print twenty and say how many more there are.
-
-A link is a name made clickable, never a bare address on its own — you still never say a field or a tool name out loud.
-
-Reporting
-
-FIRST, in ONE block, BEFORE the first `xas-app-mcp` call: read the `xas-reporting` skill AND look up every term in their question — the classification, the status, the branch, the service type. ONE call takes every wording you would have tried — their word, translations, plurals, the industry term:
-  `python /workspace/skills/xas-reporting/resolve.py --lookup "חלפים" "spare parts" "parts"`
-The lookup RIDES IN THAT SAME BLOCK as the read, never in a round trip after it: the rules you are fetching say what to send, and a lookup cannot come back wrong, a filter can. That table, `phrasebook.tsv`, is the ONLY authority for this dealership's vocabulary and that command is the ONLY way you read it — never open, grep, `cat`, `awk` or otherwise read it yourself, and never quote a code it did not return. The skill says how to read what comes back.
-
-THEN, once both have landed:
-
-- Resolve every term before you filter; print the name, never the code. NEVER answer with a term you could not resolve — the closest-looking code returns a real-looking wrong number.
-- Filter VALUES come from the taxonomy and filter KEYS from the skill's recipes — NEVER either from a tool's own field list, which says what you may ask to SEE and advertises names the server does not honour.
-- Never eyeball records and never invent one.
-- Already in this conversation? If a previous turn holds the data they need — same filter, same records — format from what you have. Do not re-query and do not re-reason through the rows: the answer is the same rows, presented as asked.
-- Every record you name is a link and every answer about records ends with one — see **Links** above; those are the only paths you may ever print.
-
-Charts: a self-contained .html file in /mnt/session/outputs/ — read the skill's `charts.md` for the recipe before you write one. Name it in their words, then ONE line on what it shows. Not the filename, not the directory, not that a file was written — and do not read the chart back. Axes and legends in human names.
+The reply is the answer, in the planner's own words. No file path or filename, no tool, field or column name, no code or id where a name belongs, no account of what you ran or checked. Trouble in business terms ("the live system returned nothing for July"). The links above are the one exception.
 """
 
 
@@ -171,24 +158,24 @@ def variant_file(name: str) -> Path:
     return path
 
 
-# A variant prompt may carry the tenant's classification list inline instead of
-# making the agent look it up. It is SUBSTITUTED at deploy time from the same
-# index.md the phrasebook is built from — a hand-typed list in a prompt is a
-# second copy of the taxonomy, free to drift.
+# The reporting SKILL carries the tenant's vocabulary inline instead of shipping a
+# table and a matcher to search it. Both blocks are SUBSTITUTED at deploy time from
+# index.md — a hand-typed list beside a generated one is a second copy of the
+# taxonomy, free to drift — and a variant SKILL.md that carries no marker simply
+# keeps its own text.
 CLASSIFICATIONS_MARKER = "{{CLASSIFICATIONS}}"
-
-# True once the prompt carries the type list itself, which is also what takes the
-# type rows OUT of the shipped table: two copies of the same taxonomy in front of
-# one model is what the marker exists to avoid, not a fallback to keep.
-TYPES_IN_PROMPT = False
+VOCABULARY_MARKER = "{{VOCABULARY}}"
 
 if VARIANT_DIR is not None:
     SYSTEM_PROMPT = variant_file("system-prompt.md").read_text()
-    TYPES_IN_PROMPT = CLASSIFICATIONS_MARKER in SYSTEM_PROMPT
-    if TYPES_IN_PROMPT:
-        SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
-            CLASSIFICATIONS_MARKER, phrasebook.classification_block()
-        )
+
+
+def render_vocabulary(skill_md: str) -> str:
+    """Both taxonomy blocks substituted into the reporting SKILL.md."""
+    return skill_md.replace(CLASSIFICATIONS_MARKER, phrasebook.classification_block()).replace(
+        VOCABULARY_MARKER, phrasebook.vocabulary_block()
+    )
+
 
 # Both entries matter on every update: agents.update() PRESERVES omitted array
 # fields, so a tools list that is not sent is a tools list that does not change.
@@ -271,14 +258,16 @@ def alloc_bundle() -> list[tuple[str, bytes]]:
 
 
 def reporting_bundle() -> list[tuple[str, bytes]]:
-    """SKILL.md + charts.md + resolve.py + dates.py + the phrasebook TABLE. No package:
-    `resolve.py --lookup` over a flattened table is the matcher.
+    """SKILL.md — with the taxonomy rendered INTO it — plus charts.md and dates.py.
 
-    The table is RENDERED HERE from index.md and shipped; the index itself is
-    not. Deriving it in the sandbox cost a turn every session to rebuild a file
-    that is byte-identical every time and that the agent cannot change — and it
-    put a second copy of the taxonomy in the bundle for the model to be tempted
-    to read. index.md stays in the repo as the SOURCE: `dump_taxonomy`
+    There is no table and no matcher any more (2026-09-06). Everything a lookup
+    could have answered is 46 records, which cost 1,051 tokens written out against
+    489 for one `--lookup` call and 1,070 for the one `--list` call a breakdown
+    needed; the tool cost more than the data and spent a round trip doing it. So
+    the vocabulary is rendered into the skill the agent already reads, and a
+    classification cannot be looked up because nothing can.
+
+    index.md stays in the repo as the SOURCE and does not ship: `dump_taxonomy`
     regenerates it, and re-rendering is part of this deploy.
 
     TODO (DECIDE-16): the tenant taxonomy rides along in this bundle because
@@ -288,21 +277,18 @@ def reporting_bundle() -> list[tuple[str, bytes]]:
     mount (`datasource.get_taxonomy` + /workspace/reports/); do NOT fix it by
     bundling every tenant's taxonomy, which shows each session all the others.
     """
-    table = phrasebook.render(phrasebook.build(include_classifications=not TYPES_IN_PROMPT))
-    # index.md is the source and stays here; a phrasebook.tsv left on disk by a
-    # local `phrasebook.py` run is IGNORED — the table that ships is always the
-    # one rendered a line above, never a stale file that happens to be lying there.
-    skipped = ("/index.md", "/phrasebook.tsv")
     files = [
         (name, blob)
         for name, blob in skill_files(REPORTING_SKILL_DIR)
-        if not name.endswith(skipped)
+        if not name.endswith("/index.md")
     ]
-    files.append((f"{REPORTING_SKILL_DIR.name}/phrasebook.tsv", table.encode()))
     if VARIANT_DIR is not None:
         variant_md = variant_file("xas-reporting.SKILL.md").read_bytes()
         files = [(name, variant_md if name.endswith("/SKILL.md") else blob) for name, blob in files]
-    return sorted(files)
+    return sorted(
+        (name, render_vocabulary(blob.decode()).encode() if name.endswith("/SKILL.md") else blob)
+        for name, blob in files
+    )
 
 
 # Still deny-by-default: no allowed_hosts, so the agent reaches no host of its
@@ -415,7 +401,7 @@ def main() -> None:
     and updates the agent to carry both — it never creates a second agent.
     """
     # Which pair is going out is not something to infer from the diff afterwards.
-    print(f"Prompt + reporting skill: {VARIANT_DIR if VARIANT_DIR else 'full (default)'}\n")
+    print(f"Prompt + reporting skill: {VARIANT_DIR if VARIANT_DIR else 'the shipped pair'}\n")
 
     if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)

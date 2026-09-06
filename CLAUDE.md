@@ -177,8 +177,8 @@ XAS endpoint and its credential never touch the sandbox.
   forever.
 - **The skill bundles carry code, not data.** `skill_files(skill_dir,
   package)` builds both: `xas-allocation/` + the `xas_allocation` package, and
-  `xas-reporting/` (SKILL.md + `charts.md` + `resolve.py` + `dates.py` +
-  `phrasebook.tsv`). `charts.md` is the one file the agent reads ON DEMAND
+  `xas-reporting/` (SKILL.md + `charts.md` + `dates.py`). `charts.md` is the one
+  file the agent reads ON DEMAND
   (2026-09-01): charts fire on a minority of reporting turns, so the recipe is not
   paid for on the first turn of every session — SKILL.md and the prompt both name
   the path, because a rule you have to fetch is a rule you can skip.
@@ -186,13 +186,14 @@ XAS endpoint and its credential never touch the sandbox.
   `datasource.get_source(scenario)` — so re-carving a scenario needs no
   re-deploy. The tenant taxonomy is the exception (DECIDE-16): it rides in the
   `xas-reporting` bundle because there is one tenant, and the price is that the
-  caller can no longer pick a dealership per session. It ships **BUILT**
-  (2026-08-30): `reporting_bundle()` renders `index.md` through
-  `phrasebook.render` into `phrasebook.tsv` and ships THAT, while `index.md`
-  stays in the repo as the source and never reaches the sandbox. Deriving it
-  there cost a model turn every session to rebuild a file that is byte-identical
-  every run and that the agent cannot change — and put a second copy of the
-  taxonomy in front of a model told not to read it whole. **Change either skill,
+  caller can no longer pick a dealership per session. It ships **BUILT, and since
+  2026-09-06 built INTO SKILL.md**: `reporting_bundle()` renders `index.md`
+  through `phrasebook.classification_block` / `vocabulary_block` into the two
+  markers in that file, while `index.md` stays in the repo as the source and never
+  reaches the sandbox. It shipped as a separate table until then; rendering it
+  host-side has always been the point, because deriving it in the sandbox cost a
+  model turn every session to rebuild something byte-identical that the agent
+  cannot change. **Change either skill,
   the solver package, or the taxonomy and you must re-run `setup_agent.py`.**
 - **The sandbox already has matplotlib, and the chart recipe must not install
   it.** Probed live 2026-09-01 on the cloud environment: `matplotlib`, `numpy`,
@@ -234,8 +235,8 @@ XAS endpoint and its credential never touch the sandbox.
   outcome), the mount paths, the app-MCP environment bullet, the write-back
   approval line, and the allocation-links clause. The allocation lane is now ONE
   line pointing at its skill. WHAT STAYED: the two-lane routing, the taxonomy
-  lookup INVOCATION (which has to be readable before the skill arrives — see the
-  phrasebook bullet), five hard rules, Links, and Reporting — the last
+  lookup INVOCATION (which had to be readable before the skill arrived), five hard
+  rules, Links, and Reporting — the last
   restructured into an explicit FIRST (read the skill and resolve every term in
   ONE block) / THEN (the four rules that apply once both have landed), because a
   single dense paragraph did not say which step comes first.
@@ -245,45 +246,47 @@ XAS endpoint and its credential never touch the sandbox.
   not at all — the ask-first gate (skill only), the app-MCP fence and the
   allocation-links clause (NEITHER, see their own bullets). The cut was the user's
   call, made deliberately and rule by rule; the reason for each one is in git
-  history — read it before restoring anything.
-- **A whole prompt+skill pair swaps on one env var, and only that pair.**
-  `XAS_VARIANT=minimal uv run python setup_agent.py` deploys
-  `variants/minimal/system-prompt.md` in place of `SYSTEM_PROMPT` and
-  `variants/minimal/xas-reporting.SKILL.md` in place of the reporting SKILL.md
-  (see `variants/README.md`); unset deploys the full pair, so the default run and
-  the whole suite are untouched. Everything else — `resolve.py`, `dates.py`,
-  `charts.md`, the rendered `phrasebook.tsv`, the allocation bundle —
-  ships identically either way, which is what makes the two comparable. Both
-  files must exist or the run exits naming the missing one, and `main()` prints
-  which pair went out. `minimal` (2026-09-03) is the experiment in saying what
-  each component is FOR and leaving the reasoning to the model: it keeps the two
-  link kinds and the never-show-the-kitchen rule, drops every procedure, and its
-  prompt says NOTHING about allocation — the `xas-allocation` skill's own
-  description is the only thing routing to it. `tests/test_agent_contract.py`
-  pins the FULL pair by phrase, so it passes under either and proves nothing
-  about a variant: a variant is verified by hand.
-- **The `minimal` prompt carries the tenant's TYPES inline, and they are
-  GENERATED, never typed.** 2026-09-03: `{{CLASSIFICATIONS}}` in
-  `variants/minimal/system-prompt.md` is substituted at deploy by
-  `phrasebook.classification_block()`, from the same `index.md` the table is
-  built from — a hand-written list in a prompt is a second copy of the taxonomy,
-  free to drift. It holds the 33 classifications of the three entities a read
-  tool can FILTER (job cards 23 with their link page, vehicles 5, accounts 3);
-  the 19 under Item / Activity / Model / SalesModelObjects / VehicleModels stay
-  out because no tool can filter them. The price is ~1,050 tokens on EVERY turn,
-  the allocation lane's included (prompt 558 -> 1,617 tokens), against one saved
-  round trip on the turns where a type was the only word needing translation —
-  not the ones that also need a date range or a status list. Pinned by tests in
-  `tests/test_phrasebook.py`, including that no `{{...}}` marker survives the
-  substitution.
-- **One taxonomy, one place: the shipped table drops what the prompt carries.**
-  `build(include_classifications=...)`, keyed off `setup_agent.TYPES_IN_PROMPT`
-  (true when the variant prompt held the marker). Under `minimal` the bundled
-  `phrasebook.tsv` is 244 rows — statuses, branches, states, entities — and
-  `--lookup`/`--list` answer for those only; under the full pair it keeps its 373
-  and nothing changes, because that prompt has no type list and nowhere else to
-  resolve a type from. Two copies of one taxonomy in front of one model is what
-  the marker exists to avoid.
+  history — read it before restoring anything. **This bullet describes a prompt
+  that no longer exists**: the minimal pair replaced it on 2026-09-06 and the
+  vocabulary left it the same day, putting it at 746 tokens. It is kept for the
+  rule-by-rule record of what was cut and why.
+- **The first block is TWO things now, and it is the whole of what precedes a
+  data call (2026-09-06).** Trace `sthr_01LsdNCY6pMrNhF1peMGvyXU`: "how many job
+  cards were opened this month" spent THREE serial round trips before the data
+  call — skill read + lookup, then `dates.py`, then the MCP — because the prompt's
+  one-block rule named the read and the lookup and not the dates. The same turn
+  spent two lookups that could not have helped: `job card` is the ENTITY, whose
+  aliases resolve to the `Service` classification, so reading one as the answer
+  silently narrows "how many job cards" to service orders; `opened` is a DATE,
+  found nothing, and the hedge `open` came back as the Open STATUS, a different
+  set entirely. All three problems are now structural rather than prose: the
+  lookup is deleted, the type list says what the entity word does, and the block is
+  the skill read plus `dates.py`. The when-vs-status rule stays in the PROMPT
+  because that reading is decided before the skill lands; the FILTER half
+  (`CreateDateTime` vs `JobStatus`) is the skill's, acted on after both arrive.
+  Pinned by three tests in `tests/test_agent_contract.py`.
+- **A customer is named on a LINK, and the link costs a call.** The rule that a
+  card's customer is plain text was cut from both skills on 2026-09-06 at the
+  user's call: it contradicted the same section's own customer row
+  (`[Hertz](/accounts/…)`) and "a list of customers is a list of links", and a live
+  turn followed it and printed 17 plain-text names for "what customers opened
+  service jobcards last week". What has NOT changed is why it existed —
+  `Accounts.Owner` carries `AccountUUID` + `AccountName` and no `Url`, and composing
+  `/accounts/<AccountUUID>` was right on 389 of one customer's 403 cards. So the
+  skill now names the only correct path: when the customers ARE the answer, one
+  `get_account_list` call over the names or codes brings back their pages. That is a
+  round trip a count does not need, which is why the rule is scoped to answers whose
+  subject is the customers. The real fix is a `Url` on `Accounts.Owner` — a fourth
+  item for `docs/appmcp-requests.md`, not yet filed.
+- **The type list says what the ENTITY word does, and it is generated too.**
+  `entity_heading()` opens each of the three lists with the words that mean the
+  WHOLE set and take NO filter — `"job cards", "jobs"` for `JobClassification`,
+  and the same for vehicles and accounts — because every other word in that block
+  is a type, and a live session on 2026-09-06 spent a round trip looking `job card`
+  up for exactly that reason. The words come off the index's `ENTITY` line
+  (`entity=` / `businessType=`), never typed, like everything else in the block.
+  The two rules beside it — `Open` is a status, "opened" is a date — live in the
+  prompt's own first-block paragraph and are deliberately NOT copied here.
 - **The taxonomy index is ACTIVE ONLY as of 2026-09-03, and that is a decision
   with a known cost.** `VGR` and `LeaseContract` were inactive in the tenant
   config, hand-maintained in `index.md`, and kept until this date because they
@@ -296,63 +299,65 @@ XAS endpoint and its credential never touch the sandbox.
   types carried (`Active`, `QUOTAION`, `Vehicle Ready`) still exist under active
   types, so no status became unresolvable. A regeneration from the config drops
   them anyway, which is why nothing has to be re-excluded by hand later.
-- **A follow-up over rows already in the transcript is a formatting job.** Added
-  to the prompt's Reporting list on 2026-09-02: a live turn 3 spent 20s
-  re-reasoning over records a previous turn had already returned, same filter,
-  same records. The rule is in the PROMPT, not the reporting skill, because the
-  turn it fires on is the one furthest from the skill read — and it is scoped
-  under Reporting, so the allocation lane pays for one line and no procedure.
-  `tests/test_agent_contract.py` pins it by phrase.
-- **The phrasebook is TWO modules, split by where they run, and they share one
-  `normalize`.** `phrasebook.py` at the repo root parses `index.md` and renders
-  the table (host-side, never shipped — the same hop `flatten.py` is for the
-  pull); `skills/xas-reporting/resolve.py` is the query side the agent runs,
-  ONE verb `--lookup`, and it is the ONLY one in the bundle. The
-  builder IMPORTS `normalize` and `COLUMNS` from the skill file, never the
-  reverse: the skill file has to stand alone in a sandbox that cannot see this
-  repo, so it owns anything both sides need. That direction plus "render at
-  bundle time, never commit the table" is what makes normalizer drift
-  impossible — a skill version physically cannot hold a table built by a
-  different `normalize`, and if it ever did, the `normalized` column would stop
-  equalling `normalize(surface)` and the exact rung would miss in silence.
-  `tests/test_phrasebook.py` pins that equality over the BUNDLED bytes, and that
-  the parser is absent from every shipped file.
-  **`--lookup` answers EVERY wording, and that is a 2026-09-02 fix.** It used to
-  work rung-before-term and RETURN at the first rung any wording reached, so the
-  other wordings were discarded in silence — which made the prompt's own
-  instruction (send every wording you would have tried, in one call) actively
-  harmful: a hedge that hit a higher rung hid the wording that meant what was
-  asked. Live, "inventory vehicles by status" hedged with "in stock" and got back
-  one status row, with both `Inventory Vehicles` classifications hidden. Now each
-  wording gets its own best rung, the rungs ORDER the blocks (exact first) instead
-  of suppressing them, rows already printed are not repeated, and a whole-call
-  ceiling (`TOTAL_LIMIT`) sits on top of the per-term `LOOSE_LIMIT`. The
-  nearest-spelling rung stays a WHOLE-CALL fallback deliberately: per wording it
-  fires on every hedge word the agent invented — `status` is nobody's term here
-  and its nearest neighbour is `Task` — and the skill instructs the agent to act on
-  a `CONFIRM` line. Two things this does NOT fix and that were considered
-  separately: an exact hit still says nothing about near-siblings that merely
-  CONTAIN the term (a live run on 2026-09-02 saw both `Inventory Vehicles`
-  classifications in one block and still answered about one of them without
-  asking), and enumerating a bucket list is not a lookup — see the next bullet.
-- **`--list` is the SECOND verb, and it exists because a bucket list is not a
-  lookup.** `--lookup` answers what a word MEANS; nothing answered what the values
-  ARE, so a session that needed every vehicle status invented plausible names
-  (`Sold`, `Delivered`, `In Transit`), looked each guess up, then guessed codes
-  `12`/`13`/`14` — three round trips to arrive at a list still missing `99
-  Disabled` (2026-09-01 spent a 15-iteration shell loop on the same hole; the awk
-  recipe that used to answer it was cut in `96ab2a4`). `resolve.py --list
-  kind=status entity=Vehicle` takes any `<column>=<value>` and prints ONE row per
-  RECORD in code order: distinctness is (code, name, id), so the eleven JobCard
-  classifications sharing `01 New` collapse to one bucket while vehicle `02` stays
-  TWO — the collision rule again, this time enforced by the output rather than by
-  prose. Aliases collapse into the printable name row (`1212` -> `Inventory
-  Vehicles (Truck)`), and `BUCKET_LIMIT` caps a tenant whose classifications run
-  to hundreds. It lives in the SKILL, not the prompt: unlike the lookup it is
-  never wanted before the skill has landed, and the allocation lane pays for every
-  prompt line. `tests/test_agent_contract.py` pins the invocation INSIDE the
-  bucket-loop row — a command one paragraph away from the decision is the shape
-  that got cut last time.
+- **A follow-up over rows already in the transcript has NO rule any more.** A live
+  turn 3 once spent 20s re-reasoning over records a previous turn had returned —
+  same filter, same records — and the fix was a prompt line saying to format from
+  what was already there. It went out with the minimal prompt on 2026-09-06 and no
+  test pinned it, so nothing states it today. Restoring it is one bullet; check
+  first whether it still happens, because the shipped prompt is a third the size
+  the one that needed it was.
+- **THERE IS NO LOOKUP (2026-09-06), and that is the whole design now.**
+  `resolve.py`, `phrasebook.tsv`, `--lookup`, `--list`, the five rungs, `suggest`,
+  `normalize` and the invariant that pinned the normalizer are DELETED. The
+  argument is arithmetic, measured with `messages.count_tokens`: everything a
+  lookup could ever answer is **46 records** — 21 job-card statuses, 13 vehicle
+  statuses, 5 lifecycle states, 7 branches — which is **1,051 tokens** written out
+  in full, against **489** for ONE `--lookup` call answering three wordings and
+  **1,070** for the single `--list` call a breakdown needed. The tool cost more
+  than the data on every call and spent a round trip doing it, and its output then
+  sat in the transcript to be re-read every later turn. So `phrasebook.py` renders
+  TWO markdown blocks — `classification_block()` and `vocabulary_block()` — which
+  `setup_agent.render_vocabulary()` substitutes into the reporting SKILL.md at
+  bundle time (`{{CLASSIFICATIONS}}` / `{{VOCABULARY}}`). What this bought beyond
+  tokens: a classification can no longer be resolved by guesswork because nothing
+  in the sandbox can resolve anything, which is the failure four separate prose
+  rules kept failing to prevent; and the bucket list a breakdown loops IS the list,
+  in code order, already in front of the model. What it cost: `difflib` typo
+  recovery is now the model's own job, and the ceiling is hard — 46 records is this
+  tenant, and a tenant with hundreds of statuses needs the host-side mount of
+  DECIDE-16, not a tool. `phrasebook.py` stays HOST-SIDE and its parser still ships
+  nowhere; `tests/test_phrasebook.py` was rewritten around the blocks, and the ~40
+  tests that pinned the rungs are in git history.
+- **The vocabulary lives in the SKILL, not the prompt, and that reverses
+  2026-09-03.** The types went into the prompt to save a lookup round trip; with no
+  lookup there is nothing to save, and the vocabulary is only ever wanted once a
+  reporting question is already being answered — by which point the skill has
+  landed in the same block. So the prompt went **1,888 -> 746 tokens** (it carries
+  identity, the pieces, the one-block rule, Links and never-show-the-kitchen, and
+  `dates.py`, which still has to be runnable BEFORE the skill lands) and the skill
+  **1,632 -> 3,676**, read once per session on a read that already happened. Every
+  ALLOCATION turn is now ~1,140 tokens cheaper than before, and pays for no status
+  id it can never use. The residual risk is that a long session can summarize a
+  tool result away and cannot summarize the prompt: if a reporting answer ever
+  starts inventing status names late in a session, that is the cause.
+- **Job-card statuses are filtered by `JobStatus.ID` because the APP is, and the
+  alternative is a silent 4% error.** Probed live 2026-09-06: `JobStatus.Code` IS
+  honoured (a key the server ignores returns 0, so this is a real filter) and would
+  drop 21 ObjectIds, ~290 tokens. It disagrees with the id on 2 of 6 statuses
+  tested, and the reason is data: **nine cards store an ID that contradicts their
+  own Code and Label** — card 8629 displays `Canceled` and carries New's id — so
+  Canceled counts 219 by id and 228 by code, and `01 New` counts 1,124 against
+  1,116. The app's own job-card filter control emits `JobStatus.ID`
+  (`app/src/components/Filters/Controls/JobStatus/index.tsx`), which is the page a
+  `ListUrl` opens, so counting by code would print a number above a link showing a
+  different one. Vehicles (`status.code`) and branches (`Branch` by ObjectId) match
+  the app either way. The nine cards are a dev-data bug worth reporting upstream.
+- **The four unresolved statuses are NAMED, not dropped.** Codes 6, 8, 9 and 11
+  are carried by cards and missing from the status dictionary, so they have no name
+  and no id and cannot be filtered at all. `vocabulary_block()` prints a line
+  saying so. Omitting them silently is how those cards end up counted under a
+  status they are not in — the same failure shape as the inactive-classification
+  decision two bullets down.
 - **A filter guessed from the MCP's own `fields` enum returns 0, not an error.**
   On 2026-08-31 a session read SKILL.md and fired `{"inventoryStatus": "InStock"}`
   in the SAME block — so it filtered before it had the procedure it was fetching —
@@ -360,37 +365,13 @@ XAS endpoint and its credential never touch the sandbox.
   control the skill allows. Three calls for a one-call count, and 40 padded rows
   left in the conversation to be re-read every later turn. The enum advertises
   names the server does not honour (`InventoryStatus` really holds `"1"`–`"5"`),
-  and the phrasebook had the answer outright: `In Stock` is a Vehicle STATUS,
-  code `03`. Two rules now carry it — the prompt orders the skill read BEFORE the
-  first MCP call and bans filters taken from a field list, and the skill's opening
-  **Three sources** table scopes that list to `fields` alone. Neither is structural;
-  the prose is the whole mechanism. The ban is on the CALL, not on the block: a
-  taxonomy lookup rides WITH the skill read, because its words come from the
-  planner's question rather than from the procedure being fetched, and a lookup
-  cannot come back wrong where a filter can. Reworded 2026-08-31 — the read is a
-  round trip of its own (~9s and 17k tokens on the first reporting turn of every
-  session) and the block after it was always the same grep. **Permission was not
-  enough** (2026-09-01): the prompt said the lookup MAY ride along and named
-  `resolve.py --lookup`, but the RUNNABLE command — its path and its
-  many-wordings-at-once form — lived only in SKILL.md, so the agent could not fire
-  it until it had read the skill. Eight live sessions measured that day all spent
-  two serial round trips (~5–11s) before touching data and not one rode along. The
-  INVOCATION now lives in the prompt and only there; the skill keeps how to READ the
-  result, which is not wanted until the result is in hand — by which point both have
-  landed. **Moved again 2026-09-02, out of its own `Environment` section and into
-  the Reporting step that fires it**, with the ban on reading the table any other
-  way; `Environment` held nothing else and is gone, the allocation lane's "read
-  your skill" riding on its routing bullet instead. Same fix as `--list` beside the
-  bucket row: a command one section from the decision is a command that is not run.
-  The both-directions clause was said in both places and now reads once, in the
-  THEN bullet where each direction is acted on. Splitting it that way is also why the prompt does not grow for the
-  allocation lane, which pays for the prompt and never reads this skill. There are THREE sources
-  and each supplies exactly one thing: the tool says what you may SEE, the taxonomy
-  supplies filter VALUES, the recipes supply filter KEYS. Both sides used to get that
-  wrong in opposite directions — the prompt sent the agent to the taxonomy for a key
-  it does not hold, and the skill's own rule said the same in its heading while its
-  last sentence said the opposite. Whichever half was believed, one of them was a dead end, which is the
-  shape of the guess above.
+  and the taxonomy had the answer outright: `In Stock` is a Vehicle STATUS, code
+  `03`. What carries the rule now is one sentence in the skill, beside the
+  vocabulary it scopes: filter values come from those lists, never from a tool's
+  `fields`, which says only which columns you may SEE. It is not structural and the
+  prose is the whole mechanism — but the guess it guards against is much less
+  reachable since 2026-09-06, because the values are in front of the model before
+  the first call rather than a round trip away.
 - **A tally is ONE page, and the page is 200 — the server's own maximum, not
   ours.** The skill said 50, so a 51-card tally came back one short and the agent
   spent a whole round trip on page 2 to collect a customer already in its list: 17s
@@ -423,13 +404,15 @@ XAS endpoint and its credential never touch the sandbox.
   not hold them, so two rules were made CONCRETE in the skill instead: the residual is
   worked through with its arithmetic (twelve buckets summing to 723 against 1,334
   leaves 611, confirmed once with `{"status.code": {"$in": [null]}}`), and **two
-  phrasebook rows sharing one code are TWO buckets** — vehicle `02` is both
+  vocabulary lines sharing one code are TWO buckets** — vehicle `02` is both
   `On The Way` and `Available For Sale `, so a `status.code` call returns their sum and
   hides the split; count each by `status.name` with `$like`. That collision was the ONE
   finding in that trace specific to a single entity, which is why the reporting skill is
   not split per entity: the other four were generic and a per-entity split would have
-  copied them three times. The examples for hand-rolling a phrasebook enumeration and
-  for printing a tenant's misspelled status name verbatim were considered and declined.
+  copied them three times. Since 2026-09-06 that collision is also VISIBLE rather
+  than described: the two names are two lines under one code in the skill's own
+  status list. The example for printing a tenant's misspelled status name verbatim
+  (`QUOTAION`) was considered and declined.
 - **A tool result past ~100,000 CHARACTERS becomes a file, and only then is
   aggregation code work.** The platform offloads any oversized tool output — MCP tools
   included — to a file in the sandbox and returns a truncated preview plus the path
@@ -451,7 +434,7 @@ XAS endpoint and its credential never touch the sandbox.
   `/accounts/<Id>` — nested `include:` sections too), and the three list tools a
   top-level `ListUrl` over exactly the filter just run. So `skills/xas-reporting/link.py`
   and `tests/test_link.py` are GONE, with the skill's link-building rules, the
-  prompt's, and both `variants/minimal/` files'. Verified equivalent before
+  prompt's, and both files of the pair now shipping. Verified equivalent before
   deleting, against the app's own parser (`app/src/services/searchParams.ts`): a
   URL with only `filter` reads back as page 1 / count 20 / no sort / no kpi —
   identical to what `link.py` emitted with its `LINK_PAGE_SIZE = 20`. And the
@@ -476,7 +459,8 @@ XAS endpoint and its credential never touch the sandbox.
   named records is still the cap** — "which vehicles does Hertz hold" printed 63
   linked rows on 2026-09-01, the table the set link already opens, re-read on every
   later turn. Past twenty the set link IS the list; twenty is a ceiling, not a
-  target. The `minimal` pair says TEN, deliberately unreconciled. (4) **Allocation
+  target. The SHIPPED pair says TEN, and the archived `full` one still says
+  twenty — deliberately unreconciled. (4) **Allocation
   answers carry NO links** — those orders and cars come from the frozen pull, so an
   id that looks routable may open something else — and that rule is STILL written
   in no file: it was cut from the prompt on 2026-09-01 and `link` appears nowhere in
@@ -486,17 +470,16 @@ XAS endpoint and its credential never touch the sandbox.
   Every link is still RELATIVE (2026-08-31) and now unavoidably so — the server
   returns paths, not origins — so answers rendered outside the app, the `web.py`
   demo chat included, have dead links until that surface resolves them.
-  What survives of the old machinery is the phrasebook's **`route` column, whose
-  job was never really the link**: it groups a job card's types into the three
-  business areas a planner asks for by NAME ("vehicle sales", "sales cards"), which
-  `--list route=/vehicle_planning` enumerates and the `minimal` prompt renders as
-  headings. Its four tests moved whole from `tests/test_link.py` into
-  `tests/test_phrasebook.py`. Two things that column does NOT solve, both open: the
-  FULL pair carries no type list and no GROUP rows in its table, so `--lookup
-  "vehicle sales"` substring-matches 3 of the 10 vehicle-planning types and says
-  nothing about the other 7 — putting GROUP rows in the table was considered on
-  2026-09-03 and declined by the user; and a job-card filter naming no
-  classification has no single area, where the server just picks `/job_cards`.
+  What survives of the old machinery is `route_for`, **whose job was never really
+  the link**: it groups a job card's types into the three business areas a planner
+  asks for by NAME ("vehicle sales", "sales cards"), which the skill's type list
+  renders as headings and which the heading itself tells the agent to filter as a
+  set. That is now the column's only job — the table it used to be a column OF is
+  gone — and it closed the hole it used to leave open: asking for an area no longer
+  depends on a substring match finding 3 of 10 types, because the ten sit under the
+  heading. Its tests moved whole from the deleted `tests/test_link.py` into
+  `tests/test_phrasebook.py`. What it still does not solve: a job-card filter naming
+  no classification has no single area, and the server just picks `/job_cards`.
 - **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
   `/workspace/vehicles.json` are the pull — the export's two row streams, kept
   apart because folding them into one document would only make `flatten` take it
@@ -816,8 +799,9 @@ mutation.
 uv run python -m datasource --list                  # the scenarios the picker offers
 uv run python -m datasource --census                # what the scenario kept vs dropped
 uv run python -m datasource --scenario scenario-unallocated --census
+uv run python -m phrasebook                         # the two vocabulary blocks the skill ships
 uv run python -m xas_allocation.session             # a full four-turn demo over the default scenario
-uv run pytest                                       # mapping, flatten, contracts, phrasebook, determinism
+uv run pytest                                       # mapping, flatten, contracts, vocabulary, determinism
 PYTHONPATH=. uv run python tests/test_invariant.py  # the invariant, standalone (4/4)
 uv run ruff format . && uv run ruff check .
 ```

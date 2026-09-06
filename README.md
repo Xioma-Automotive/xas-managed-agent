@@ -16,8 +16,8 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-sonnet-5` (Opu
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
 | `skills/xas-allocation/SKILL.md` | — | The allocation skill: data model, cost model, procedure, steering contract, planner-report contract. |
-| `phrasebook.py` | — | Builds `phrasebook.tsv` from `index.md` at deploy time. Host-side only; imports `normalize` from the skill so the two cannot drift. |
-| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md`, the tenant taxonomy `index.md` (source, never shipped), `resolve.py` that queries the table, and `dates.py` for period words. |
+| `phrasebook.py` | — | Renders the tenant's types, statuses, states and branches from `index.md` into the reporting SKILL.md at deploy time. Host-side only. |
+| `skills/xas-reporting/` | — | The reporting skill: `SKILL.md` (with the taxonomy rendered into it at deploy), the source `index.md` (never shipped), and `dates.py` for period words. |
 | `COMMANDS.md` | — | Every runnable command with its parameters — data generation knobs, the test gate, deploy, the typical loops. |
 
 The split is **control** (create the agent and environment once — persistent,
@@ -68,7 +68,7 @@ separate agents:
 | Lane | Skill | Reads | Answers |
 | --- | --- | --- | --- |
 | Allocation repair | `xas-allocation` | `/workspace/orders.json` + `/workspace/vehicles.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
-| Reporting | `xas-reporting` | `phrasebook.tsv` in its own skill dir + the `xas-app-mcp` tools (LIVE dev system) | how many, which branch, what status — and charts |
+| Reporting | `xas-reporting` | the tenant's vocabulary, inside its own SKILL.md + the `xas-app-mcp` tools (LIVE dev system) | how many, which branch, what status — and charts |
 
 Both skills are on the same session, so a planner can repair an allocation and
 then ask for a chart without switching tools.
@@ -83,29 +83,26 @@ path left to forbid), `tests/test_agent_contract.py` pins the rule,
 and `docs/evals/routing.md` is the hand-run behavioural check.
 
 **Reporting vocabulary.** Dealerships rename things — in the shipped tenant the
-code `Evaluation` displays as `Service Lead`. `xas-reporting` flattens the taxonomy into a
-normalized phrasebook (one row per surface string, casefolded and stripped of
-combining marks) so Hebrew typed without niqqud still matches, then resolves
-it with one `resolve.py --lookup` call, which climbs the whole ladder — the
-stored form, a code or id read backwards, a substring, word by word, then the
-nearest spelling for a misspelling — for every wording the agent proposes in
-that call, and answers ALL of them: the ladder orders the blocks, it does not
-suppress them. A term that survives
-all of that unresolved gets no answer: the skill makes the agent name it, offer
-the nearest entries and ask, because the closest-looking code returns a
-real-looking number nobody can tell is wrong. Enumerating a set rather than
-resolving a word — every vehicle status, every branch, the buckets a breakdown
-loops over — is the same file's other verb, `resolve.py --list kind=status
-entity=Vehicle`, which prints one row per record so a loop cannot miss a value
-nobody thought to guess.
+code `Evaluation` displays as `Service Lead`, and `Warranty` displays as
+`Potain`. There is no lookup: the whole of this tenant's vocabulary — 31 card,
+vehicle and account types, 21 job-card statuses, 13 vehicle statuses, 5 lifecycle
+states, 7 branches — is rendered from `index.md` INTO the reporting `SKILL.md` at
+deploy time, so the agent reads it where it already reads the procedure and never
+spends a round trip resolving a word.
 
-The taxonomy itself ships **inside the `xas-reporting` skill** (DECIDE-16): one
-tenant, so static config beats a per-session upload, at the cost of a redeploy
-when it changes and no per-session choice of dealership. A second tenant moves it
-back to a host-side mount. It ships **already flattened** — `setup_agent` renders
-`index.md` into `phrasebook.tsv` at bundle time and ships only the table, so the
-agent greps a file that is already there instead of spending its first turn
-rebuilding one it cannot change.
+That is a size decision with numbers behind it: the 46 records cost 1,051 tokens
+written out in full, against 489 for the one `--lookup` call the old matcher
+answered three wordings with, and 1,070 for the single `--list` call a breakdown
+needed. The tool cost more than the data every time it ran. Deleting it also
+removed the failure prose kept failing to prevent — a type resolved by guesswork —
+because nothing in the sandbox can resolve anything: a word that is not in those
+lists is not this dealership's word, and the skill makes the agent name it and
+ask rather than filter on the nearest-looking entry.
+
+The taxonomy ships **inside the `xas-reporting` skill** (DECIDE-16): one tenant,
+so static config beats a per-session upload, at the cost of a redeploy when it
+changes and no per-session choice of dealership. A second tenant moves it back to
+a host-side mount.
 
 **Links instead of tables.** A reporting answer names every record as a link to
 its own page and ends with one link to the whole set. Both come off the response:
@@ -229,11 +226,12 @@ uv run uvicorn web:app --port 8000    # the only process — open localhost:8000
 
 No worker, no environment key, no `.env.worker`. One process.
 
-**To deploy the minimal prompt + reporting skill instead**, add one variable:
+A bare run deploys the **minimal** prompt + reporting skill, which is the pair
+that ships. **To deploy the archived full pair instead**, add one variable:
 
 ```bash
-XAS_VARIANT=minimal uv run python setup_agent.py   # variants/minimal/ — see variants/README.md
-uv run python setup_agent.py                       # back to the full pair
+XAS_VARIANT=full uv run python setup_agent.py   # variants/full/ — see variants/README.md
+uv run python setup_agent.py                    # back to the shipped pair
 ```
 
 Both are re-runnable in place against the same IDs, and setup prints which pair
@@ -337,7 +335,7 @@ Summary:
 | 13 | Bumping an untouched order | never without explicit planner authorization (`may_move.also`); the agent asks who may be bumped | settled |
 | 14 | Time-scale granularity | **deleted** — nobody asked for days/weeks/months, and it cost a rounding helper, a threaded argument, report phrasing and a test file to stop the solver telling three days from six | RETIRED |
 | 15 | Earliness penalty | `early_weight=0.15`, linear — a little early is cheap, a lot early is costly; lateness always dominates; earliness only | value unvalidated |
-| 16 | Where the tenant taxonomy comes from | bundled — rendered from `index.md` into `phrasebook.tsv`, which ships inside the `xas-reporting` skill; a SECOND TENANT flips it back to a host-side mount | settled |
+| 16 | Where the tenant taxonomy comes from | bundled — rendered from `index.md` INTO the `xas-reporting` SKILL.md; a SECOND TENANT flips it back to a host-side mount | settled |
 
 **Not in this prototype (deferred to reviewed PRs, per spec):** the CP-SAT + LNS
 escape hatch for *coupled* orders (fleet all-or-nothing, transport batching), and

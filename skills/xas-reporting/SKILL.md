@@ -1,301 +1,95 @@
 ---
 name: xas-reporting
 description: >-
-  Answer REPORTING questions over the dealership's job-card records — counts,
-  breakdowns, filters, charts — resolving the business vocabulary a user types
-  (any language) to this tenant's system codes via this skill's taxonomy and
-  phrasebook. Use for questions ABOUT the data: how many, which branch, what
-  status, draw a chart. Do NOT use for allocation repair — which order is late,
-  which vehicle an order gets, bumping, pinning, deliveries, arrivals, VSOs /
-  sales orders, or delays in supply or in a VPO belong to xas-allocation, which
-  answers them from the solver; that holds even when phrased as a count.
+  Answer REPORTING questions over the dealership's job-card, vehicle and account
+  records — counts, breakdowns, filters, lists, charts — resolving the business
+  vocabulary a user types (any language) to this tenant's system codes via this
+  skill's taxonomy. Use for questions ABOUT the data: how many, which branch,
+  what status, draw a chart. Do NOT use for allocation repair — which order is
+  late, which vehicle an order gets, bumping, pinning, deliveries, arrivals,
+  VSOs / sales orders, or delays in supply or in a VPO belong to xas-allocation,
+  which answers them from the solver; that holds even when phrased as a count.
 ---
 
 # XAS reporting
 
-Counts, breakdowns, lists and charts over this dealership's job-card records. They
-live in the LIVE system and reach you through the `xas-app-mcp` read tools; nothing
-is on disk, so a number you cannot get from a tool call is a number you do not have.
+Counts, breakdowns, lists and charts over this dealership's records, which reach
+you through the `xas-app-mcp` read tools.
 
-Filter VALUES come from the phrasebook, filter KEYS from **The calls** below or
-from a `source` block a tool echoed. **Never take a filter — key or value — from a
-tool's `fields` list**: that list says only which columns you may SEE, and a filter
-built from it comes back as 0 rows rather than an error, which reads exactly like a
-real answer. `In Stock` is a vehicle STATUS with code `03` in the phrasebook, not
-the `inventoryStatus: "InStock"` the field list advertises.
+## This dealership's words
 
-## The phrasebook
+Everything below is generated from the taxonomy at deploy time and is COMPLETE.
+There is nothing to look up and no way to look anything up: if a word the planner
+used is not here, it is not this dealership's word — name it back to them and ask
+what they meant. Never filter on the nearest-looking entry.
 
-`/workspace/skills/xas-reporting/phrasebook.tsv` is there before your first turn,
-built and ready. It is the only authority for this tenant's vocabulary, and it
-works in BOTH directions: the user's words going in, the records' codes coming
-out. Never guess a code, an id or a status name from memory; never build or edit
-the file. **Look terms up with the command below; never read it whole** — this
-tenant's is small, production tenants run to megabytes. (Missing at that path?
-`ls /workspace/skills/*/phrasebook.tsv`.)
+Filter on the value in each line; print the NAME. Never take a filter — key or
+value — from a tool's own `fields` list: that says which columns you may SEE, and
+a filter built from it returns 0 rather than an error.
 
-One row per surface string — every code, name and alias on its own line — with a
-`normalized` first column (casefolded, combining marks stripped), so Hebrew typed
-the normal way (`חלפים`) matches the stored form (`חֲלָפִים`) however the user
-typed it. Tab-separated:
+### The types
 
-```
-normalized  surface  role  kind  entity  classification  code  id  name  state  closed  route
-```
+{{CLASSIFICATIONS}}
 
-- `kind` — `entity` / `classification` / `status` / `state` / `branch`. One surface
-  can appear under two kinds (`Closed` is both a status and a state), so read
-  `kind` before acting on a row.
-- `route` — classification rows only: the business area those types belong to.
-  `--list route=/vehicle_planning` enumerates every type in one, which is how you
-  answer a question about a whole area ("vehicle sales", "sales cards").
-- `role` and the remaining columns are provenance; you never filter on them.
+### The statuses, states and branches
 
-Everything listed is queryable, so never check whether a type is active — two the
-config marks inactive are listed anyway because they still hold cards. A
-classification that is ABSENT is not evidence that no card carries it.
+{{VOCABULARY}}
 
-## Resolving a term
+## The helpers
 
-**The lookup rides in the same block as this read** — your instructions carry the
-command, so it has already run by the time you read this. It works the ladder —
-the stored form, a code or an id read backwards, a substring, word by word, the
-nearest spelling for a typo — for EVERY wording you sent, and answers all of them:
-the column legend, then one block per wording, best kind of match first.
-**Proposing the wordings is yours**; only one that RETURNS A ROW may be used.
+In `/workspace/skills/xas-reporting/`:
 
-Read every block, not just the first: two wordings that answer differently are two
-candidates, not a winner and a loser. A row already printed above is not repeated.
-
-| A block reading | You do |
+| Run | What it does |
 | --- | --- |
-| `matched … — exact` or `— code or id` | use the row |
-| `matched … — partial` or `— words` | pick from the rows, or narrow the term and look again; the line says how many it held back |
-| `no match … nearest entries, CONFIRM` | ONE candidate: say how you read it and carry on ("I read *sapre parts* as **Spare Parts**"). Several: list them and ask. Never swap a word silently |
-| `no match '<term>'` on its own | that wording found nothing; another one may still have. It is a dead end only if EVERY block says it |
-| `no match … ask the user` | name the term you could not resolve, say you looked among the terms this dealership uses, list the nearest ones you did find in their own words, and stop. Do not name this file or the command that missed |
+| `dates.py "last week"` | a named period, both halves: the `CreateDateTime` filter to send and the span in words to tell the planner. Never work a date range out yourself |
+| `charts.md` | the chart recipe. Read it before writing a chart |
 
-To enumerate a set rather than resolve a word — every status, every branch, the
-buckets a breakdown loops over — use `--list` (see **The calls**). Guessing the
-values and looking each guess up spends round trips to arrive at a list missing
-whichever one you did not think of.
+## Sending a call
 
-**Never answer with an unresolved term.** Not the closest code, not a count for
-"something like it": a wrong-but-close code returns a real-looking number the user
-cannot tell is wrong. Every figure traces back to a row.
-
-**Two genuine candidates → ask one short question.** `קריאת שירות` is both
-`ServiceCall` and `Service`: name them in the user's own words and let them pick.
-
-### Reading the row you found
-
-1. **Filter on `code`, display `name`, and carry the `entity` with both.** Codes
-   are unique per entity, not globally — `Model` exists under both `Model` and
-   `VehicleModels` — and `code` and `name` diverge wherever a tenant renamed
-   something (`code=Evaluation` carries `name=Service Lead`). **Two rows sharing one
-   code are TWO buckets**: vehicle `02` is both `On The Way` and `Available For Sale `,
-   so filtering `status.code` returns their SUM and hides the split — count each with
-   `{"status.name": {"$like": "<name>"}}` instead.
-2. **Take the planner's word literally; never widen it.** "Open" means the status
-   named `Open` — ONE id spanning every classification that has it, so ONE
-   array-valued call, never a call per classification. Here an id and its name are 1:1,
-   so send a classification only when the planner asked for one, and say in the
-   answer what the count covered. Widen only where they widened ("not closed",
-   "all unfinished"): then the `closed` flag or the `state` bucket (`New` /
-   `In Process` / `Pending` / `Closed` / `Has Alert`), and say you read it that way.
-   `closed=true` is `Closed` **and** `Canceled`, so the status is always the
-   narrower reading.
-3. **Never invent what the table does not hold.** A status row with an empty `name`
-   is "unknown status (code NN)", counted separately and never relabelled. Cards
-   with no branch are real, so per-branch buckets do not sum to the total: state
-   the remainder. Status rows carry no aliases, so a lifecycle word in another
-   language resolves by translating to the English status name, never by widening
-   to `state`.
-
-## Answering a question
-
-**1. Pin down what the question is about, and take its id.** Resolve every business
-term through the phrasebook first; a person or a company is an ACCOUNT. An id
-already in this conversation needs no lookup. A name you have not seen goes to
-`get_account_list` as `search`, which returns both halves: `Code` filters that
-customer's cards, and the row's own `Url` is their page.
-**`get_account_details` sections are PREVIEWS**: `include: ["jobCards"]` returns 10
-rows however many exist, with no paging and no `fields`.
-So a customer's cards are `get_job_list` filtered on the owner, and that is the
-FIRST call — never `get_account_details`.
-
-**2. Send the call.** Take the row from **The calls** below. `totalCount` rides on
-EVERY response, so there is no separate probe to run first, and a size check before
-the call you would have made anyway has bought NOTHING. Add one unproven clause at a
-time: a 0 from `A AND B` where neither is established carries NO information. The
-links come back WITH the response — a `Url` per record and one `ListUrl` for the set
-— so there is nothing to build and no second command to send.
-
-**3. Read what came back.** `totalCount` IS the count — stop there. A 0 buys exactly
-ONE control call: re-send with only the clause you GUESSED at — a dotted path you
-inferred, not a code the phrasebook handed you — at `count: 1`, never pulling rows,
-and never a second control. **Never walk pages to compute an aggregate**: every card
-you pull stays in this conversation and is re-read on every later turn.
-
-**4. Translate every code before you print it.** `JobStatus` arrives as
-`{ID, Code, Label}` and already carries its label; `JobState` arrives as a BARE
-ObjectId, so `--lookup` it and print the `kind=state` row's `name`. A code that will not
-resolve is NAMED as unresolved — "a card type I could not identify" — never printed
-bare.
-
-### The calls
-
-Every row sends `fields`. **Key case differs by lane, and the wrong case returns 0
-rather than an error**: job-card keys are capitalised dotted paths (`JobStatus.ID`,
-`Accounts.Owner.AccountDMSCode`); vehicle and account keys are lower-camel
-(`status.code`, `code`, `_id`), though their results come back capitalised.
-
-**Operators do not nest, and THAT failure is loud.** On the vehicle and account lane
-an operator's value is a scalar or an array, never another operator:
-`{"$not": {"$in": [...]}}` comes back `500 Cast to string failed`, not 0 rows. What is
-verified on that lane is a bare value, `{"$in": [...]}` — `[null]` included, which is
-how you count the rows carrying no code at all — and `{"$like": "<text>"}` on a name.
-There is no verified negation and you need none: every bucket's count plus the total
-gives the residual by subtraction. Twelve status buckets summing to 723 against a
-`totalCount` of 1,334 leaves 611 carrying no status — subtract, then confirm THAT ONE
-figure with `{"status.code": {"$in": [null]}}`. Never a negation, never a page of rows.
-
-| Goal | Call |
-| --- | --- |
-| A count | `filter: {…}`, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}` → `totalCount` |
-| Breakdown on anything the phrasebook enumerates — status, classification, state, branch | **Take the bucket list from the phrasebook, never from your own memory of what a status is called:** `python /workspace/skills/xas-reporting/resolve.py --list kind=status entity=Vehicle` (any `<column>=<value>`: `kind=classification entity=JobCard`, `kind=branch`) prints one row per bucket, code order, the aliases collapsed. Then one `paging: {"count": 1}` call PER bucket: `filter: {"JobClassification": "<code>"}`, `fields: ["DMSJCEntry"]`, **all of them in a SINGLE block**. There is NO cap on how many: twelve buckets is twelve calls and ONE round trip, and every answer is a `totalCount` over the WHOLE set. Integers, no cards. Never pull rows to tally a field whose values the phrasebook already lists. **A per-bucket breakdown with `count: 1` per bucket IS the answer once every bucket returns — do not re-query the full set** |
-| Breakdown on anything it does not — customer, model, whatever the rows happen to name | **Rows are for two things only: DISPLAYING records, and grouping on a key whose values cannot be named in advance. A bucket call beats a row pull every time the buckets CAN be named, and ONE page of 200 is still pulling rows.** ONE call for the cards, `fields:` the one field you tally on, `paging: {"count": 200}` — the server's maximum — tallied by hand. **Never page a tally**: page 2 is a whole round trip that almost never changes the answer. **If `totalCount` exceeds what you got, that page is a SAMPLE and holds no tally at all** — say what you can bound and stop; never print it as a breakdown. 200 is not free: what bounds a page is BYTES, and an `Accounts.*` field arrives as the whole owner object |
-| "Show me the cards that …" | the rows, with only the columns you will print. A second call repeating the same filter AND field list has bought nothing |
-| "All of X" you must print columns for | first ask: can you bound the page without knowing the size? Where you cannot — 20 rows is a list, 2,000 is a summary — send the key alone, `fields: ["DMSJCEntry"]`, `paging: {"count": 1}`, never candidate columns. Not before a tally: that is already one page of one field |
-| All jobs of one customer | `filter: {"Accounts.Owner.AccountDMSCode": "<the account's `Code`>"}` — never their `AccountUUID`, which returns fewer cards and says nothing about the shortfall |
-| Cards in one status | `filter: {"JobStatus.ID": ["<id>"]}` — always an array |
-| Vehicles in one status | `get_vehicle_list`, `filter: {"status.code": "<code>"}`, `fields: ["VehicleCode"]` — a vehicle status is a CODE, never an id |
-| Breakdown by status, or by branch | one call per status `id`, each in its own one-element array; or per branch, `filter: {"Branch": ["<the ObjectId>"]}` — a branch NAME returns 0 with no error, and only job cards carry a usable branch |
-| Open cards | `filter: {"JobStatus.ID": ["<Open id>"]}` — one id, every classification |
-| Everything not closed — **only if they asked for the span** | the `closed=false` ids in one array, from the phrasebook |
-
-**Rows that arrive INLINE are already in front of you: count those yourself.**
-Re-typing them into a `bash` command pays for the whole payload a second time.
-
-### Ask for the fields you need
-
-A card comes back with all its salient fields whether you use them or not, and they
-stay in this conversation for the session, so **`fields` names what you will
-actually print** — decided from the answer you are about to write, not from what
-might be interesting. Two things to know before you trust a response:
-
-- **`fields` narrows; it cannot widen.** It picks from what the tool already
-  returns; a name it does not return is dropped in silence.
-- **So an absent field is not an empty value.** A missing date means "not returned
-  here", never "this card has no date", and it is NEVER a business fact to report.
-  If a field never arrives on any row, say the live system does not supply it and
-  stop — do not read it as zero, blank or none.
-
-### Dates
-
-**Never work a date range out yourself** — `dates.py` hands you both halves:
-
-```bash
-python /workspace/skills/xas-reporting/dates.py "last week"
-{"start": "2026-08-16T21:00:00Z", "end": "2026-08-23T21:00:00Z"}
-last week = Mon 17 Aug 2026 to Sun 23 Aug 2026, dealership time
-```
-
-Line one is the `CreateDateTime` filter — the only date field to filter a period on
-— and line two is the span to tell the planner. It takes today, yesterday,
-this/last week, this/last month, this/last year and "last N days"; anything else it
-refuses, and then you ask which dates they mean.
+- **`Open` is a STATUS; "opened" is a DATE.** "Cards opened last week" filters
+  `CreateDateTime` over the span your date command returned and says nothing
+  about status; "open cards" filters the status and says nothing about when.
+  Asked for both, send both.
+- **Ten rows is all you print, so ask for ten**: `paging: {"count": 10}` for a
+  list, `{"count": 1}` for a count — `totalCount` comes either way. A bigger page
+  (200 max) is SLOW: needed only to tally by customer or model, or to hunt one
+  record — say why and ask first.
+- **`Branch: true` and `MyJobCards` mean whoever is asking** — you, not the
+  planner. Never filter on either: the count comes back scoped to the wrong
+  person. Resolve to explicit ids and filter those.
+- `get_account_details` sections are PREVIEWS: 10 rows however many exist, no
+  paging. A customer's cards or vehicles come from `get_job_list` /
+  `get_vehicle_list` filtered on the owner.
 
 ## The links
 
-**Every link arrives with the data.** Each record carries its own `Url` — a
-relative path to its page in the app — and each list response carries a `ListUrl`
-over exactly the filter you sent. Those are the only paths you may print. Never
-build one, never guess one, never edit one: a record that came back without a
-`Url` is named in plain text.
+**Every link comes back with the data.** Each record carries its own `Url`;
+each list carries a `ListUrl` over exactly the filter you sent. Use those and
+build nothing — a record with no `Url` is named in plain text.
 
-### Naming a record
+**A record you name IS a link**, its name made clickable. The name is what the
+planner reads, never the id: a card by its `JobEntryNum`, a vehicle by its plate
+(`VehicleCode` where there is none), a customer by `AccountName` —
+`[Hertz](/accounts/655dc47b9c098a054a0791c3)`. TEN named records is the ceiling;
+past ten say how many more there are.
 
-**Every record you name is a link to its own page**, always — in a sentence or in
-a table cell, not only at the end. The LABEL is what the planner knows the record
-by; the `Url` is the target.
+**A customer's page comes from `get_account_list`.** A job-card row hands you
+`Accounts.Owner` — the name, and no `Url` — so when the customers ARE the answer,
+one `get_account_list` call over the names or codes you found brings back their
+pages and every name goes out as a link. An account path composed from an id on a
+card is the one thing that looks right and is not.
 
-| Naming a | the label they read | the link |
-| --- | --- | --- |
-| job card | `JobEntryNum`, the job number | `[105374](/job_cards/8745)` |
-| vehicle | `LicenseNumber`; `VehicleCode` where there is no plate | `[12-345-67](/vehicles/11370)` |
-| customer | `AccountName` | `[Hertz](/accounts/655dc47b9c098a054a0791c3)` |
+**Several types, several links.** Break the figure up by type — each its own
+count and its own `ListUrl` — then the total.
 
-Print the id where the label belongs and you have shown them a number they have
-never seen.
+**The answer ends with the `ListUrl` of the call you counted.** Narrowed the
+filter and re-ran? The old link is stale — close with the new one.
 
-**A card carries no link to its customer.** `Accounts.Owner` gives you the name,
-which is what you print; only a row from `get_account_list` or
-`get_account_details` carries an account's own `Url`. Same for a card's car — the
-row has the plate, not a vehicle page. Name them in plain text and link the cards.
+## Never show the kitchen
 
-### Linking the set
-
-**Every answer about records ends with the `ListUrl` of the call you counted** —
-one click and the planner has the real list, sorted, paged and actionable.
-
-- **The link is the query.** `ListUrl` is built by the server from the filter it
-  just ran, so it cannot disagree with the number above it.
-- **Narrowed the filter and re-ran? The old link is stale.** Close with the
-  `ListUrl` of the call whose count you are reporting.
-- **Never link a set you did not count.** Three cards the planner named is
-  `{"DMSJCEntry": ["a","b","c"]}`: send it, read the count, use its `ListUrl`.
-- **`Branch: true` and `MyJobCards` are not filters you may send.** They mean
-  whoever is asking — the integration login, not the planner — so the COUNT comes
-  back about the wrong person and the link opens a different set again. Resolve to
-  explicit ids and filter those.
-
-## Charts
-
-Asked for a chart? **Read `/workspace/skills/xas-reporting/charts.md` first** —
-the recipe is there, and it is what puts a chart on the planner's screen rather
-than in a sandbox nobody sees.
-
-## Presenting the answer
-
-Everything above is HOW you got the answer, and none of it belongs in the reply.
-Give the figure, what it covers, and anything that changes how they read it:
-
-- **The figure in one line, in their words**, with what it covers: "184 spare-parts
-  cards are Open, Haifa branch, July." Name the status you counted — *"are Open"*,
-  not *"still open"*, which reads as the wider not-closed span.
-- **`name`, never `code`, `id` or a field name.** Where the user gave their own
-  wording, echo theirs. A column headed "Code" breaks this as surely as a sentence
-  does.
-- **A list of customers is a list of links**, not names with one link under them.
-- **A stored name is ONE string.** `Daniil123` is the name, not "Daniil (account
-  123)" — splitting it invents a name nobody stored and puts a code on screen.
-- **Never widen a finding past what you filtered.** A count for one account is
-  about that account, and a query you did not run is not a finding.
-- **Anything that changes the reading**: which term you took their word to mean, an
-  unknown status, a count that came back empty, the one question you would need
-  answered to go further.
-- **The set link last, in a sentence naming what it opens.** "184 spare-parts cards
-  are Open, Haifa branch, July — [open the list](<url>)." Not "click here", not a
-  bare URL on its own line.
-
-Do not say: a step you took or are about to take, a running total, a cross-check
-that passed (one that FAILS is worth a sentence), a pointer at your own output, or
-buckets that came back empty unless they asked for them.
-
-| They asked | You print |
-| --- | --- |
-| A count, a breakdown | the figures, then one link to the set. **No table of cards** |
-| "Show me the cards that …" | one line of what is notable in them, then the link. Not the rows |
-| One card, one car, one customer | its own page's link, and the facts they asked for |
-| A named column — "which customers", "what are the plates" | THAT column, up to TWENTY entries linked, how many more there are, then the set link: "…and 43 more — [open all 63](<url>)". Twenty is a ceiling, not a target — three matches print three. Not the other columns |
-
-A table earns its place only when the answer IS the shape of the data — a handful
-of buckets and their counts — and even then it is the buckets, never the cards.
-
-Never say phrasebook, taxonomy, normalize, grep, awk, filter, paging, `totalCount`,
-record, row, field, code, ObjectId, UTC, sandbox or token — and no file path, no filename,
-no account of what you ran. **The app link is the one exception**: it is
-the planner's own system and the answer's other half. If something went wrong, say
-it in business terms ("the live system returned nothing for July"), never as a tool
-transcript.
+None of the above belongs in the reply: no file path or filename, no tool, field
+or column name, no code or id where a name belongs, no account of what you ran,
+checked, or are about to do. Words like taxonomy, classification, filter, paging,
+record, row, field, code or ObjectId are the kitchen, and so is a column headed
+"Code". Trouble goes in business terms ("the live system returned nothing for
+July"). The links above are the one exception.

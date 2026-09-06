@@ -1,29 +1,25 @@
-"""Build the reporting lane's phrasebook: `index.md` -> `phrasebook.tsv`.
+"""Render the reporting lane's vocabulary: `index.md` -> the blocks the skill ships.
 
 HOST-SIDE ONLY. `setup_agent.reporting_bundle()` calls this at deploy time and
-ships the rendered table; the taxonomy source never reaches the sandbox and
-neither does this parser. Structurally the same hop as the allocation lane's
-`flatten.py` — one format in, one derived artifact out, pure code, no judgement:
-same index in, byte-identical table out.
+substitutes the blocks into the reporting SKILL.md; the taxonomy source never
+reaches the sandbox and neither does this parser. Structurally the same hop as
+the allocation lane's `flatten.py` — one format in, one derived artifact out,
+pure code, no judgement: same index in, byte-identical blocks out.
 
-One row per SURFACE STRING — every code, name and alias becomes its own line — so
-that a term the user typed is found with a single grep, and multi-word terms with
-a chain of greps in any order.
+There is NO lookup any more (2026-09-06). Everything a lookup could ever have
+answered is 46 records — 21 job-card statuses, 13 vehicle statuses, 5 lifecycle
+states, 7 branches — and that is 1,051 tokens written out in full, against 489
+for ONE `--lookup` call answering three wordings and 1,070 for the single
+`--list` call a breakdown needed. The tool cost more than the data every time it
+ran, and it ran on a round trip of its own. So the vocabulary is simply IN the
+skill, read where the procedure is already read, and a classification cannot be
+looked up because nothing can look anything up.
 
-`normalize` and `COLUMNS` are imported from the SKILL's `resolve.py` rather than
-defined here. The skill file has to stand alone in a sandbox that cannot see this
-repo, so it owns them and this borrows; one definition means the `normalized`
-column a row is BUILT with and the form a query is normalized INTO cannot drift.
-Pair that with rendering at bundle time and never committing the table, and a
-skill version physically cannot hold a table built by a different normalizer.
-
-    uv run python -m phrasebook                    # rebuild in place (rarely needed)
-    uv run python -m phrasebook IN.md OUT.tsv
+    uv run python -m phrasebook            # both blocks, to eyeball a change
 """
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -31,31 +27,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 REPORTING_SKILL_DIR = REPO_ROOT / "skills" / "xas-reporting"
 INDEX_PATH = REPORTING_SKILL_DIR / "index.md"
-TABLE_PATH = REPORTING_SKILL_DIR / "phrasebook.tsv"
 
 
-def _resolve_module():
-    """`skills/` is not a package, so the query side is loaded by path."""
-    spec = importlib.util.spec_from_file_location("resolve", REPORTING_SKILL_DIR / "resolve.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_resolve = _resolve_module()
-normalize = _resolve.normalize
-COLUMNS = _resolve.COLUMNS
-
-
-# Which app page a classification's records are listed on, so that a link to the
-# filter the agent just ran can be built without the sandbox holding a route table
-# of its own (`skills/xas-reporting/link.py`).
-#
 # The app splits JobCard classifications three ways by a pair of hardcoded enums
 # (`app/src/types/tenant/classifications.ts`), NOT by anything the taxonomy
-# carries, which is why the split is transcribed here rather than derived. The
-# fallback matches the app's own: a classification in neither set lists on
-# `/job_cards`.
+# carries, which is why the split is transcribed here rather than derived. It
+# groups the type list under the business areas a planner asks for by NAME
+# ("vehicle sales", "sales cards"); the app PAGE it used to target went with link
+# building on 2026-09-03. The fallback matches the app's own.
 VEHICLE_PLANNING = frozenset(
     (
         "VPR",
@@ -87,22 +66,14 @@ CONTRACTS = frozenset(
     )
 )
 
-# Entities with a list page of their own. An entity absent from here gets an empty
-# route, and `link.py` refuses rather than guessing — Activities and Items have no
-# read tool behind them, so a link would point at a page the agent cannot have
-# counted anything on.
-ENTITY_ROUTES = {"Vehicle": "/vehicles", "Account": "/accounts"}
-
 
 def route_for(kind: str, entity: str, code: str) -> str:
-    """The page this record's classification lists on, or "" if it has none."""
-    if kind != "classification":
+    """Which business area a job-card type belongs to, or "" if it has none."""
+    if kind != "classification" or entity != "JobCard":
         return ""
-    if entity == "JobCard":
-        if code in VEHICLE_PLANNING:
-            return "/vehicle_planning"
-        return "/contracts" if code in CONTRACTS else "/job_cards"
-    return ENTITY_ROUTES.get(entity, "")
+    if code in VEHICLE_PLANNING:
+        return "/vehicle_planning"
+    return "/contracts" if code in CONTRACTS else "/job_cards"
 
 
 # Only real records; the header legend documents the format with the same
@@ -126,111 +97,77 @@ def parse_line(line: str) -> tuple[str, dict[str, str]] | None:
     return kind.lower(), fields
 
 
-def surfaces(kind: str, fields: dict[str, str]) -> list[tuple[str, str]]:
-    """Every string a user might say for this record, tagged with where it came from."""
-    found: list[tuple[str, str]] = []
-    if kind == "entity":
-        found.append((fields.get("entity", ""), "entity"))
-        found.append((fields.get("businessType", ""), "businessType"))
-    else:
-        # A BRANCH has only a name — no code, no aliases — because the value a
-        # Branch filter takes is its ObjectId, which rides in the `id` column. A
-        # STATE is the same shape plus a code: it exists so that the bare ObjectId
-        # in a card's `JobState` can be reverse-looked-up to a printable name.
-        found.append((fields.get("code", ""), "code"))
-        found.append((fields.get("name", ""), "name"))
-        for alias in fields.get("aliases", "").split("|"):
-            found.append((alias.strip(), "alias"))
-    return [(text, role) for text, role in found if text]
+def records(index_path: Path = INDEX_PATH) -> list[tuple[str, dict[str, str]]]:
+    lines = index_path.read_text(encoding="utf-8").splitlines()
+    return [parsed for parsed in map(parse_line, lines) if parsed]
 
 
-def build(
-    index_path: Path = INDEX_PATH, include_classifications: bool = True
-) -> list[tuple[str, ...]]:
-    """Every surface string in the index, as table rows.
+def distinct(
+    parsed: list[tuple[str, dict[str, str]]], kind: str, entity: str | None = None
+) -> list[dict[str, str]]:
+    """One entry per RECORD, in declaration order.
 
-    `include_classifications=False` drops the type rows: a prompt that carries
-    the type list inline (see `classification_block`) makes them a second copy in
-    front of the same model, and the shipped table is then statuses, branches,
-    states and entities only. The default keeps them, because a prompt WITHOUT
-    that list has nowhere else to resolve a type from.
+    The index lists a status once per classification that carries it, so the 96
+    JobCard status lines are 21 records. Identity is (code, id, name), which is
+    also what keeps vehicle `02` as TWO records: `On The Way` and
+    `Available For Sale ` share a code, and collapsing them would hide the split
+    behind one number.
     """
-    rows: set[tuple[str, ...]] = set()
-    for line in index_path.read_text(encoding="utf-8").splitlines():
-        parsed = parse_line(line)
-        if not parsed:
+    seen: dict[tuple[str, str, str], dict[str, str]] = {}
+    for record_kind, fields in parsed:
+        if record_kind != kind or (entity is not None and fields.get("entity") != entity):
             continue
-        kind, fields = parsed
-        if kind == "classification" and not include_classifications:
-            continue
-        # A GROUP names a business area for the prompt's type list; it is not a
-        # term a user says, so it has no surface string and no row here.
-        if kind == "group":
-            continue
-        entity = fields.get("entity", "")
-        # An ENTITY's own code IS its entity name; a CLASSIFICATION owns itself.
-        classification = fields.get("classification") or (
-            fields.get("code", "") if kind == "classification" else ""
-        )
-        for surface, role in surfaces(kind, fields):
-            rows.add(
-                (
-                    normalize(surface),
-                    surface,
-                    role,
-                    kind,
-                    entity,
-                    classification,
-                    fields.get("code", ""),
-                    fields.get("id", ""),
-                    fields.get("name", ""),
-                    fields.get("state", ""),
-                    fields.get("closed", ""),
-                    route_for(kind, entity, fields.get("code", "")),
-                )
-            )
-    return sorted(rows)
+        key = (fields.get("code", ""), fields.get("id", ""), fields.get("name", ""))
+        seen.setdefault(key, fields)
+    return list(seen.values())
 
 
-# The three entities a read tool can filter on, with the filter key each one
-# takes. Activities, Items and Models have classifications too, but no tool
-# behind them, so putting those in a prompt buys weight the agent can never use.
-# `type` on an account also accepts customer / supplier / lid directly.
+# The three entities a read tool can filter on, as (what to call them, the filter
+# key each one takes). Activities, Items and Models have classifications too, but
+# no tool behind them, so putting those in front of the agent buys weight it can
+# never use. `type` on an account also accepts customer / supplier / lid directly.
 FILTERABLE = {
-    "JobCard": "Job cards — filter `JobClassification`",
-    "Vehicle": "Vehicles — filter `vehicleClassification`",
-    "Account": "Accounts — filter `type`",
+    "JobCard": ("Job cards", "JobClassification"),
+    "Vehicle": ("Vehicles", "vehicleClassification"),
+    "Account": ("Accounts", "type"),
 }
 
 
-def classification_block(index_path: Path = INDEX_PATH) -> str:
-    """This tenant's card / vehicle / account types, rendered for a prompt.
+def entity_heading(label: str, filter_key: str, business_type: str) -> str:
+    """The line above one entity's type list.
 
-    Built from the same index as the table and substituted at deploy time, so a
-    prompt carrying the list cannot drift from the taxonomy the way a hand-typed
-    one would. Statuses, branches and states stay OUT — there are 245 of them,
-    and they are what `resolve.py` is for.
-
-    Job-card types are grouped under the index's GROUP names (vehicle service /
-    vehicle sales / contracts), keyed by the app page each area lists on because
-    that split IS the app's own. The grouping is the point: a planner asks for a
-    whole area by its name — "vehicle sales", "sales cards" — and the heading is
-    what tells the model that means every type beneath it. The page itself no
-    longer appears, since the read tools return their own `ListUrl`.
+    It says the thing the list itself cannot: the entity's OWN words are not a
+    type. A session asked "how many job cards were opened this month" and spent a
+    round trip resolving `job card`, because every word in the list was a type and
+    nothing said what the word naming the whole set does. The words come from the
+    index's ENTITY line (`entity=` / `businessType=`), generated like the rest.
     """
-    lines = index_path.read_text(encoding="utf-8").splitlines()
-    group_names = {
-        fields["route"]: fields["name"]
-        for kind, fields in filter(None, (parse_line(line) for line in lines))
-        if kind == "group"
+    words = ", ".join(f'"{word}"' for word in dict.fromkeys((label.lower(), business_type)) if word)
+    return (
+        f"{label} — {words} means ALL of them, whatever their type: NO `{filter_key}` "
+        f"filter at all. Only a TYPE below goes in that filter:"
+    )
+
+
+def classification_block(index_path: Path = INDEX_PATH) -> str:
+    """This tenant's card / vehicle / account TYPES.
+
+    Generated from the same index as everything else, so the list the agent reads
+    cannot drift from the taxonomy the way a hand-typed one would. Job-card types
+    are grouped under the index's GROUP names (vehicle service / vehicle sales /
+    contracts): a planner asks for a whole area by its name, and the heading is
+    what says that means every type beneath it.
+    """
+    parsed = records(index_path)
+    group_names = {fields["route"]: fields["name"] for kind, fields in parsed if kind == "group"}
+    business_types = {
+        fields.get("entity", ""): fields.get("businessType", "")
+        for kind, fields in parsed
+        if kind == "entity"
     }
 
     entries: dict[str, dict[str, list[str]]] = {entity: {} for entity in FILTERABLE}
-    for line in lines:
-        parsed = parse_line(line)
-        if not parsed:
-            continue
-        kind, fields = parsed
+    for kind, fields in parsed:
         entity = fields.get("entity", "")
         if kind != "classification" or entity not in FILTERABLE:
             continue
@@ -240,20 +177,20 @@ def classification_block(index_path: Path = INDEX_PATH) -> str:
         if aliases:
             entry += "  (also: " + ", ".join(aliases) + ")"
         # One unnamed group per entity where the index declares none; job cards
-        # are the only entity whose types split by page.
-        route = route_for(kind, entity, code) if entity == "JobCard" else ""
-        entries[entity].setdefault(route, []).append(entry)
+        # are the only entity whose types split by area.
+        entries[entity].setdefault(route_for(kind, entity, code), []).append(entry)
 
     blocks = []
-    for entity, heading in FILTERABLE.items():
+    for entity, (label, filter_key) in FILTERABLE.items():
+        heading = entity_heading(label, filter_key, business_types.get(entity, ""))
         # Declaration order, so the reader meets the areas in the order the
         # taxonomy names them rather than the order the dump happens to list.
         routes = [route for route in group_names if route in entries[entity]]
         routes += [route for route in entries[entity] if route not in group_names]
         if len(routes) == 1 and not group_names.get(routes[0]):
-            blocks.append(heading + ":\n" + "\n".join(entries[entity][routes[0]]))
+            blocks.append(heading + "\n" + "\n".join(entries[entity][routes[0]]))
             continue
-        block = [heading + ":"]
+        block = [heading]
         for route in routes:
             block.append(f"\n{group_names[route]}:")
             block.append("\n".join(entries[entity][route]))
@@ -261,20 +198,75 @@ def classification_block(index_path: Path = INDEX_PATH) -> str:
     return "\n\n".join(blocks)
 
 
-def render(rows: list[tuple[str, ...]]) -> str:
-    """The table as it ships: a header line, then one row per surface string."""
-    body = "\n".join("\t".join(row) for row in rows)
-    return "\t".join(COLUMNS) + "\n" + body + "\n"
+def _status_sort(code: str) -> tuple[str, str]:
+    """`01` and `1` are DIFFERENT statuses here, so they sort adjacent on purpose:
+    seeing New and Open next to each other is what makes the collision visible."""
+    return code.zfill(2), code
+
+
+def vocabulary_block(index_path: Path = INDEX_PATH) -> str:
+    """Everything else this tenant names its own way: statuses, states, branches.
+
+    This is the whole of what `resolve.py --lookup` used to answer, and writing it
+    out costs less than one call did. Every line carries the value its filter
+    takes and the name to print — job-card statuses by ObjectId because the app's
+    own list filter is `JobStatus.ID` (`app/src/components/Filters/Controls/
+    JobStatus/index.tsx`), so a count built on anything else would disagree with
+    the page its `ListUrl` opens.
+    """
+    parsed = records(index_path)
+    out = [
+        (
+            "Job-card statuses — filter `JobStatus.ID` with the id, always in an array. "
+            "`[bucket]` is the lifecycle state it rolls up to; CLOSED marks the two that "
+            "count as closed:"
+        )
+    ]
+    unresolved = []
+    for fields in sorted(
+        distinct(parsed, "status", "JobCard"), key=lambda f: _status_sort(f["code"])
+    ):
+        if not fields.get("name") or not fields.get("id"):
+            unresolved.append(fields["code"])
+            continue
+        closed = " CLOSED" if fields.get("closed") == "true" else ""
+        out.append(f"- {fields['name']} {fields['id']} [{fields.get('state', '')}]{closed}")
+    if unresolved:
+        out.append(
+            f"Codes {', '.join(sorted(unresolved, key=_status_sort))} are carried by cards but "
+            "missing from the "
+            "dictionary: such a card has no status name and no id to filter on. Call it an "
+            "unknown status, count it separately, never guess which one it was."
+        )
+
+    out += [
+        "",
+        (
+            "Vehicle statuses — filter `status.code`. Two names can share one code, and "
+            "filtering the code returns their SUM: to tell them apart filter "
+            "`status.name` with `$like`:"
+        ),
+    ]
+    for fields in sorted(
+        distinct(parsed, "status", "Vehicle"), key=lambda f: _status_sort(f["code"])
+    ):
+        out.append(f"- {fields['name']} `{fields['code']}`")
+
+    out += ["", "Lifecycle states — a card's `JobState` arrives as one of these ids:"]
+    for fields in distinct(parsed, "state"):
+        out.append(f"- {fields['name']} {fields['id']}")
+
+    out += ["", "Branches — filter `Branch` with the id, never the name:"]
+    for fields in distinct(parsed, "branch"):
+        out.append(f"- {fields['name']} {fields['id']}")
+    return "\n".join(out)
 
 
 def main() -> None:
-    index_path = Path(sys.argv[1]) if len(sys.argv) > 1 else INDEX_PATH
-    out_path = Path(sys.argv[2]) if len(sys.argv) > 2 else TABLE_PATH
-    if not index_path.is_file():
-        sys.exit(f"No taxonomy index at {index_path}")
-    rows = build(index_path)
-    out_path.write_text(render(rows), encoding="utf-8")
-    print(f"{out_path}: {len(rows)} surface strings from {index_path}")
+    index = Path(sys.argv[1]) if len(sys.argv) > 1 else INDEX_PATH
+    print(classification_block(index))
+    print()
+    print(vocabulary_block(index))
 
 
 if __name__ == "__main__":
