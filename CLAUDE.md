@@ -633,24 +633,43 @@ XAS endpoint and its credential never touch the sandbox.
   `planner_report` is the only renderer OF A PLAN. Reinstating per-car rows means
   reinstating the grouping rule with it: collapsing was only ever allowed when
   every displayed column agreed.
-- **NOTHING the sandbox prints reaches the planner any more (2026-09-07).** The
-  marker channel — `xas_allocation/planner_channel.py`, `show()`, and `web.py`'s
-  forwarding of a marked span — is DELETED at the user's call, because what
-  landed on screen was a wall of script output: the exclusion note, the whole
-  discrepancy table, every column. `_render` now drops EVERY builtin tool result,
-  and the three reports are working documents the agent reads in the sandbox.
-  The agent writes the planner's answer itself, bounded by three prose rules in
-  the skill: **ten rows** (the reporting lane's cap, so there is one number in the
-  repo, not two), **only rows that need a decision** (late or holding no car), and
-  **no column that does not drive one** — model, both dates, account code and
-  commitment stay out unless asked for. This REVERSES the reason the channel
-  existed, knowingly: a retyped row can lose a car id and nothing catches it, and
-  that has happened here. What holds it down now is that the table is short enough
-  to check and `plan.json` stays the authority for every allocation. The rule it
-  replaced ("the planner has ALREADY SEEN what you printed", and "a list of
-  bullets is a table") is gone — there is no second copy to forbid. Pinned by
-  four tests in `tests/test_agent_contract.py`; the nine that pinned the channel
-  are in git history, and `static/index.html` lost its `planner` case with it.
+- **THE ALLOCATION SKILL IS FORKED, and the fork is free to drift (2026-09-07).**
+  `skills/xas-allocation/` is what the LIVE agent deploys and `skills/xas-allocation-dev/`
+  what a `XAS_DEV=1` run deploys; `setup_agent.ALLOC_SKILL_DIRS` picks by target
+  and `alloc_bundle(skill_dir)` takes the dir as a parameter so a test can build
+  BOTH rather than whichever one the shell selected. Only SKILL.md is forked —
+  the solver package, `solver_config.yaml` and the reporting skill are shared,
+  and a test pins that both bundles ship the same solver. **What differs is the
+  planner-facing half only**: the LIVE copy still prints its reports through the
+  marker channel (`show()` / `planner_channel.py`, forwarded by `web.py` and
+  rendered by `static/index.html`'s `planner` case), and the DEV copy uses no
+  channel at all — nothing it prints reaches the planner, and the agent writes
+  the answer itself under three prose rules: **ten rows** (the reporting lane's
+  cap, so there is one number in the repo), **only rows that need a decision**
+  (late or holding no car), and **no column that does not drive one**. That
+  reverses the reason the channel exists, knowingly: a retyped row can lose a car
+  id and nothing catches it. **The channel code stays in the repo and in BOTH
+  bundles** because the live skill needs it — deleting it while the live copy
+  still says `from xas_allocation.planner_channel import show` is an ImportError
+  on the agent's first print. An unused channel is harmless: nothing marked means
+  nothing forwarded. **The price of the fork is drift**, and nothing structural
+  prevents it: a rule added to one copy is absent from the other and no deploy
+  notices. `test_the_two_forks_still_agree_on_every_rule_that_is_not_about_printing`
+  is the guard — twelve TOKENS (not sentences, because the dev copy is re-worded
+  throughout) that must appear in both, chosen to catch a rule DELETED from one
+  fork rather than a re-wrap. Every test that reads a skill file now names WHICH
+  copy: `LIVE_SKILL_DIR` / `DEV_SKILL_DIR`, never `ALLOC_SKILL_DIR`, because a
+  test whose subject depends on `XAS_DEV` passes by accident. The dev copy is
+  also the condensed one — 404 -> 356 lines, 22,850 -> 19,602 characters, every
+  rule kept and the narratives behind them cut. Both files must keep
+  `name: xas-allocation` in their frontmatter: `name` is immutable per
+  `skill_id`, so renaming one is a new skill object and a 400 on the next push.
+  **And the bundle FOLDER must equal that name**, which is why `skill_files` grew
+  a `root` parameter — `skills/xas-allocation-dev/` uploads re-rooted at
+  `xas-allocation/`, or the push is a 400 reading "The folder name
+  'xas-allocation-dev' must match the skill name 'xas-allocation'". So the two
+  bundles differ in CONTENT and never in their paths, and the agent sees the same
+  layout under either fork.
 - **Three planner-facing reports, and the third exists so the agent stops writing
   its own.** `discrepancy_report` is what the delay broke, `planner_report` is
   what a solve did, and `current_state_report` (2026-08-30) is the whole book as

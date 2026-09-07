@@ -254,6 +254,11 @@ uv run python setup_agent.py                       # the DEV agent (XAS_DEV=1 is
 XAS_DEV=0 uv run python setup_agent.py             # the LIVE agent — the frontend's
 ```
 
+Each target deploys its own copy of the allocation skill —
+`skills/xas-allocation/` for live, `skills/xas-allocation-dev/` for dev — and
+setup prints which one it sent. The solver, its config and the reporting skill
+are shared.
+
 **The dev agent is the default, deliberately.** The live agent attaches its skills
 without pinning a version, so a skill version pushed to the live skill object takes
 effect on its next session. `XAS_DEV` picks which set of ids in `.env` both scripts

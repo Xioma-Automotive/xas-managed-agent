@@ -28,6 +28,13 @@ import web
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# The allocation skill is forked, so every test names WHICH copy it pins. Reading
+# `LIVE_SKILL_DIR` here would make the subject depend on `XAS_DEV`,
+# and a test that pins whichever file the environment happens to select is a test
+# that passes by accident.
+LIVE_SKILL_DIR = setup_agent.ALLOC_SKILL_DIRS[False]
+DEV_SKILL_DIR = setup_agent.ALLOC_SKILL_DIRS[True]
+
 
 def _flat(text: str) -> str:
     """Collapse whitespace: a pinned phrase must survive a re-wrap of the prose."""
@@ -176,7 +183,7 @@ def test_prompt_names_no_records_mount():
 
 def test_skill_descriptions_are_disjoint():
     reporting = _description(setup_agent.REPORTING_SKILL_DIR / "SKILL.md")
-    alloc = _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md")
+    alloc = _description(LIVE_SKILL_DIR / "SKILL.md")
     assert "Do NOT use for allocation repair" in reporting
     assert "Do NOT use for general reporting" in alloc
 
@@ -196,7 +203,8 @@ def test_reporting_skill_does_not_claim_every_turn():
 @pytest.mark.parametrize(
     "bundle,root",
     [
-        (setup_agent.alloc_bundle(), "xas-allocation"),
+        (setup_agent.alloc_bundle(LIVE_SKILL_DIR), "xas-allocation"),
+        (setup_agent.alloc_bundle(DEV_SKILL_DIR), "xas-allocation"),
         (setup_agent.reporting_bundle(), "xas-reporting"),
     ],
 )
@@ -204,8 +212,13 @@ def test_bundle_has_skill_md_at_its_root(bundle, root):
     assert any(name == f"{root}/SKILL.md" for name, _ in bundle)
 
 
-def test_alloc_bundle_ships_the_solver():
-    names = [n for n, _ in setup_agent.alloc_bundle()]
+@pytest.mark.parametrize("skill_dir", [LIVE_SKILL_DIR, DEV_SKILL_DIR])
+def test_alloc_bundle_ships_the_solver(skill_dir):
+    """Both forks ship the SAME solver package — only SKILL.md is forked, so a
+    dev copy that quietly shipped a different solver would break the one thing
+    the two targets must agree on. Both upload re-rooted at `xas-allocation/`,
+    which the API requires: the bundle folder must match the name in SKILL.md."""
+    names = [n for n, _ in setup_agent.alloc_bundle(skill_dir)]
     assert "xas-allocation/xas_allocation/solver.py" in names
 
 
@@ -342,7 +355,7 @@ def test_reporting_skill_sends_the_agent_to_the_mcp_not_to_a_file():
 def test_alloc_description_carries_the_words_users_type(phrase):
     """The description is what the platform routes on, and a planner says "check
     the deliveries", never "repair the allocation"."""
-    assert phrase in _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md").lower()
+    assert phrase in _description(LIVE_SKILL_DIR / "SKILL.md").lower()
 
 
 def test_reporting_description_disclaims_the_allocation_vocabulary():
@@ -355,7 +368,7 @@ def test_reporting_description_disclaims_the_allocation_vocabulary():
 
 
 def test_alloc_skill_stops_a_status_question_at_the_report():
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     # "the state report" since 2026-08-30: there are two of them now
     # (`discrepancy_report` and `current_state_report`) and either one is where a
     # status question stops.
@@ -512,11 +525,11 @@ def test_skill_requires_the_exclusion_census_on_turn_one():
     whole book is the worst failure this change can produce, and the only thing
     stopping it is the prose — nothing structural forces the agent to mention it.
     """
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "exclusion_note" in skill
-    assert "Never present a survivor as the whole book" in skill
+    assert "Never present it as the whole book" in skill
     # and it must be excluded from the "stays internal" suppression list
-    assert "must always be reported" in _flat(skill)
+    assert "must always be reported" in skill
 
 
 def test_skill_offers_a_report_for_the_whole_book():
@@ -524,30 +537,38 @@ def test_skill_offers_a_report_for_the_whole_book():
     named for it the agent scripts over `snapshot.json` and hand-builds the table
     — the exact re-derivation this skill exists to forbid, and the one that put a
     false claim about free cars in front of a planner."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "current_state_report" in skill
-    assert "the helpers already have it, including a report for the whole book" in _flat(skill)
+    assert "There IS a report for the whole book, so you never build one." in skill
     # the API block must actually offer it, and count itself correctly
     assert "S.current_state_report(snap)" in skill
     assert "The whole API is four calls" in skill
 
 
+def test_skill_forbids_retyping_a_printed_table_as_bullets():
+    """The rule was already there and was broken anyway, in the one shape it did
+    not name: the rows re-listed as bullets, one message after the planner read
+    them."""
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
+    assert "**A list of bullets is a table.**" in skill
+
+
 def test_skill_names_the_eligibility_rule_and_its_hardness():
     """Eligibility is exact model equality. A skill that suggests a near match is
     a skill that invites the agent to offer a car nobody can have."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "matched exactly" in skill
-    assert "No near-match, no substitution" in skill
+    assert "no near-match and no substitution" in skill
 
 
 def test_skill_separates_the_promise_from_the_arrival():
     """The one confusion that makes nothing ever late: the promise is the ORDER's
     date, the arrival is the CAR's."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "**The promise** is on the ORDER" in skill
-    assert "**The arrival** is on the CAR" in skill
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
+    assert "**The promise** is the date on the ORDER" in skill
+    assert "**The arrival** is the date on the CAR" in skill
     # and the MCP field names must be gone with the MCP
-    for gone in ("DueDateTime", "AvailableBy", "ModelId.Code", "JobKey"):
+    for gone in ("DueDateTime", "AvailableBy", "ModelId.Code", "JobKey", "LineNum"):
         assert gone not in skill, f"{gone} is app-MCP vocabulary; the pull is CSV now"
 
 
@@ -556,15 +577,15 @@ def test_skill_gates_every_repair_behind_the_preferences_question():
     silently invents them — every order equal, nothing protected. Nothing
     structural can force the ask, so the skill must state it as a rule, name the
     three things to ask about, and say that "fix it" is not an answer to it."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "## Before you repair — ask what matters, every time" in skill
-    assert "Never suggest, offer or run a repair before asking what should be protected" in skill
-    assert "not answers to this question" in _flat(skill)
+    assert "Never suggest, offer or run a repair before asking the planner" in skill
+    assert "none of them is an answer to this question" in skill
     # the three levers the answer compiles into
     for lever in ("`priority`", "`may_move.never`", "`churn_price`"):
         assert lever in skill
     # and the ask must precede the solve, not follow it
-    assert "or solve first and ask after" in _flat(skill)
+    assert "do not solve first" in skill
 
 
 def test_skill_can_answer_in_client_terms_but_steers_on_ids():
@@ -573,23 +594,88 @@ def test_skill_can_answer_in_client_terms_but_steers_on_ids():
     label is NOT a solver dimension (that went on 2026-08-27), so the skill must
     say the agent groups orders by client itself and confirms the ids it used —
     a client with three orders and two of them named is half-prioritised."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "**Every order carries its client**" in skill
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
+    assert "Every order also carries the client it is for" in skill
     assert "It is a LABEL" in skill
-    assert "resolve it yourself to every order" in _flat(skill)
-    assert "There is no model-wide or client-wide lever" in skill
+    assert "resolve it yourself to every order" in skill
+    assert "there is no model-wide or client-wide lever" in skill
 
 
-# --- What reaches the planner's screen ---------------------------------------
-# Nothing the sandbox prints does, since 2026-09-07. `web.py` drops EVERY builtin
-# tool result and the marker channel (`show()` / `planner_channel`) is deleted:
-# what reached the screen was a wall of script output. The agent reads the report
-# in the sandbox and writes its own short answer instead, which means it is now
-# the only writer of what a planner reads — so the rules that bound what it
-# writes are the whole mechanism, and they are pinned below. The tests that
-# pinned the channel (two `_render` cases, the skill's `show(S.` call and the
-# "you have already shown them the table" rule) went with it; git history holds
-# them.
+# --------------------------------------------------------------------------
+# The DEV fork of the allocation skill (2026-09-07)
+# --------------------------------------------------------------------------
+# `skills/xas-allocation-dev/` is what a `XAS_DEV=1` run deploys. It drops the
+# marker channel entirely: nothing the sandbox prints reaches the planner, and
+# the agent writes the answer itself. The tests above pin the LIVE copy, which
+# still prints through `show()` — the two are deliberately different, and these
+# tests exist so "deliberately" stays true rather than becoming "nobody noticed".
+
+
+def test_dev_skill_writes_the_answer_itself_and_prints_nothing():
+    """The whole point of the fork. The dev copy must say that printing reaches
+    nobody: an agent that believes a printed report is on screen answers with a
+    summary of a table the planner cannot see."""
+    skill = _flat((DEV_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**Nothing you print reaches the planner.**" in skill
+    assert "Your reply is the only thing on their screen" in skill
+    assert "show(" not in skill, "the dev fork does not use the marker channel"
+
+
+def test_dev_skill_caps_what_the_agent_writes():
+    """The agent is the only writer of what a planner reads in this fork, so
+    three prose rules are all that stops the wall of output coming back in its
+    own words: ten rows, decision rows only, no decorative column. Nothing
+    structural can cap a reply."""
+    skill = _flat((DEV_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**TEN ROWS IS THE CAP, and it is a ceiling, not a target.**" in skill
+    assert "the orders that are late or holding no car, worst first" in skill
+    assert "**No column that does not drive a decision.**" in skill
+    # and it must still account for what it left out, or a short table reads as
+    # the whole book — the same failure as presenting a survivor as one.
+    assert "how many orders were untouched" in skill
+
+
+def test_the_two_forks_still_agree_on_every_rule_that_is_not_about_printing():
+    """The drift guard, and the price of forking. Only the planner-facing half
+    was meant to differ; everything below is a rule about the DATA or the SOLVER
+    and must hold in both copies. Tokens, not sentences, because the dev copy is
+    re-worded throughout — this catches a rule DELETED from one fork, which is
+    the way drift actually happens, not a re-wrap."""
+    shared = (
+        "exclusion_note",  # what the pull could not use, reported on turn 1
+        "## Before you repair — ask what matters, every time",
+        "may_move.never",  # the only way to hold a late order
+        "never beats only beats also",  # the precedence
+        "carry_forward",  # `also` expires
+        "matched exactly",  # eligibility is hard
+        "**The promise** is",  # the promise/arrival split
+        "**The arrival** is",
+        "solver_config.yaml",  # never edited live
+        "plan.json",  # the authority for allocations
+        "bump_candidates",  # ask before displacing
+        "per-VPO rows",  # no VPO ids, so you cannot list the open VPOs
+    )
+    live = _flat((LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    dev = _flat((DEV_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    for rule in shared:
+        assert rule in live, f"{rule!r} missing from the LIVE skill"
+        assert rule in dev, f"{rule!r} missing from the DEV skill"
+
+
+def test_both_forks_declare_the_same_skill_name():
+    """`name` is immutable per skill_id, so the dev fork must keep the name its
+    skill object was created with — renaming it there is a NEW skill object and a
+    400 on the next version push."""
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        head = (skill_dir / "SKILL.md").read_text(encoding="utf-8")[:200]
+        assert "name: xas-allocation\n" in head, f"{skill_dir.name} declares another name"
+
+
+# --- The planner channel (web.py forwards the solver's marked reports) --------
+# `_render` drops builtin tool results as sandbox chatter. That is what forced the
+# agent to retype every table into its own reply — two copies of one table in the
+# conversation, and every retype a chance to lose a row. A marked span is the
+# exception: the solver's reports are already written for the planner.
 
 
 class _Block:
@@ -609,46 +695,32 @@ class _ToolResult:
         self.is_error = is_error
 
 
-def test_render_drops_every_builtin_tool_result():
-    """A report, a pip line and a traceback all reach the planner identically:
-    not at all. Anything that starts forwarding one again puts raw script output
-    back on their screen, which is the thing this change removed."""
-    for body, is_error in (
-        ("| Order | Customer |\n|---|---|\n| 900108-1 | Nadav Halevi |", False),
-        ("Successfully installed ortools-9.15.6755", False),
-        ("wrote /workspace/snapshot.json", False),
-        ("Traceback (most recent call last):", True),
-    ):
-        assert web._render(_ToolResult(body, is_error=is_error)) is None
+def test_render_forwards_a_marked_span_to_the_planner():
+    from xas_allocation.planner_channel import show
+
+    out = web._render(_ToolResult("noise\n" + show("| Order |\n|---|") + "\ndone"))
+    assert out == {"type": "planner", "text": "| Order |\n|---|"}
 
 
-def test_no_marker_channel_survives_anywhere():
-    """The channel is deleted, not disabled. A leftover `show()` in the skill
-    would have the agent wrapping reports for a renderer that no longer reads
-    them — the loud failure the marker design relied on, now silent."""
-    assert not (REPO_ROOT / "xas_allocation" / "planner_channel.py").exists()
-    for name in ("web.py", "skills/xas-allocation/SKILL.md"):
-        body = (REPO_ROOT / name).read_text(encoding="utf-8")
-        assert "planner_span" not in body and "show(S." not in body, f"{name} still marks"
+def test_render_still_drops_unmarked_sandbox_chatter():
+    assert web._render(_ToolResult("Successfully installed ortools-9.15.6755")) is None
+    assert web._render(_ToolResult("wrote /workspace/snapshot.json")) is None
 
 
-def test_the_skill_caps_what_the_agent_writes():
-    """The agent is now the only writer of what a planner reads, so what stops
-    the wall of output coming back in its own words is these three rules: ten
-    rows, decision rows only, and no column that does not drive a decision.
-    Prose is the whole mechanism — nothing structural can cap a reply."""
-    skill = _flat((setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
-    assert "**TEN ROWS IS THE CAP, and it is a ceiling, not a target.**" in skill
-    assert "the orders that are late or holding no car, worst first" in skill
-    assert "**No column that does not drive a decision.**" in skill
-    # and the reply has to account for what it left out, or a short table reads
-    # as the whole book — the same failure as presenting a survivor as one.
-    assert "how many orders were untouched" in skill
+def test_render_drops_a_marked_span_that_failed():
+    """A traceback is not a planner report, even if the span opened before it."""
+    from xas_allocation.planner_channel import show
+
+    assert web._render(_ToolResult(show("half a table"), is_error=True)) is None
 
 
-def test_the_skill_says_its_reports_reach_nobody():
-    """The reports are working documents now. An agent that believes printing one
-    shows it to the planner answers with a summary of a table nobody can see."""
-    skill = _flat((setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
-    assert "**Nothing you print reaches the planner.**" in skill
-    assert "Your reply is the only thing on their screen" in skill
+def test_the_skill_tells_the_agent_to_wrap_planner_prints():
+    body = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "show(S." in body, "the skill must show the agent how to reach the planner"
+
+
+def test_the_skill_forbids_retyping_a_table_the_planner_has_seen():
+    """The double-copy rule. Prose is the whole mechanism, so pin the prose."""
+    lowered = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
+    assert "already seen" in lowered
+    assert "do not repeat the table" in lowered

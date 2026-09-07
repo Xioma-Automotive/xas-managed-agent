@@ -254,6 +254,19 @@ uv run python setup_agent.py                       # redeploy the DEV agent
 XAS_DEV=0 uv run python setup_agent.py             # deploy the LIVE agent — after testing
 ```
 
+**The allocation skill is forked too**, so the two targets can differ in the same
+branch:
+
+| | LIVE (`XAS_DEV=0`) | DEV (`XAS_DEV=1`) |
+| --- | --- | --- |
+| Allocation skill | `skills/xas-allocation/` | `skills/xas-allocation-dev/` |
+| What the planner sees | the solver's reports, forwarded verbatim | only the agent's own answer, capped at ten decision rows |
+| Solver, config, reporting skill | shared | shared |
+
+They are free to drift — a rule added to one is not in the other — so what is
+proven in the dev copy has to be carried across by hand. One test pins the rules
+that must hold in both.
+
 A value on the command line wins over `.env`. The live agent attaches its skills
 **without pinning a version**, so a skill version pushed to the live skill object
 is live on its very next session — which is why the dev agent needs separate skill

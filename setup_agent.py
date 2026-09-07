@@ -54,7 +54,6 @@ import phrasebook
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent
-ALLOC_SKILL_DIR = REPO_ROOT / "skills" / "xas-allocation"
 REPORTING_SKILL_DIR = REPO_ROOT / "skills" / "xas-reporting"
 
 # A whole prompt+skill pair, swapped by one env var: `XAS_VARIANT=full uv run
@@ -76,6 +75,19 @@ VARIANT_DIR = REPO_ROOT / "variants" / VARIANT if VARIANT else None
 # dev agent from the same browser UI.
 DEV = os.environ.get("XAS_DEV", "").lower() not in ("", "0", "false", "no")
 ENV_PREFIX = "DEV_" if DEV else ""
+
+# The allocation skill is FORKED (2026-09-07): `xas-allocation` is what the live
+# agent deploys, `xas-allocation-dev` what a `XAS_DEV=1` run deploys. They are
+# free to differ and therefore free to DRIFT — a rule added to one is not in the
+# other, and nothing detects that. Whatever is proven in the dev copy has to be
+# carried across by hand before the live agent can have it. The solver package,
+# `solver_config.yaml` and the reporting skill are NOT forked: both targets ship
+# the same ones.
+ALLOC_SKILL_DIRS = {
+    False: REPO_ROOT / "skills" / "xas-allocation",
+    True: REPO_ROOT / "skills" / "xas-allocation-dev",
+}
+ALLOC_SKILL_DIR = ALLOC_SKILL_DIRS[DEV]
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ALLOC_AGENT_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_AGENT_ID")
@@ -245,11 +257,17 @@ MCP_SERVERS = [
 ]
 
 
-def skill_files(skill_dir: Path, package: Path | None = None) -> list[tuple[str, bytes]]:
+def skill_files(
+    skill_dir: Path, package: Path | None = None, root: str | None = None
+) -> list[tuple[str, bytes]]:
     """One skill bundle: the skill directory, plus an optional Python package.
 
-    The API requires one top-level directory with SKILL.md at its root, so
-    everything is mapped under ``<skill_dir.name>/``. Shipping the solver inside
+    The API requires one top-level directory with SKILL.md at its root, and that
+    directory's name must EQUAL the ``name`` declared in SKILL.md — a mismatch is
+    a 400 naming both. So ``root`` exists for the forked allocation skill:
+    ``skills/xas-allocation-dev/`` is the source, and it uploads re-rooted at
+    ``xas-allocation/``, because `name` is immutable per skill_id and both forks
+    declare the same one. Everything is mapped under ``<root>/``. Shipping the solver inside
     the allocation skill is what gets it into an Anthropic-hosted sandbox at all
     — there is no host-side workdir to copy it into, and having the model retype
     it from a prompt is the determinism leak this design exists to prevent.
@@ -261,22 +279,35 @@ def skill_files(skill_dir: Path, package: Path | None = None) -> list[tuple[str,
     Changing this code does, and so does editing the taxonomy the reporting bundle now
     carries (DECIDE-16).
     """
+    top = root or skill_dir.name
     files: list[tuple[str, bytes]] = []
     for path in sorted(skill_dir.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts:
-            files.append((str(path.relative_to(skill_dir.parent)), path.read_bytes()))
+            files.append((f"{top}/{path.relative_to(skill_dir)}", path.read_bytes()))
     if not any(name.endswith("/SKILL.md") for name, _ in files):
         sys.exit(f"No SKILL.md found in {skill_dir}")
 
     if package is not None:
         for path in sorted(package.rglob("*")):
             if path.is_file() and "__pycache__" not in path.parts:
-                files.append((f"{skill_dir.name}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
+                files.append((f"{top}/{path.relative_to(REPO_ROOT)}", path.read_bytes()))
     return files
 
 
-def alloc_bundle() -> list[tuple[str, bytes]]:
-    return skill_files(ALLOC_SKILL_DIR, REPO_ROOT / "xas_allocation")
+def alloc_bundle(skill_dir: Path | None = None) -> list[tuple[str, bytes]]:
+    """The allocation bundle for one fork of the skill; the target's by default.
+
+    `skill_dir` is a parameter so a test can build BOTH forks, rather than
+    whichever one `XAS_DEV` happens to select in the shell running it.
+
+    Both forks upload re-rooted at ``xas-allocation/`` — the API requires the
+    bundle's folder to match the `name` in SKILL.md, and both declare the same
+    name because it is immutable per skill_id. So the two bundles differ in their
+    CONTENT, never in their paths, and the agent sees the same layout either way.
+    """
+    return skill_files(
+        skill_dir or ALLOC_SKILL_DIR, REPO_ROOT / "xas_allocation", root="xas-allocation"
+    )
 
 
 def reporting_bundle() -> list[tuple[str, bytes]]:
@@ -430,7 +461,8 @@ def main() -> None:
     print(f"Prompt + reporting skill: {VARIANT_DIR if VARIANT_DIR else 'the shipped pair'}")
     # Which agent is being written to is the one thing a mis-run cannot be allowed
     # to leave ambiguous.
-    print(f"Target:                   {'DEV (XAS_DEV=1)' if DEV else 'LIVE'} — {AGENT_NAME}\n")
+    print(f"Target:                   {'DEV (XAS_DEV=1)' if DEV else 'LIVE'} — {AGENT_NAME}")
+    print(f"Allocation skill:         skills/{ALLOC_SKILL_DIR.name}/\n")
 
     if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)
