@@ -513,7 +513,9 @@ async def new_session(body: NewSession) -> dict:
     return {
         "id": session.id,
         "model": body.model,
-        "scenario": rich["meta"]["source"],
+        # Top-level, not under `meta`: the contract's three header fields moved
+        # up out of `meta` when the pull became one document.
+        "scenario": rich["source"],
         "stopped": previous,
     }
 

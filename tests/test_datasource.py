@@ -282,6 +282,18 @@ def test_the_document_is_the_contracts_shape_and_carries_the_whole_pull():
     assert len(snap.vehicles) == len(pull["vehicles"])
 
 
+def test_the_header_fields_are_top_level_and_no_longer_under_meta():
+    """`source` and the pull date moved OUT of `meta` when the pull became one
+    document, and a reader left on the old path raises `KeyError` at the moment a
+    session is created — which is how it reached a browser as a 500 rather than a
+    test failure. Pinned on both sides: present at the top, absent from `meta`."""
+    pull = datasource.get_source("scenario-mixed").pull()
+    for field in ("captured_at", "pull_id", "source"):
+        assert pull[field], f"{field} must be a top-level header field"
+        assert field not in pull["meta"], f"{field} must not be duplicated into meta"
+    assert "now" not in pull and "now" not in pull["meta"], "the pull date is `captured_at`"
+
+
 def test_every_column_the_contract_requires_is_on_every_row():
     """The contract's "columns that must be present" list, checked against the
     real files rather than a fixture. A column the carve stopped writing would

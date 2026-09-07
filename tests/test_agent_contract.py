@@ -236,13 +236,25 @@ def test_no_session_dataset_is_bundled(bundle):
 
 
 def test_the_pull_is_the_only_mount():
-    """TWO files since 2026-08-27 — the export's two row streams — and nothing
-    else. Reporting used to get a third under /workspace/reports/; it reads the
-    live MCP now, so a session that mounts anything more is a session whose
-    reporting numbers came from somewhere this design does not control."""
+    """ONE file since 2026-09-06 — the contract's document, both row streams in
+    it — and nothing else. Reporting used to get another under /workspace/reports/;
+    it reads the live MCP now, so a session that mounts anything more is a session
+    whose reporting numbers came from somewhere this design does not control."""
     assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.PULL_FILENAME})
     source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
     assert source.count('"type": "file"') == 1, "one resource, or the fence moved"
+
+
+def test_web_reads_the_pull_header_fields_from_the_top_level():
+    """`captured_at` / `pull_id` / `source` are top-level on the pull document,
+    not under `meta`, since it became one document. `web.py` reads `source` when
+    it answers a session create, so a reader left on the old path is a `KeyError`
+    in the one route a planner cannot avoid — it reached a browser as a 500, and
+    no test failed. `tests/test_datasource.py` pins where the fields live; this
+    pins that web.py agrees."""
+    source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
+    for stale in ('["meta"]["source"]', '["meta"]["now"]', '["meta"].get("source")'):
+        assert stale not in source, f"web.py still reads {stale}; the field moved out of meta"
 
 
 def test_every_mounted_input_is_filtered_from_outputs():
