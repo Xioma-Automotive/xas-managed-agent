@@ -241,21 +241,24 @@ Both are re-runnable in place against the same IDs, and setup prints which pair
 it deployed. Only those two files change; every helper, the taxonomy and the
 allocation skill ship the same either way.
 
-### Two agents: the live one, and a dev one to test against
+### Two agents, and the DEV one is the default
 
-`XAS_DEV=1` switches every id both scripts read to a `DEV_`-prefixed set, so a
-dev run builds and refreshes **its own** environment, skill objects and agent:
+`XAS_DEV` switches every id both scripts read to a `DEV_`-prefixed set — its own
+environment, its own two skill objects, its own agent. **`.env` ships with
+`XAS_DEV=1`**, so a bare run of either script goes to the dev agent and touching
+the live one is an explicit opt-out:
 
 ```bash
-XAS_DEV=1 uv run python setup_agent.py             # deploy to the DEV agent
-XAS_DEV=1 uv run uvicorn web:app --port 8000       # drive it from the same UI
+uv run uvicorn web:app --port 8000                 # the DEV agent
+uv run python setup_agent.py                       # redeploy the DEV agent
+XAS_DEV=0 uv run python setup_agent.py             # deploy the LIVE agent — after testing
 ```
 
-Test there first. The live agent attaches its skills **without pinning a
-version**, so a skill version pushed to the live skill object is live on its very
-next session — which is why the dev agent needs separate skill objects and not
-just a separate agent. Setup prints its target on every run, and `web.py` logs
-`target: DEV|LIVE agent …` at startup.
+A value on the command line wins over `.env`. The live agent attaches its skills
+**without pinning a version**, so a skill version pushed to the live skill object
+is live on its very next session — which is why the dev agent needs separate skill
+objects and not just a separate agent. Setup prints its target before it writes
+anything, and `web.py` logs `target: DEV|LIVE agent …` at startup.
 
 | Where | Holds | Runs |
 | --- | --- | --- |

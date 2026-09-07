@@ -250,16 +250,17 @@ you change the **solver package** or **`SKILL.md`** (re-carving a scenario needs
 no redeploy — the data is mounted per session, not bundled).
 
 ```bash
-uv run python setup_agent.py                       # the LIVE agent (the frontend's)
-XAS_DEV=1 uv run python setup_agent.py             # the DEV agent, its own everything
+uv run python setup_agent.py                       # the DEV agent (XAS_DEV=1 is in .env)
+XAS_DEV=0 uv run python setup_agent.py             # the LIVE agent — the frontend's
 ```
 
-**Test on the dev agent first.** The live agent attaches its skills without
-pinning a version, so a skill version pushed to the live skill object takes effect
-on its next session. `XAS_DEV=1` reads and writes the `DEV_`-prefixed ids in
-`.env` — a separate environment, a separate pair of skill objects, a separate
-agent — and `web.py` takes the same flag, so the browser UI drives whichever agent
-you set it to. Setup prints its target before it writes anything.
+**The dev agent is the default, deliberately.** The live agent attaches its skills
+without pinning a version, so a skill version pushed to the live skill object takes
+effect on its next session. `XAS_DEV` picks which set of ids in `.env` both scripts
+read — the `DEV_`-prefixed ones are a separate environment, a separate pair of skill
+objects and a separate agent — and `web.py` takes the same flag, so the browser UI
+drives whichever agent you set it to. A value on the command line wins over `.env`,
+and setup prints its target before it writes anything.
 
 ---
 
