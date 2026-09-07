@@ -787,6 +787,22 @@ XAS endpoint and its credential never touch the sandbox.
   400s with "Cannot delete skill with existing versions" — every version goes
   first (`versions.delete(version, skill_id=...)`, in that argument order), and
   only then the skill.
+- **There are TWO agents now, and the flag that picks one is read in two files.**
+  `XAS_DEV=1` switches every id `setup_agent.py` and `web.py` read to the
+  `DEV_`-prefixed set in `.env` — `DEV_ALLOC_AGENT_ID` /
+  `DEV_ALLOC_ENV_ID` / `DEV_ALLOC_SKILL_ID` / `DEV_REPORTING_SKILL_ID`, created
+  2026-09-07 — so a dev run creates and refreshes its own environment, its own two
+  SKILL OBJECTS and its own agent. The separate skill objects are the whole point,
+  not a tidiness: the agent attaches a skill with no version pinned, so
+  `versions.create` against the LIVE skill object changes the live agent's
+  behaviour on its next session, whatever else the run touched. A separate agent
+  alone would not protect anything. Both scripts announce the target — setup
+  before it writes, `web.py` in a startup log line — because a mis-run is
+  otherwise invisible until the frontend behaves differently. Titles carry a
+  `(dev)` suffix because `display_title` is unique per organization. What is NOT
+  split: the app-MCP vault and credential (attached per session by `web.py` from
+  the same `.env`, and read-only against the same dev DMS) and the mounted pull
+  (also per session). Only the agent, its environment and its skills.
 - **`agents.update()` preserves omitted array fields.** `setup_agent.py`
   always sends `tools` and `skills` explicitly. Changing `PULL_TOOL` without
   re-running setup does nothing.

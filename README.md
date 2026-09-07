@@ -241,6 +241,22 @@ Both are re-runnable in place against the same IDs, and setup prints which pair
 it deployed. Only those two files change; every helper, the taxonomy and the
 allocation skill ship the same either way.
 
+### Two agents: the live one, and a dev one to test against
+
+`XAS_DEV=1` switches every id both scripts read to a `DEV_`-prefixed set, so a
+dev run builds and refreshes **its own** environment, skill objects and agent:
+
+```bash
+XAS_DEV=1 uv run python setup_agent.py             # deploy to the DEV agent
+XAS_DEV=1 uv run uvicorn web:app --port 8000       # drive it from the same UI
+```
+
+Test there first. The live agent attaches its skills **without pinning a
+version**, so a skill version pushed to the live skill object is live on its very
+next session — which is why the dev agent needs separate skill objects and not
+just a separate agent. Setup prints its target on every run, and `web.py` logs
+`target: DEV|LIVE agent …` at startup.
+
 | Where | Holds | Runs |
 | --- | --- | --- |
 | `web.py` (here) | organization API key | the one custom tool |

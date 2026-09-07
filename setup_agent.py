@@ -9,6 +9,13 @@ per agent; we use 2.
 The agent is the one that already exists (ALLOC_AGENT_ID). This script updates it
 in place to carry the second skill — it does not create a new one.
 
+TWO TARGETS. `XAS_DEV=1` switches every id this script reads and writes to the
+`DEV_`-prefixed set, so a dev run builds and refreshes its own environment, its
+own two skill objects and its own agent, and cannot touch the live one. Use it
+for anything untested: the live agent attaches its skills without pinning a
+version, so a skill version pushed to the live skill object is live immediately.
+`XAS_DEV=1 uv run uvicorn web:app --port 8000` then drives the dev agent.
+
 RUN ONCE, re-runnable. Creates the persistent resources — an **Anthropic-hosted
 (cloud)** environment, the skill, and the agent — and prints their IDs to paste
 into .env. Re-running with those IDs already set updates the agent and pushes a
@@ -58,11 +65,23 @@ REPORTING_SKILL_DIR = REPO_ROOT / "skills" / "xas-reporting"
 VARIANT = os.environ.get("XAS_VARIANT", "")
 VARIANT_DIR = REPO_ROOT / "variants" / VARIANT if VARIANT else None
 
+# `XAS_DEV=1 uv run python setup_agent.py` builds a SECOND, disposable set of
+# resources — its own environment, its own two skill objects, its own agent — and
+# reads their ids from `DEV_`-prefixed vars. Nothing about a dev run can reach the
+# agent the frontend talks to, and that is the point: the agent attaches its
+# skills WITHOUT pinning a version, so pushing a skill version to the live skill
+# object changes the live agent's behaviour on its very next session. A separate
+# agent is not enough on its own; the skill objects have to be separate too.
+# web.py reads the same flag, so `XAS_DEV=1 uv run uvicorn web:app` drives the
+# dev agent from the same browser UI.
+DEV = os.environ.get("XAS_DEV", "").lower() not in ("", "0", "false", "no")
+ENV_PREFIX = "DEV_" if DEV else ""
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
-ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
-ALLOC_SKILL_ID = os.environ.get("ALLOC_SKILL_ID")
-REPORTING_SKILL_ID = os.environ.get("REPORTING_SKILL_ID")
+ALLOC_AGENT_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_AGENT_ID")
+ALLOC_ENV_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_ENV_ID")
+ALLOC_SKILL_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_SKILL_ID")
+REPORTING_SKILL_ID = os.environ.get(f"{ENV_PREFIX}REPORTING_SKILL_ID")
 
 # The credential check and the client are deliberately NOT module-level: the
 # prompt, the tool list and the skill bundles are the agent's contract, and
@@ -83,7 +102,7 @@ def client() -> anthropic.Anthropic:
     return _client
 
 
-AGENT_NAME = "XAS Agent"
+AGENT_NAME = "XAS Alloc Dev Agent" if DEV else "XAS Agent"
 MODEL = "claude-opus-4-8"
 
 # Effort has to be set HERE, on the agent. An `effort` inside a per-session
@@ -107,8 +126,11 @@ APPMCP_SERVER_NAME = "xas-app-mcp"
 
 # Unique per organization, and the self-hosted branch already holds
 # "XAS allocation repair" — creating a skill reuses no title.
-ALLOC_SKILL_TITLE = "XAS allocation repair (cloud sandbox)"
-REPORTING_SKILL_TITLE = "XAS reporting (cloud sandbox)"
+# A dev run must never push a version to the live skill objects, so it creates
+# and updates its own pair under titles of their own.
+_DEV_SUFFIX = " (dev)" if DEV else ""
+ALLOC_SKILL_TITLE = f"XAS allocation repair (cloud sandbox){_DEV_SUFFIX}"
+REPORTING_SKILL_TITLE = f"XAS reporting (cloud sandbox){_DEV_SUFFIX}"
 
 # §10 — the system prompt says what each component is FOR and leaves the reasoning
 # to the model. It carries identity, the pieces the agent has, what rides in the
@@ -305,8 +327,12 @@ NETWORKING = {
 
 def create_environment() -> str:
     environment = client().beta.environments.create(
-        name="xas-allocation-cloud",
-        description="Anthropic-hosted sandbox for the XAS Allocation Agent.",
+        name="xas-allocation-cloud-dev" if DEV else "xas-allocation-cloud",
+        description=(
+            "Anthropic-hosted sandbox for the XAS Alloc Dev Agent."
+            if DEV
+            else "Anthropic-hosted sandbox for the XAS Allocation Agent."
+        ),
         config={"type": "cloud", "networking": NETWORKING},
     )
     print(f"Created environment: {environment.id}  (cloud, MCP egress only)")
@@ -386,10 +412,10 @@ def check_environment_type(environment_id: str) -> None:
     kind = client().beta.environments.retrieve(environment_id).config.type
     if kind != "cloud":
         sys.exit(
-            f"ALLOC_ENV_ID={environment_id} is a {kind!r} environment, but this branch\n"
-            "builds an Anthropic-hosted (cloud) agent. Clear ALLOC_AGENT_ID / ALLOC_ENV_ID /\n"
-            "ALLOC_SKILL_ID from .env and re-run to create a fresh cloud set — the two\n"
-            "sandbox types need separate resources."
+            f"{ENV_PREFIX}ALLOC_ENV_ID={environment_id} is a {kind!r} environment, but this\n"
+            f"branch builds an Anthropic-hosted (cloud) agent. Clear {ENV_PREFIX}ALLOC_AGENT_ID /\n"
+            f"{ENV_PREFIX}ALLOC_ENV_ID / {ENV_PREFIX}ALLOC_SKILL_ID from .env and re-run to create\n"
+            "a fresh cloud set — the two sandbox types need separate resources."
         )
 
 
@@ -401,7 +427,10 @@ def main() -> None:
     and updates the agent to carry both — it never creates a second agent.
     """
     # Which pair is going out is not something to infer from the diff afterwards.
-    print(f"Prompt + reporting skill: {VARIANT_DIR if VARIANT_DIR else 'the shipped pair'}\n")
+    print(f"Prompt + reporting skill: {VARIANT_DIR if VARIANT_DIR else 'the shipped pair'}")
+    # Which agent is being written to is the one thing a mis-run cannot be allowed
+    # to leave ambiguous.
+    print(f"Target:                   {'DEV (XAS_DEV=1)' if DEV else 'LIVE'} — {AGENT_NAME}\n")
 
     if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)
@@ -425,7 +454,7 @@ def main() -> None:
         update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, reporting_skill_id)
         print("\n" + "=" * 60)
         print("Add this ONE line to your .env (the others are unchanged):\n")
-        print(f"REPORTING_SKILL_ID={reporting_skill_id}")
+        print(f"{ENV_PREFIX}REPORTING_SKILL_ID={reporting_skill_id}")
         print("=" * 60)
         return
 
@@ -440,10 +469,10 @@ def main() -> None:
 
     print("\n" + "=" * 60)
     print("Setup complete. Paste these into your .env:\n")
-    print(f"ALLOC_AGENT_ID={agent_id}")
-    print(f"ALLOC_ENV_ID={environment_id}")
-    print(f"ALLOC_SKILL_ID={alloc_skill_id}")
-    print(f"REPORTING_SKILL_ID={reporting_skill_id}")
+    print(f"{ENV_PREFIX}ALLOC_AGENT_ID={agent_id}")
+    print(f"{ENV_PREFIX}ALLOC_ENV_ID={environment_id}")
+    print(f"{ENV_PREFIX}ALLOC_SKILL_ID={alloc_skill_id}")
+    print(f"{ENV_PREFIX}REPORTING_SKILL_ID={reporting_skill_id}")
     print("=" * 60)
     print(
         "\nThe environment is Anthropic-hosted — there is no worker to start and no\n"

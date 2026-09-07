@@ -3,7 +3,8 @@
 
 Thin FastAPI server between the browser and the Managed Agents session API.
 
-  uv run uvicorn web:app --reload --port 8000
+  uv run uvicorn web:app --reload --port 8000              # the LIVE agent
+  XAS_DEV=1 uv run uvicorn web:app --reload --port 8000    # the DEV agent
 
 The ONLY process. The sandbox is Anthropic's, so nothing here executes the
 agent's bash / file tools and there is no worker to run alongside.
@@ -51,8 +52,17 @@ log = logging.getLogger("web")
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent
-ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
-ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
+
+# `XAS_DEV=1 uv run uvicorn web:app` points this server at the DEV agent instead
+# of the one the frontend talks to — same flag `setup_agent.py` reads, so the pair
+# cannot disagree about which agent is being exercised. Sessions, the pull tool and
+# the vault are per-session and need no switch; only the agent and its environment
+# do.
+DEV = os.environ.get("XAS_DEV", "").lower() not in ("", "0", "false", "no")
+ENV_PREFIX = "DEV_" if DEV else ""
+ALLOC_AGENT_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_AGENT_ID")
+ALLOC_ENV_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_ENV_ID")
+log.info("target: %s agent %s", "DEV" if DEV else "LIVE", ALLOC_AGENT_ID or "(unset)")
 DOWNLOAD_DIR = Path(
     os.environ.get("ALLOC_DOWNLOAD_DIR") or Path.home() / "xas-alloc-outputs"
 ).expanduser()
@@ -128,8 +138,9 @@ def _require_config() -> None:
     if not (ALLOC_AGENT_ID and ALLOC_ENV_ID):
         raise HTTPException(
             500,
-            "ALLOC_AGENT_ID / ALLOC_ENV_ID are not set. Run setup_agent.py "
-            "and paste the printed IDs into .env.",
+            f"{ENV_PREFIX}ALLOC_AGENT_ID / {ENV_PREFIX}ALLOC_ENV_ID are not set. Run "
+            f"{'XAS_DEV=1 ' if DEV else ''}uv run python setup_agent.py and paste the "
+            "printed IDs into .env.",
         )
 
 
