@@ -47,9 +47,12 @@ proves it holds even after the sandbox is discarded: re-pull, re-apply the same
 override, get the same plan.
 
 This build is a **runnable prototype**. Its data IS real XAS: one row of the
-export's `orders.csv` is **one order for one car**, keyed by its own `OrderId`
-(`502377`). There are no job-card lines and no `Quantity` column in this export,
-so there is nothing to expand and no per-line grain to decide.
+export's `orders.csv` is **one order for one car**, keyed the way the
+["Allocation solve contract"](https://xiomautomotive.atlassian.net/wiki/spaces/~7120207e8153ad22894019bea4a2554d938218/pages/3138355201/Allocation+solve+contract)
+keys it — `DMSJCNum` + `LineNum`, a job card and one line on it (`900108-1`).
+There is still no `Quantity` column, so one line is one car and there is nothing
+to expand. A planner may name a whole card or a single line; both go through
+`solver.names_order`.
 Supply is ONE
 flat pool of vehicles, real and future together; there is no PO/PDN/slot layer,
 and a vehicle is always exactly one car. Dates are real dates. The pull is a
@@ -67,7 +70,7 @@ separate agents:
 
 | Lane | Skill | Reads | Answers |
 | --- | --- | --- | --- |
-| Allocation repair | `xas-allocation` | `/workspace/orders.json` + `/workspace/vehicles.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
+| Allocation repair | `xas-allocation` | `/workspace/dms_allocation.json` via the pull tool + `flatten` | which order gets which vehicle, what a repair costs, who is bumped |
 | Reporting | `xas-reporting` | the tenant's vocabulary, inside its own SKILL.md + the `xas-app-mcp` tools (LIVE dev system) | how many, which branch, what status — and charts |
 
 Both skills are on the same session, so a planner can repair an allocation and
@@ -136,8 +139,8 @@ before real dealer data (DECIDE-9).
 | `solver.py`      | §11.2  | OR-Tools `SimpleMinCostFlow`: integer index tables (§4), §2 cost model, the free/pinned partition (§5), the **churn-price sweep**, deterministic read-back. Two halves — `partition` (who may move, no maths) and `_solve_one` (the arithmetic). |
 | `session.py`     | §11.5  | The §8 per-turn loop; discrepancy map, whole-book state report (`current_state_report`), the finished **planner report** (`repair_and_report`). Steering is one combined override the agent carries forward — no ledger. |
 | `overrides_schema.json` | §11.6 | The typed steering object the planner's NL compiles to (§6). |
-| `../scenario_engine/`   | —     | **Standalone, outside the agent**: carves a solvable scenario out of the real export (`real_unallocated` / `real_delayed` / `real_mixed`, one shared `carve`) into `data/scenario-*/`. |
-| `../datasource.py`      | —     | **Host-side pull** (DECIDE-7): `ScenarioSource` reads a scenario's two CSVs and `translate` — the ONE mapping — filters, counts every drop by reason and writes the two payloads. `web.py` calls it per session and mounts them. |
+| `../scenario_engine/`   | —     | **Standalone, outside the agent**: carves a solvable scenario out of the real export (`real_unallocated` / `real_delayed` / `real_mixed`, one shared `carve`) into `data/scenario-*/`, plus two one-off labelling passes (`label_commitment`, `dms_fields`) that give the export the DMS columns the contract requires. |
+| `../datasource.py`      | —     | **Host-side pull** (DECIDE-7): `ScenarioSource` reads a scenario's two CSVs and `translate` — the ONE mapping — filters, counts every drop by reason and writes the contract's ONE document. `web.py` calls it per session and mounts it. |
 | `../tests/`      | §11.7  | 182 tests — the determinism invariant (`test_invariant.py`, also runnable standalone), the tool contract, flatten, the mapping, and one file per priced behaviour (bump, earliness, may_move, report). |
 
 The skill knowledge (cost model §2 verbatim, encodings, procedure §8, steering
@@ -256,25 +259,26 @@ package stays at the repo root — the bundle is synthesized at upload time, so 
 tests and the sandbox run the same source.
 
 The data is **not** bundled (it used to be). The pull is read host-side per
-session and mounted into the sandbox as two files (next section). The consequence
+session and mounted into the sandbox as one file (next section). The consequence
 to remember: **edit the solver package or `SKILL.md` and you must re-run
 `setup_agent.py`**; re-carving a scenario does not need a re-deploy, because the
 data is mounted rather than shipped.
 
-### Why the pull mounts files instead of returning the rows
+### Why the pull mounts a file instead of returning the rows
 
 The source runs here; the agent runs in Anthropic's sandbox. Everything the
 *tool* returns crosses into the agent's context, so dumping the rows would push
 the whole book through the context window every pull.
 
 So on session start `web.py` calls `datasource.get_source(scenario).pull()`
-**host-side** and mounts the two translated payloads at
-`alloc_tools.ORDERS_MOUNT_PATH` and `VEHICLES_MOUNT_PATH`
-(`/workspace/orders.json`, `/workspace/vehicles.json` — about 130KB together for
-the mixed scenario). The tool then returns only a summary plus a `flatten`
-command that reads both files into `snapshot.json`. The rows travel as files, out
-of the transcript entirely. The scenario scripts' *code* stays out of the sandbox;
-only the translated *output* travels in.
+**host-side** and mounts the translated document at
+`alloc_tools.PULL_MOUNT_PATH` (`/workspace/dms_allocation.json`). The tool then
+answers with the contract's five header fields — `pull_id`, `captured_at`,
+`source`, `counts` and `file` — plus a `flatten` command that reads that file into
+`snapshot.json`. `file` is the path the API reported for the resource, read off
+`session.resources[].mount_path` and never a constant of ours. The rows travel as
+a file, out of the transcript entirely. The scenario scripts' *code* stays out of
+the sandbox; only the translated *output* travels in.
 
 `datasource.py` is the pull. `XAS_SCENARIO` sets the default scenario and the web
 form's picker overrides it per session; `XAS_PULL_NOW` overrides the pull date for

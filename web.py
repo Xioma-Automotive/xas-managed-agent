@@ -91,18 +91,17 @@ _answering: asyncio.Task | None = None
 _rotating: asyncio.Task | None = None
 _lock = asyncio.Lock()
 
-# The pull we translated and mounted for each session, so the tool answerer can
-# summarize it without re-reading. A convenience cache: the mounted files are the
-# durable copy, rebuilt from them after a restart (see _pull_for).
-_pull_by_session: dict[str, dict] = {}
+# The pull we translated and mounted for each session, and the path the platform
+# reported for it, so the tool answerer can summarize without re-reading. A
+# convenience cache: the mounted file is the durable copy, rebuilt from it after a
+# restart (see _pull_for).
+_pull_by_session: dict[str, tuple[dict, str]] = {}
 
-# The two mounts, named by the paths the flatten command already resolves — one
-# file per row stream, because the export has two and folding them into one
-# document would only make `flatten` take it apart again.
-ORDERS_FILENAME = os.path.basename(alloc_tools.ORDERS_MOUNT_PATH)
-VEHICLES_FILENAME = os.path.basename(alloc_tools.VEHICLES_MOUNT_PATH)
+# The ONE mount: the "Allocation solve contract" document, both row streams in one
+# file. The two payloads it replaced (orders.json + vehicles.json) are gone.
+PULL_FILENAME = os.path.basename(alloc_tools.PULL_MOUNT_PATH)
 
-# These two are the ONLY mounts. The reporting lane used to get a third — a
+# It is also the only mount at all. The reporting lane used to get a second — a
 # fabricated jobcards.json under /workspace/reports/ — and the prompt's hard rule
 # forbade that path. Reporting now reads the live system through `xas-app-mcp`
 # instead, so the fence is toolset-shaped and there is no records file to mount.
@@ -110,7 +109,7 @@ VEHICLES_FILENAME = os.path.basename(alloc_tools.VEHICLES_MOUNT_PATH)
 # Mounted inputs come back from files.list(scope_id=...) alongside whatever the
 # agent wrote, so both the listing and the download filter them out — otherwise a
 # planner asking for "the outputs" gets their own inputs handed back.
-MOUNTED_INPUT_FILENAMES = frozenset({ORDERS_FILENAME, VEHICLES_FILENAME})
+MOUNTED_INPUT_FILENAMES = frozenset({PULL_FILENAME})
 
 
 class NewSession(BaseModel):
@@ -147,9 +146,11 @@ def _digest(call) -> str:
     except json.JSONDecodeError:
         return f"{len(body)} chars"
     late = d.get("days_late") or {}
+    counts = d.get("counts") or {}
     return (
-        f"scenario={d.get('scenario')} now={d.get('now')} orders={d.get('orders')} "
-        f"(no car: {d.get('orders_holding_no_car')}) supply={d.get('supply')} "
+        f"scenario={d.get('source')} captured_at={d.get('captured_at')} "
+        f"pull_id={d.get('pull_id')} orders={counts.get('orders')} "
+        f"(no car: {d.get('orders_holding_no_car')}) supply={counts.get('vehicles')} "
         f"(free: {d.get('free_supply')}) late={d.get('late_orders')} "
         f"by {late.get('min')}-{late.get('max')} days"
     )
@@ -162,46 +163,55 @@ async def _upload(filename: str, blob: bytes, media_type: str):
     )
 
 
-async def _download_pull(session_id: str) -> dict:
-    """Rebuild a session's pull from the two files we mounted into its sandbox.
+async def _download_pull(session_id: str) -> tuple[dict, str]:
+    """Rebuild a session's pull from the document we mounted into its sandbox, and
+    recover the path the platform reported for it.
 
-    The mounts are the durable copy; used when ``_pull_by_session`` is cold (this
-    process restarted while the session lived on). Both halves are required —
-    summarizing half a pull would report counts the sandbox does not have."""
+    The mount is the durable copy; used when ``_pull_by_session`` is cold (this
+    process restarted while the session lived on)."""
     listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
-    parts: dict[str, dict] = {}
+    document = None
     for f in listing.data:
-        name = os.path.basename(f.filename or "")
-        if name in MOUNTED_INPUT_FILENAMES:
+        if os.path.basename(f.filename or "") == PULL_FILENAME:
             content = await client.beta.files.download(f.id)
-            parts[name] = json.loads(await content.read())
-    missing = [n for n in (ORDERS_FILENAME, VEHICLES_FILENAME) if n not in parts]
-    if missing:
-        raise RuntimeError(f"session {session_id} is missing mounted {', '.join(missing)}")
-    orders, vehicles = parts[ORDERS_FILENAME], parts[VEHICLES_FILENAME]
+            document = json.loads(await content.read())
+    if document is None:
+        raise RuntimeError(f"session {session_id} is missing mounted {PULL_FILENAME}")
+
+    session = await client.beta.sessions.retrieve(session_id, betas=[MANAGED_AGENTS_BETA])
+    mounted_path = _mounted_path(session) or alloc_tools.PULL_MOUNT_PATH
+
+    # Derived, not mounted — same rule as in `flatten`, over the same rows.
+    eta_of = {v["VehicleCode"]: v["AvailableBy"] for v in document["vehicles"]}
     return {
-        "now": orders["now"],
-        "meta": orders["meta"],
-        "orders": orders["orders"],
-        "vehicles": vehicles["vehicles"],
-        # Derived, not mounted — same rule as in `flatten`, over the same rows.
+        **document,
         "disruption": {
             "disrupted_orders": sorted(
-                o["OrderId"]
-                for o in orders["orders"]
-                if o.get("VehicleCode")
-                and {v["VehicleCode"]: v["EtaDealer"] for v in vehicles["vehicles"]}.get(
-                    o["VehicleCode"], ""
-                )
-                > o["DeliveryDate"]
+                datasource.order_key(o)
+                for o in document["orders"]
+                if o.get("VehicleCode") and eta_of.get(o["VehicleCode"], "") > o["DeliveryDate"]
             )
         },
-    }
+    }, mounted_path
 
 
-async def _pull_for(session_id: str) -> dict:
-    """The pull for this session: the in-process cache, or the mounted files
-    after a restart. This is what the tool answerer summarizes."""
+def _mounted_path(session) -> str:
+    """Where the platform says this session's pull is mounted.
+
+    The contract requires the tool's ``file`` to be the path the API gave back,
+    never a constant of ours — so it is read off the resource here and threaded
+    through to `alloc_tools.summarize`. An empty string when the session carries
+    no file resource, which the caller turns into the path we asked for.
+    """
+    for resource in getattr(session, "resources", None) or []:
+        if getattr(resource, "type", None) == "file" and getattr(resource, "mount_path", ""):
+            return resource.mount_path
+    return ""
+
+
+async def _pull_for(session_id: str) -> tuple[dict, str]:
+    """The pull for this session and where it is mounted: the in-process cache, or
+    the mounted file after a restart. This is what the tool answerer summarizes."""
     cached = _pull_by_session.get(session_id)
     if cached is not None:
         return cached
@@ -432,24 +442,18 @@ async def new_session(body: NewSession) -> dict:
             await _detach(previous)
 
         # Read and translate the pull HERE, on the host, from the scenario the
-        # planner picked, then mount it into the sandbox as two files. The sandbox
-        # never reads the CSVs; it finds the translated rows waiting as files the
-        # flatten command reads. One pull backs the whole repair cycle — the
-        # invariant "same snapshot every turn". `pull()` is sync file I/O, so it
-        # goes to a thread rather than stalling every other session's tool answers.
+        # planner picked, then mount it into the sandbox as ONE document — the
+        # shape the "Allocation solve contract" specifies. The sandbox never reads
+        # the CSVs; it finds the translated rows waiting as a file the flatten
+        # command reads. One pull backs the whole repair cycle — the invariant
+        # "same snapshot every turn". `pull()` is sync file I/O, so it goes to a
+        # thread rather than stalling every other session's tool answers.
         source = datasource.get_source(body.scenario)
         rich = await asyncio.to_thread(source.pull)
-        orders_meta, vehicles_meta = await asyncio.gather(
-            _upload(
-                ORDERS_FILENAME,
-                json.dumps(datasource.orders_payload(rich)).encode(),
-                "application/json",
-            ),
-            _upload(
-                VEHICLES_FILENAME,
-                json.dumps(datasource.vehicles_payload(rich)).encode(),
-                "application/json",
-            ),
+        pull_file = await _upload(
+            PULL_FILENAME,
+            json.dumps(datasource.document(rich)).encode(),
+            "application/json",
         )
         # Mint the app-MCP bearer into its vault before the session exists, so
         # the agent's first reporting call cannot land on a stale one. Failing
@@ -470,21 +474,20 @@ async def new_session(body: NewSession) -> dict:
             resources=[
                 {
                     "type": "file",
-                    "file_id": orders_meta.id,
-                    "mount_path": alloc_tools.ORDERS_MOUNT_PATH,
-                },
-                {
-                    "type": "file",
-                    "file_id": vehicles_meta.id,
-                    "mount_path": alloc_tools.VEHICLES_MOUNT_PATH,
-                },
+                    "file_id": pull_file.id,
+                    "mount_path": alloc_tools.PULL_MOUNT_PATH,
+                }
             ],
             # Create-only: `vault_ids` is rejected on session update, so a vault
             # not attached here can never be attached to this session.
             **({"vault_ids": [appmcp_auth.vault_id()]} if appmcp_auth.configured() else {}),
         )
         _active = session.id
-        _pull_by_session[session.id] = rich
+        # The path the API reports, not the one we asked for: the contract's
+        # `file` must be what the platform gave back. They agree today; the day
+        # they stop, the agent gets the truth and we find out from the mount
+        # resolver rather than from a session that solves against nothing.
+        _pull_by_session[session.id] = (rich, _mounted_path(session) or alloc_tools.PULL_MOUNT_PATH)
         # Start answering before the planner can send anything: a pull that
         # arrives with no runner attached parks the session indefinitely.
         _answering = asyncio.create_task(_answer_custom_tools(session.id))
@@ -494,7 +497,7 @@ async def new_session(body: NewSession) -> dict:
         "session %s started (%s, %s)",
         session.id,
         MODELS[body.model]["id"],
-        rich["meta"]["source"],
+        rich["source"],
     )
     return {
         "id": session.id,

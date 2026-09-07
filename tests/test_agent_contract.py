@@ -240,16 +240,15 @@ def test_the_pull_is_the_only_mount():
     else. Reporting used to get a third under /workspace/reports/; it reads the
     live MCP now, so a session that mounts anything more is a session whose
     reporting numbers came from somewhere this design does not control."""
-    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.ORDERS_FILENAME, web.VEHICLES_FILENAME})
+    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.PULL_FILENAME})
     source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
-    assert source.count('"type": "file"') == 2, "two resources, or the fence moved"
+    assert source.count('"type": "file"') == 1, "one resource, or the fence moved"
 
 
 def test_every_mounted_input_is_filtered_from_outputs():
     """files.list(scope_id=...) returns the inputs too; handing a planner their
     own pull back as an 'output' is noise, and downloading it is worse."""
-    mounted = {Path(p).name for p in alloc_tools.MOUNT_PATHS}
-    assert mounted == set(web.MOUNTED_INPUT_FILENAMES)
+    assert {Path(alloc_tools.PULL_MOUNT_PATH).name} == set(web.MOUNTED_INPUT_FILENAMES)
 
 
 # --------------------------------------------------------------------------
@@ -292,19 +291,19 @@ def test_host_no_longer_serves_a_taxonomy():
 
 
 def test_pull_is_resolved_not_assumed():
-    """Both mounts, and the /mnt/session/uploads prefix the platform was actually
-    observed to materialize them under."""
-    for path in alloc_tools.MOUNT_PATHS:
-        candidates = alloc_tools.mount_candidates(path)
-        assert path in candidates
-        assert f"{alloc_tools.UPLOAD_PREFIX}{path}" in candidates
+    """The mount, and the /mnt/session/uploads prefix the platform was actually
+    observed to materialize it under. The API reports a mount_path now, but what
+    it reports is the path that was REQUESTED — so the resolution stays."""
+    path = alloc_tools.PULL_MOUNT_PATH
+    candidates = alloc_tools.mount_candidates(path)
+    assert path in candidates
+    assert f"{alloc_tools.UPLOAD_PREFIX}{path}" in candidates
 
 
 def test_flatten_command_tries_every_candidate():
     command = alloc_tools.flatten_command()
-    for path in alloc_tools.MOUNT_PATHS:
-        for candidate in alloc_tools.mount_candidates(path):
-            assert candidate in command, f"{candidate} unreachable by the flatten command"
+    for candidate in alloc_tools.mount_candidates(alloc_tools.PULL_MOUNT_PATH):
+        assert candidate in command, f"{candidate} unreachable by the flatten command"
 
 
 def test_flatten_command_never_searches_from_root():

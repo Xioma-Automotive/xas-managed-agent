@@ -1,11 +1,11 @@
-OrderId,vehicleCode,modelId.name,SalesModel,vehicleColor.code,vehicleColor.name,description,,modelId.wrntyLimitationKm,etaDealer,customer.name
-502631,1003458,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,1003458 - OMODA5 HEV Premium Phantom Gray | Black,,,2026-10-14T00:00:00.000Z,Hila Nissim
-502674,1003410,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,1003410 - OMODA5 HEV Premium Phantom Gray | Black,,,2026-09-29T00:00:00.000Z,Yossi Mizrahi
-502691,1003404,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray | Black,Phantom gray | Black,1003404 - OMODA5 HEV Premium Phantom Gray | Black,,,2026-10-04T00:00:00.000Z,Shira Peretz
-502788,1003461,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003461 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-10-04T00:00:00.000Z,Delek Motors Fleet
-503494,1003495,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003495 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-10-13T00:00:00.000Z,Yossi Mizrahi
-503511,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-09-15T00:00:00.000Z,Shira Peretz
-503662,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black,Carbon crystal black,,,,2026-09-15T00:00:00.000Z,Efrat Segal
-503673,,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray,Phantom gray,,,,2026-09-12T00:00:00.000Z,Maya Rosenberg
-503817,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black,Carbon crystal black,,,,2026-09-15T00:00:00.000Z,Hila Nissim
-503825,1003934,OMODA5 HEV Premium,T71506JGVMH0009,Phantom gray,Phantom gray,1003934 - OMODA5 HEV Premium Phantom Gray | Black,,,2026-09-20T00:00:00.000Z,Yael Kaplan
+OrderId,vehicleCode,modelId.name,SalesModel,vehicleColor.code,vehicleColor.name,description,,modelId.wrntyLimitationKm,etaDealer,customer.name,allocationType,DMSJCNum,LineNum,DMSJCEntry,JobStatus.Code,JobStatus.Label,Accounts.Owner.AccountDMSCode
+502662,1003498,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003498 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-09-28T00:00:00.000Z,Nadav Halevi,hard,900108,1,100108,02,In Process,C0019
+502675,1002110,JAECOO7 PHEV Premium (T71604NXXMH0016),T71604NZKMH0016,Carbon crystal black & Olive gray | Black,Carbon crystal black & Olive gray | Black,1002110 - JAECOO7 PHEV Premium Carbon crystal black & Olive gray | Black 2025,,,2026-06-07T00:00:00.000Z,Doron Elbaz,soft,900042,1,100042,02,In Process,C0008
+502721,1003442,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003442 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-09-30T00:00:00.000Z,Meshulam Leasing Ltd,hard,900098,3,100098,02,In Process,C0017
+503034,1003515,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003515 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-09-29T00:00:00.000Z,Ronen Katz,hard,900128,6,100128,02,In Process,C0023
+503288,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-10-04T00:00:00.000Z,Gilad Ohayon,hard,900063,5,100063,02,In Process,C0011
+503313,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-10-08T00:00:00.000Z,Efrat Segal,hard,900052,9,100052,02,In Process,C0009
+503346,,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,,,,2026-09-12T00:00:00.000Z,Ronen Katz,hard,900128,7,100128,02,In Process,C0023
+503500,1003486,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black | Black,Carbon crystal black | Black,1003486 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-09-28T00:00:00.000Z,Sivan Azoulay,hard,900147,14,100147,02,In Process,C0026
+503790,1003937,OMODA5 HEV Premium,T71506JCLMH0009,Carbon crystal black,Carbon crystal black,1003937 - OMODA5 HEV Premium Carbon Crystal Black | Black,,,2026-09-20T00:00:00.000Z,Tomer Golan,hard,900159,22,100159,02,In Process,C0028
+503822,,JAECOO7 PHEV Premium (T71604NXXMH0016),T71604NZKMH0016,Carbon crystal black & Olive gray,Carbon crystal black & Olive gray,,,,2026-07-01T00:00:00.000Z,Hila Nissim,soft,900065,6,100065,02,In Process,C0012

@@ -29,11 +29,12 @@ ON_TIME = date(2026, 9, 14)
 
 # One order id, one order, one car. HI is the late one; LO holds the on-time car
 # a rescue would have to take.
-ORDER_HI, ORDER_LO = "500001", "500002"
+ORDER_HI, ORDER_LO = "900001-1", "900002-1"
 
 
 def _order(oid: str, promised: date = PROMISED) -> Order:
-    return Order(order_id=oid, sales_model="SM1", delivery_date=promised)
+    card, _, line = oid.rpartition("-")
+    return Order(job_card=card, line=line, sales_model="SM1", delivery_date=promised)
 
 
 def _vehicle(vid: str, planned: date) -> Vehicle:

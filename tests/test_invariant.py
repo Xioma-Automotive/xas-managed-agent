@@ -4,7 +4,8 @@
 
 Steering is a single combined **override** object the agent carries forward —
 there is no ledger, no append-only log, no replay, no TTL. These tests prove:
-  1. the pull re-reads byte-identically (scenario CSVs -> translate -> flatten);
+  1. the pull re-reads byte-identically (scenario CSVs -> translate -> flatten),
+     `pull_id` aside — it names the read, not the data;
   2. a solve is deterministic given (snapshot, override);
   3. the headline invariant: DISCARD the sandbox (all in-memory state), re-read
      the mounted payloads from disk, re-flatten, re-apply the SAME override ->
@@ -32,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import datasource
-from xas_allocation.flatten import flatten, flatten_paths
+from xas_allocation.flatten import flatten, flatten_path
 from xas_allocation.session import run_cycle
 from xas_allocation.solver import solve
 
@@ -44,8 +45,8 @@ SCENARIO = "scenario-mixed"
 # scenario. Just a dict; the whole point is that the agent carries this object,
 # not a log of how it was built.
 STEER = {
-    "priority": [{"order": "502387", "step": "urgent"}],
-    "may_move": {"only": {"models": ["T71506JGVMH0009"]}, "never": ["503756"]},
+    "priority": [{"order": "900098-3", "step": "urgent"}],
+    "may_move": {"only": {"models": ["T71506JCLMH0009"]}, "never": ["900159-22"]},
     "churn_price": 25,
 }
 
@@ -57,18 +58,15 @@ def _pull() -> dict:
 
 def _snapshot() -> object:
     """Translate + flatten, in memory — the two halves of the data path."""
-    pull = _pull()
-    return flatten(datasource.orders_payload(pull), datasource.vehicles_payload(pull))
+    return flatten(datasource.document(_pull()))
 
 
-def _mount(directory: Path) -> tuple[Path, Path]:
-    """Write the two payloads the host mounts, then hand back their paths — the
-    files the sandbox actually reads."""
-    pull = _pull()
-    orders, vehicles = directory / "orders.json", directory / "vehicles.json"
-    orders.write_text(json.dumps(datasource.orders_payload(pull), sort_keys=True))
-    vehicles.write_text(json.dumps(datasource.vehicles_payload(pull), sort_keys=True))
-    return orders, vehicles
+def _mount(directory: Path) -> Path:
+    """Write the document the host mounts, then hand back its path — the file the
+    sandbox actually reads."""
+    path = directory / "dms_allocation.json"
+    path.write_text(json.dumps(datasource.document(_pull()), sort_keys=True))
+    return path
 
 
 def _plan_json(plan: dict[str, str]) -> str:
@@ -77,7 +75,13 @@ def _plan_json(plan: dict[str, str]) -> str:
 
 
 def test_snapshot_reproducible() -> None:
+    """Reading the CSVs twice gives the same picture — no clock anywhere in the
+    data path. `pull_id` is the one exception and is excluded here on purpose: it
+    names THIS read of the data, so two reads must differ in it and in nothing
+    else. Nothing prices it."""
     a, b = _snapshot().as_dict(), _snapshot().as_dict()
+    for d in (a, b):
+        d["meta"].pop("pull_id")
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
@@ -93,7 +97,7 @@ def test_override_invariant_across_sandbox_discard() -> None:
     """The headline invariant, ledger-free: the ONLY state that survives a sandbox
     discard is the override dict. Re-pull, re-flatten, re-apply it -> same plan."""
     with tempfile.TemporaryDirectory() as d:
-        orders_path, vehicles_path = _mount(Path(d))
+        pull_path = _mount(Path(d))
 
         def frontier(cyc) -> list[tuple]:
             return [
@@ -101,7 +105,7 @@ def test_override_invariant_across_sandbox_discard() -> None:
             ]
 
         # --- Run A: read the mounted payloads, flatten, solve under the override. ---
-        snapA = flatten_paths(orders_path, vehicles_path)
+        snapA = flatten_path(pull_path)
         cycA = run_cycle(snapA, STEER)
         planA, frontierA = _plan_json(cycA.chosen.plan), frontier(cycA)
 
@@ -109,7 +113,7 @@ def test_override_invariant_across_sandbox_discard() -> None:
         #     mounted files, re-flatten, re-apply the SAME override (carried, not
         #     remembered — it's just the dict we already had). ---
         del snapA, cycA
-        snapB = flatten_paths(orders_path, vehicles_path)  # re-read, not remembered
+        snapB = flatten_path(pull_path)  # re-read, not remembered
         cycB = run_cycle(snapB, STEER)
         planB, frontierB = _plan_json(cycB.chosen.plan), frontier(cycB)
 
@@ -124,14 +128,14 @@ def test_override_is_order_independent() -> None:
     order to get wrong.)"""
     snap = _snapshot()
     a = {
-        "priority": [{"order": "502387", "step": "urgent"}],
-        "may_move": {"never": ["503756"], "only": {"models": ["T71506JGVMH0009"]}},
+        "priority": [{"order": "900098-3", "step": "urgent"}],
+        "may_move": {"never": ["900159-22"], "only": {"models": ["T71506JCLMH0009"]}},
         "churn_price": 25,
     }
     b = {
         "churn_price": 25,
-        "may_move": {"only": {"models": ["T71506JGVMH0009"]}, "never": ["503756"]},
-        "priority": [{"order": "502387", "step": "urgent"}],
+        "may_move": {"only": {"models": ["T71506JCLMH0009"]}, "never": ["900159-22"]},
+        "priority": [{"order": "900098-3", "step": "urgent"}],
     }
     assert _plan_json(solve(snap, a, churn_price=25).plan) == _plan_json(
         solve(snap, b, churn_price=25).plan

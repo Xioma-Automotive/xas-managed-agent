@@ -40,9 +40,10 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   the real export — `data/scenario-*/orders.csv` + `vehicles.csv`, carved by
   `scenario_engine/real_*.py` — read host-side by `datasource.py` (DECIDE-7).
   `translate()` is the ONE mapping: it filters, counts every drop by reason and
-  writes the two payloads `web.py` mounts, `orders.json` and `vehicles.json`.
-  `flatten` reads those two files IN THE SANDBOX into the
-  `orders/vehicles/allocations` snapshot, one order row = one order for one car.
+  writes the ONE document `web.py` mounts, `dms_allocation.json`, in the shape the
+  **"Allocation solve contract"** sets. `flatten` reads that file IN THE SANDBOX
+  into the `orders/vehicles/allocations` snapshot, one order row = one order for
+  one car.
   The *same* pull backs every turn of a repair cycle — re-applying the same
   override against a different pull is not the same turn, and the scenario is
   chosen once, at session create.
@@ -480,11 +481,13 @@ XAS endpoint and its credential never touch the sandbox.
   heading. Its tests moved whole from the deleted `tests/test_link.py` into
   `tests/test_phrasebook.py`. What it still does not solve: a job-card filter naming
   no classification has no single area, and the server just picks `/job_cards`.
-- **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
-  `/workspace/vehicles.json` are the pull — the export's two row streams, kept
-  apart because folding them into one document would only make `flatten` take it
-  apart again — and they are the only things `web.py` mounts. The reporting
-  lane had a third mount — a fabricated `jobcards.json` under
+- **ONE mount, and reporting has no file at all.** `/workspace/dms_allocation.json`
+  is the pull — both row streams in one document, because the contract says one
+  document — and it is the only thing `web.py` mounts. It replaced
+  `orders.json` + `vehicles.json` on 2026-09-06; the reason they were apart
+  (folding them together would only make `flatten` take them apart again) was
+  real and is simply outranked by the contract, and `flatten` now takes one
+  document apart instead of two. The reporting lane had a further mount — a fabricated `jobcards.json` under
   `/workspace/reports/`, whose namespace existed so the prompt could forbid a
   **path** — removed 2026-08-20 because the records were only ever mock data.
   Reporting reads the live system through `xas-app-mcp` instead, so the fence is
@@ -509,19 +512,56 @@ XAS endpoint and its credential never touch the sandbox.
   (`delay_days` / `delay_tiers` / `delayed_vehicles`, removed 2026-08-27): the
   summary reports the min/median/max days late instead, which real data can
   actually support.
-- **ONE ROW IS ONE ORDER, and there are no lines any more.** The key is the
-  export row's own `OrderId` (`502377`) — ONE level. The two-level
-  `{so_id}-{line}` key, the `Quantity` question with it, went out with the app-MCP
-  job-card grain on 2026-08-27: this export has no lines and no `Quantity`
-  column, so there is nothing to expand and nothing left uncounted. (Earlier
-  still, on 2026-08-25, qty expansion itself was replaced — `qty_index`, the
-  per-car report naming and the `allocation_qty_not_resolvable_to_cars` counter
-  are all gone.) A line-grain pull would bring the whole question back; do not
-  reintroduce one without deciding it. An order is NAMED by string in four places (`priority`,
-  `may_move.only/.also/.never`, the disruption manifest); all go through
-  `solver.names_order` / `disrupted_order_keys`, which match the line or the
-  whole VSO. `Snapshot.order_by_key` RAISES on a duplicate key rather than
-  collapsing two orders into one.
+- **ONE ROW IS ONE ORDER, and the key is TWO levels again (2026-09-06).** The
+  contract keys an order line `DMSJCNum` + `LineNum` — `900108-1` — so the
+  two-level key that went out with the app-MCP job-card grain on 2026-08-27 is
+  back, this time because the contract says so rather than because a pull happened
+  to have lines. What did NOT come back is `Quantity`: one line is still one
+  wanted car, so there is nothing to expand and nothing left uncounted. (The
+  2026-08-25 qty machinery — `qty_index`, the per-car report naming, the
+  `allocation_qty_not_resolvable_to_cars` counter — stays deleted.) An order is
+  NAMED by string in four places (`priority`, `may_move.only/.also/.never`, the
+  disruption manifest); all go through `solver.names_order` /
+  `disrupted_order_keys`, and `names_order` matches EITHER the whole key or the
+  bare card number, so "leave card 900128 alone" reaches both its lines. It is
+  matched whole, never as a prefix: `90012` frees nobody. The key is built in
+  exactly two places over the same two columns — `datasource.order_key` on the
+  host, `Order.key` in the sandbox — because a key that is `900108-1` on one side
+  and `900108-1.0` on the other matches nothing and says nothing about why.
+  `Snapshot.order_by_key` RAISES on a duplicate key rather than collapsing two
+  orders into one; two rows sharing a CARD are fine, that is a two-line card.
+  The export has no cards of its own: `scenario_engine/dms_fields.py` derives them
+  as one card per account per promised month (172 cards over 1641 orders), which
+  is small enough that naming a card is not the same act as naming a client — a
+  card per account would have quietly restored the client-wide lever removed on
+  2026-08-27 — and dense enough that a ten-order carve really lands a multi-line
+  card, which `tests/test_datasource.py` pins.
+- **The contract brought four LABELS onto the order, and not one of them is
+  priced.** `AllocType` (how firmly the customer is committed — `hard` from a
+  Dealer Order Confirmation, `soft` from a Dealer Reservation, derived by
+  `scenario_engine/label_commitment.py`), `Accounts.Owner.AccountDMSCode` (the
+  account's real key, which is what a client instruction should resolve THROUGH),
+  `DMSJCEntry` (the DMS's handle on the card, so a write-back has something to
+  quote) and `Accounts.Owner.AccountName`. They reach `Order`, the planner tables
+  and `plan.json`; nothing reads them. **`AllocType` in particular is NOT a
+  break-cost split** — that is DECIDE-3's retired mechanism, and re-splitting it
+  needs two validated numbers and its own decision, not a side effect of adopting
+  the file shape. `break_cost_of` says so in its docstring and
+  `tests/test_datasource.py` pins that a `soft` order still costs the full
+  `break_cost`. `JobStatus` is in the file because the contract requires it and
+  reaches `Order` nowhere: every order in this export is an open card, so the
+  field would carry one value.
+- **Six vehicle columns are PRESENT and NULL, deliberately.** `SalesStatus`,
+  `PurchaseStatus`, `RegulatoryStatus`, `OperationalStatus`, `TransferRequired`
+  and `OpenDamage` exist only in the live DMS — the export carries one status axis
+  (`status.*`) and one physical stage (`inventoryStatus`). They are in the
+  document because the contract requires them present, and `None` because a
+  plausible value is worse than an admitted gap: a car with no damage record must
+  not come back looking undamaged. `datasource.UNSOURCED_VEHICLE_FIELDS` is the
+  list and `tests/test_datasource.py` pins that every one of them is null.
+  `InventoryEnteringDate` is the exception that IS derived — a car whose
+  `availableBy` has already passed entered stock then (1727 of 3523), one still
+  inbound has no such date.
 - **Nothing is walled off, and the free set is the whole protection.** The time
   fence (frozen ≤14d / slushy 15–42d), the soft instruction pin with its
   `not_before`, and the three weight-escalation terms were all REMOVED on
@@ -709,24 +749,31 @@ XAS endpoint and its credential never touch the sandbox.
   — which is what makes the OTHER half of that note load-bearing: it also names
   the orders **holding no car** — 4 of 10 mixed, 8 of 10 in the unallocated carve,
   where "no orders are late" on its own would read as "nothing to do".
-- **The pull mounts files, not a seed, and not the rows in-band.** The source
+- **The pull mounts a file, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
-  context. So the tool returns only a summary + a `flatten` command; the rows
-  travel as the two mounted files (read host-side, out of the sandbox's sight) and
+  context. So the tool returns the contract's five header fields — `pull_id`,
+  `captured_at`, `source`, `counts`, `file` — plus a `flatten` command; the rows
+  travel as the mounted document (read host-side, out of the sandbox's sight) and
   `flatten` reads them there — nothing dumps ~100KB of JSON into the transcript.
   The scenario scripts' *code* stays out of the sandbox; only the translated
-  *output* travels in. The summary carries counts, the scenario name, the drop
-  funnel and the min/median/max days late — no rows, and no customer map: the
-  client's name rides on the order rows in the mounted file, so there is nothing
-  for a separate map to key.
+  *output* travels in. **`file` is the path the API gave back**, read off
+  `session.resources[].mount_path` and threaded into `summarize` as a parameter —
+  the contract forbids a constant there, and the day the platform resolves mounts
+  differently the agent gets the truth. Keeping the extras beside those five is a
+  deliberate reading of a contract that fixes the five and says nothing about the
+  rest: dropping `excluded` would take away the one thing the turn-1 reply is
+  REQUIRED to say, and dropping `flatten` would leave the agent no command to run.
+  There is still no customer map: the client's name rides on the order rows in the
+  mounted file, so there is nothing for a separate map to key.
 - **`flatten_command` searches from `.`/`/workspace`, never from `/`.** The solver
   lands wherever the platform puts skills, so the command self-locates
   `xas_allocation/flatten.py` — but bounded to the sandbox tree. An unbounded
   `find /` exceeds the 120s bash timeout and kills the agent's shell; that is not
-  hypothetical, it happened on the self-hosted build. The two payloads are *not*
-  searched for: each is resolved against `mount_candidates` (the path we chose,
-  then the `/mnt/session/uploads` prefix the platform was observed to use). The
-  command names whichever is missing and exits non-zero — and note the trap that
+  hypothetical, it happened on the self-hosted build. The document is *not*
+  searched for: it is resolved against `mount_candidates` (the path the API
+  reported, then the `/mnt/session/uploads` prefix the platform was observed to
+  use — the API reports the path that was REQUESTED, so the fallback stays). The
+  command names the path it looked at and exits non-zero — and note the trap that
   cost one debug cycle: `next(gen, sys.exit(...))` evaluates the default EAGERLY,
   so the exit fires before the lookup. Pick, then check.
 - **A skill's `name` is immutable per `skill_id`, and `display_title` is unique
@@ -796,6 +843,8 @@ mutation.
 ## Verifying a change
 
 ```bash
+uv run python -m scenario_engine.label_commitment   # (fresh export only) allocationType
+uv run python -m scenario_engine.dms_fields         # (fresh export only) the contract's columns
 uv run python -m datasource --list                  # the scenarios the picker offers
 uv run python -m datasource --census                # what the scenario kept vs dropped
 uv run python -m datasource --scenario scenario-unallocated --census

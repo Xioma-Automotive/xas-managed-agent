@@ -108,8 +108,8 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
 DROP_PHRASES = {
     "no_model": "no model on the order",
     "no_promised_date": "no promised date",
-    "no_order_id": "no order number",
-    "order_without_an_id": "no order number",
+    "no_card_or_line_number": "no job-card or line number",
+    "order_without_a_card_or_line_number": "no job-card or line number",
     "order_without_a_model": "no model on the order",
     "order_without_a_promised_date": "no promised date",
     "vehicle_without_a_model": "no model on the car",
@@ -562,7 +562,7 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
     """One row per order — the full allocation, as data rather than prose.
 
     Everything the report shows and a few things it does not, so a follow-up
-    question ("show me the new allocations", "what did VSO-4007 get?") is answered
+    question ("show me the new allocations", "what did 900108-1 get?") is answered
     by reading this back, not by re-reading the report.
     """
     override = override or {}
@@ -587,7 +587,15 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
         rows.append(
             {
                 "order": oid,
+                # The two halves of the key, spelled out: a write-back names the
+                # card and the line, and `entry` is the handle the DMS wants with
+                # them. Nothing here is priced.
+                "job_card": o.job_card,
+                "line": o.line,
+                "entry": o.entry,
                 "customer": o.customer,
+                "account": o.account_code,
+                "alloc_type": o.alloc_type,
                 "priority": priority.get(oid, DEFAULT_STEP),
                 "model": o.sales_model,
                 "promised": date_label(o.delivery_date),
@@ -660,12 +668,11 @@ def repair_and_report(
 
 def _demo_snapshot() -> Snapshot:
     """The demo's snapshot, built the way the host does it: translate a scenario
-    directory, then flatten the two payloads. Host-side only — `datasource` never
+    directory, then flatten the document. Host-side only — `datasource` never
     ships to the sandbox, which is why this import is inside the function."""
     import datasource
 
-    pull = datasource.get_source().pull()
-    return flatten(datasource.orders_payload(pull), datasource.vehicles_payload(pull))
+    return flatten(datasource.document(datasource.get_source().pull()))
 
 
 def _banner(title: str) -> str:

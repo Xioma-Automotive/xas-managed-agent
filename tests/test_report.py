@@ -27,6 +27,9 @@ from xas_allocation.session import (
 from xas_allocation.snapshot import Order, Snapshot, Vehicle
 
 NOW = date(2026, 8, 3)
+# The mnemonics ARE card numbers, each with a single line, so a key reads
+# `MOV-1` — the contract's `DMSJCNum` + `LineNum` in a shape a failing assertion
+# is readable in.
 # MOV:  promised far out, car late -> repaired.
 # NEAR: promised days away and its car is late -> repaired too, same as any other.
 # KEPT: promised days away and its car is on time -> settled, so nobody touches it.
@@ -41,7 +44,8 @@ JARGON = ["λ", "lambda", "objective", "pareto", "allocations", "min-cost", "arc
 
 
 def _order(oid: str, model: str, promised: date) -> Order:
-    return Order(order_id=oid, sales_model=model, delivery_date=promised)
+    card, _, line = oid.rpartition("-")
+    return Order(job_card=card, line=line, sales_model=model, delivery_date=promised)
 
 
 def _vehicle(vid: str, model: str, planned: date) -> Vehicle:
@@ -51,10 +55,10 @@ def _vehicle(vid: str, model: str, planned: date) -> Vehicle:
 def _snapshot() -> Snapshot:
     return Snapshot(
         orders=[
-            _order("MOV", "SM1", MOV_PROMISED),  # late, far from delivery
-            _order("NEAR", "SM2", NEAR_PROMISED),  # late AND days from delivery
-            _order("KEPT", "SM4", KEPT_PROMISED),  # settled and on time -> untouched
-            _order("UT", "SM3", UT_PROMISED),  # settled and on time -> untouched
+            _order("MOV-1", "SM1", MOV_PROMISED),  # late, far from delivery
+            _order("NEAR-1", "SM2", NEAR_PROMISED),  # late AND days from delivery
+            _order("KEPT-1", "SM4", KEPT_PROMISED),  # settled and on time -> untouched
+            _order("UT-1", "SM3", UT_PROMISED),  # settled and on time -> untouched
         ],
         vehicles=[
             _vehicle("VEH-MOV-LATE", "SM1", date(2026, 10, 20)),  # the late car MOV holds
@@ -64,14 +68,14 @@ def _snapshot() -> Snapshot:
             _vehicle("VEH-UT-GOOD", "SM3", date(2026, 9, 14)),  # UT's on-time car
         ],
         allocations={
-            "MOV": "VEH-MOV-LATE",
-            "NEAR": "VEH-NEAR-LATE",
-            "KEPT": "VEH-KEPT-OK",
-            "UT": "VEH-UT-GOOD",
+            "MOV-1": "VEH-MOV-LATE",
+            "NEAR-1": "VEH-NEAR-LATE",
+            "KEPT-1": "VEH-KEPT-OK",
+            "UT-1": "VEH-UT-GOOD",
         },
         # Derived, not declared: the manifest ("30 days on 2 vehicles") went with
         # the fabricated source on 2026-08-27 — nothing records one.
-        disruption={"disrupted_orders": ["MOV", "NEAR"]},
+        disruption={"disrupted_orders": ["MOV-1", "NEAR-1"]},
         now=NOW,
     )
 
@@ -82,8 +86,8 @@ def test_a_settled_order_keeps_its_car_and_its_car_stays_out_of_the_pool():
     it off; it is simply not in the free set."""
     snap = _snapshot()
     cyc = run_cycle(snap)
-    assert cyc.chosen.plan["KEPT"] == "VEH-KEPT-OK"
-    assert cyc.chosen.plan["UT"] == "VEH-UT-GOOD"
+    assert cyc.chosen.plan["KEPT-1"] == "VEH-KEPT-OK"
+    assert cyc.chosen.plan["UT-1"] == "VEH-UT-GOOD"
 
 
 def test_discrepancy_report_offers_every_late_order_including_one_near_delivery():
@@ -92,7 +96,7 @@ def test_discrepancy_report_offers_every_late_order_including_one_near_delivery(
     trying."""
     report = discrepancy_report(_snapshot())
     assert "may get these back on track" in report
-    assert "NEAR" in report
+    assert "NEAR-1" in report
     assert "locked in" not in report.lower()
 
 
@@ -104,7 +108,7 @@ def test_planner_report_fixes_what_it_can():
     assert "VEH-GOOD" in report
     assert "1 of 2 delayed orders now on time" in report
     # ...and the near-delivery late one is still named, with a real reason
-    assert "NEAR" in report
+    assert "NEAR-1" in report
 
 
 def test_a_steered_churn_price_is_honoured_even_at_zero():
@@ -129,7 +133,7 @@ def test_a_late_order_is_moved_not_walled_off():
     """DECIDE-3: taking a car off an order is priced, never forbidden — and this
     order's promise is already broken, so here it is free."""
     snap = _snapshot()
-    assert run_cycle(snap).chosen.plan["MOV"] == "VEH-GOOD"
+    assert run_cycle(snap).chosen.plan["MOV-1"] == "VEH-GOOD"
 
 
 # --------------------------------------------------------------------------
@@ -143,13 +147,13 @@ def test_a_late_order_is_moved_not_walled_off():
 def _moved_but_late_snapshot() -> Snapshot:
     """One disrupted order whose best free car is an improvement and still late."""
     return Snapshot(
-        orders=[_order("MOV", "SM1", date(2026, 9, 1))],
+        orders=[_order("MOV-1", "SM1", date(2026, 9, 1))],
         vehicles=[
             _vehicle("VEH-VERY-LATE", "SM1", date(2026, 10, 20)),
             _vehicle("VEH-LESS-LATE", "SM1", date(2026, 9, 20)),
         ],
-        allocations={"MOV": "VEH-VERY-LATE"},
-        disruption={"disrupted_orders": ["MOV"]},
+        allocations={"MOV-1": "VEH-VERY-LATE"},
+        disruption={"disrupted_orders": ["MOV-1"]},
         now=NOW,
     )
 
@@ -158,7 +162,7 @@ def test_moved_but_still_late_is_in_both_tables_and_marked():
     report = repair_and_report(_moved_but_late_snapshot())
     moved, call_list = report.split("**Still needs your call**")
     assert "VEH-LESS-LATE" in moved, "the swap must show in what-I-moved"
-    assert "MOV ↑moved" in call_list, "and the row must stay on the call list, marked"
+    assert "MOV-1 ↑moved" in call_list, "and the row must stay on the call list, marked"
     assert "not a second count" in call_list, "the marker needs its one-line legend"
 
 
@@ -194,7 +198,7 @@ EXCLUDED_META = {
 def _snapshot_with(meta: dict) -> Snapshot:
     """A snapshot with nothing late and every order holding a car, so only the
     exclusion note can show up."""
-    order = Order(order_id="502361", sales_model="T6480J1BXLX0018", delivery_date=MOV_PROMISED)
+    order = _order("902361-1", "T6480J1BXLX0018", MOV_PROMISED)
     vehicle = Vehicle(vehicle_id="930103", sales_model="T6480J1BXLX0018", eta_dealer=MOV_PROMISED)
     return Snapshot(
         orders=[order],
@@ -249,7 +253,7 @@ def test_an_order_holding_no_car_is_named_even_when_nothing_is_late():
     snap.allocations = {}
     note = exclusion_note(snap)
     assert "1 of 1 orders hold no car yet" in note
-    assert "502361" in note
+    assert "902361-1" in note
     assert "they need allocating, not repairing" in note
 
 
@@ -281,7 +285,7 @@ def test_the_plan_is_written_to_a_file_not_just_reported(tmp_path):
         r["order"]: r["now_car"] for r in saved["allocations"] if r["now_car"]
     } == cyc.chosen.plan
     # the settled order is recorded keeping its car, and nothing reads as bumped
-    kept = next(r for r in saved["allocations"] if r["order"] == "KEPT")
+    kept = next(r for r in saved["allocations"] if r["order"] == "KEPT-1")
     assert kept["now_car"] == "VEH-KEPT-OK" and kept["bumped"] is False
     # and the config that priced it is named, so the plan can be traced to it
     assert saved["solver_version"]
@@ -305,10 +309,10 @@ def test_bump_candidates_are_offered_lightest_first():
     everyone equally and so is simply key order."""
     snap = _snapshot()
     cyc = run_cycle(snap, {})
-    steer = {"priority": [{"order": "KEPT", "step": "urgent"}]}
+    steer = {"priority": [{"order": "KEPT-1", "step": "urgent"}]}
     rows = [c["row"] for c in bump_candidates(snap, cyc.chosen, steer)]
-    if "KEPT" in rows and len(rows) > 1:
-        assert rows[-1] == "KEPT", "the order the planner called urgent is offered last"
+    if "KEPT-1" in rows and len(rows) > 1:
+        assert rows[-1] == "KEPT-1", "the order the planner called urgent is offered last"
 
 
 def test_the_fleet_wide_authorisation_is_said_in_plain_words():
@@ -339,7 +343,7 @@ def _named(snap: Snapshot, names: dict[str, str]) -> Snapshot:
     )
 
 
-NAMES = {"MOV": "Delek Motors Fleet", "NEAR": "Delek Motors Fleet", "KEPT": "Shira Peretz"}
+NAMES = {"MOV-1": "Delek Motors Fleet", "NEAR-1": "Delek Motors Fleet", "KEPT-1": "Shira Peretz"}
 
 
 def test_every_planner_facing_table_names_the_client():
@@ -350,7 +354,7 @@ def test_every_planner_facing_table_names_the_client():
     # NEAR is deliberately left unnamed and it is late, so it appears in both
     # tables: an order with no client must render a dash, never an empty cell,
     # which reads as a broken table rather than as missing data.
-    snap = _named(_snapshot(), {"MOV": "Delek Motors Fleet", "KEPT": "Shira Peretz"})
+    snap = _named(_snapshot(), {"MOV-1": "Delek Motors Fleet", "KEPT-1": "Shira Peretz"})
     cyc = run_cycle(snap)
 
     for table in (discrepancy_report(snap), planner_report(snap, cyc.chosen)):
@@ -368,10 +372,10 @@ def test_the_client_is_in_the_plan_file_and_the_bump_list():
     cyc = run_cycle(snap)
     rows = plan_rows(snap, cyc.chosen)
     by_order = {r["order"]: r for r in rows}
-    assert by_order["MOV"]["customer"] == "Delek Motors Fleet"
-    assert by_order["NEAR"]["customer"] == "Delek Motors Fleet"
+    assert by_order["MOV-1"]["customer"] == "Delek Motors Fleet"
+    assert by_order["NEAR-1"]["customer"] == "Delek Motors Fleet"
     # unnamed orders are represented, not dropped
-    assert by_order["UT"]["customer"] == ""
+    assert by_order["UT-1"]["customer"] == ""
     # one client, two orders: grouping is the agent's job and the data supports it
     assert sum(1 for r in rows if r["customer"] == "Delek Motors Fleet") == 2
 
@@ -384,7 +388,7 @@ def test_the_steering_summary_still_renders_a_may_move_filter():
     shadowed the filter renderer, so any turn with `may_move.only` set would have
     crashed on the headline — a path no test covered."""
     snap = _named(_snapshot(), NAMES)
-    override = {"may_move": {"only": {"orders": ["MOV"]}, "also": True}}
+    override = {"may_move": {"only": {"orders": ["MOV-1"]}, "also": True}}
     head = planner_report(snap, run_cycle(snap, override).chosen, override).splitlines()[0]
     assert "working only MOV" in head
     assert "bumping" in head
@@ -399,13 +403,13 @@ def test_the_steering_summary_still_renders_a_may_move_filter():
 
 def _with_a_car_less_order() -> Snapshot:
     snap = _snapshot()
-    snap.orders = [*snap.orders, _order("NOCAR", "SM1", MOV_PROMISED)]
+    snap.orders = [*snap.orders, _order("NOCAR-1", "SM1", MOV_PROMISED)]
     return snap
 
 
 def test_the_current_state_report_names_every_order_including_the_car_less_ones():
     report = current_state_report(_with_a_car_less_order())
-    for oid in ("MOV", "NEAR", "KEPT", "UT", "NOCAR"):
+    for oid in ("MOV-1", "NEAR-1", "KEPT-1", "UT-1", "NOCAR-1"):
         assert f"| {oid} |" in report
     assert "no car yet" in report
     assert "5 orders: 2 running late, 1 holding no car, 2 settled and on time" in report
@@ -421,7 +425,13 @@ def test_the_current_state_report_is_worst_first():
         for line in current_state_report(_with_a_car_less_order()).splitlines()
         if line.startswith("| ") and not line.startswith("| Order")
     ]
-    assert [line.split("|")[1].strip() for line in body] == ["MOV", "NEAR", "NOCAR", "KEPT", "UT"]
+    assert [line.split("|")[1].strip() for line in body] == [
+        "MOV-1",
+        "NEAR-1",
+        "NOCAR-1",
+        "KEPT-1",
+        "UT-1",
+    ]
 
 
 def test_the_current_state_report_reads_the_book_and_never_solves(tmp_path):

@@ -130,7 +130,11 @@ def break_cost_of(order: Order, allocated_vehicle: Vehicle | None) -> float:
     broken promise protects nothing, so re-allocating an order that is already in
     trouble is free. Only disturbing a promise that was going to be KEPT costs,
     and it costs the same whatever kind of car it is: the hard/soft split went on
-    2026-08-27 with the classification it read (DECIDE-3). This is what makes
+    2026-08-27 with the classification it read (DECIDE-3). The contract's
+    ``AllocType`` brought that classification BACK onto the order
+    (``Order.alloc_type``) and this function deliberately still does not read it —
+    re-splitting the cost is a decision with two numbers to validate, not a side
+    effect of the file shape changing. This is what makes
     "bump someone for the sake of another" price the *victim* (whose kept promise
     is disturbed), not the order being rescued."""
     if allocated_vehicle is None or tardiness(order, allocated_vehicle) > 0:
@@ -173,20 +177,36 @@ def _filter_active(filt: dict) -> bool:
 def names_order(order: Order, names: set[str] | dict | list) -> bool:
     """Whether a set of order NAMES refers to this order.
 
-    One key level since 2026-08-27: an order row IS the order, so its `OrderId` is
-    the only name it has. Kept as a function because every place an order is named
-    by a string goes through it — a priority step, a `never`, a `may_move.orders`
-    filter — and that is the seam where a second level would have to be added back
-    if the data ever grows one."""
-    return bool(names) and order.key in set(names)
+    TWO levels, since the "Allocation solve contract" keys an order line
+    ``DMSJCNum`` + ``LineNum``: a name matches either the whole key (``900108-1``,
+    one line) or the bare card number (``900108``, every line on that card). Every
+    place an order is named by a string goes through here — a priority step, a
+    `never`, a `may_move.orders` filter — so the two readings cannot diverge
+    between levers.
+
+    The card level is the one that earns its keep. A planner says "leave card
+    900108 alone"; without it that instruction reaches only the line whose key
+    happens to be spelled that way, which is none of them, and the order the
+    planner meant to protect is quietly still in play. Matching the card is also
+    what makes the failure LOUD in the other direction: naming a card that no
+    longer has the line the planner remembers still names the card.
+
+    It is NOT a prefix match. ``900108`` matches the card; ``9001`` matches
+    nothing, so a mistyped card number frees nobody rather than freeing a
+    neighbour's."""
+    if not names:
+        return False
+    wanted = set(names)
+    return order.key in wanted or order.job_card in wanted
 
 
 def disrupted_order_keys(snapshot: Snapshot) -> set[str]:
     """The disruption manifest resolved to real order keys.
 
     What slips is a CAR: a shipment runs late, so the cars on it do, and an order
-    is affected only through the car allocated to it. The set is derived at order
-    grain (`xas_allocation.flatten`), so this normally resolves one-to-one.
+    is affected only through the car allocated to it. The set is derived at LINE
+    grain (`xas_allocation.flatten`), so this normally resolves one-to-one — a
+    disruption never arrives as a bare card number.
 
     It stays a resolution step rather than a raw read because comparing names to
     keys blind is the silent version of the bug: nothing matches, nothing is

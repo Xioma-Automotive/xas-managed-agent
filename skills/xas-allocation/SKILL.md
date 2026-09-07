@@ -20,23 +20,39 @@ whole design buys.
 
 ## The data
 
-The data is read before your session starts and mounted as **two files** —
-`orders.json` (the demand) and `vehicles.json` (the cars). **Never fetch data
+The data is read before your session starts and mounted as **one file** — the
+demand and the cars in one document. `pull_allocation_snapshot` tells you where
+it is; that path is the one to use, never one you assume. **Never fetch data
 yourself.** It is one frozen picture per repair cycle; that is what makes
 re-running the same instructions give the same plan.
 
-**One order row is one order for one car**, named by its own id — `502377`. That
-id is the only way an order is named *in steering*, and it is the key in every
-table.
+**An order is one line of one job card, and one line is one car.** It is named
+by both halves — `900108-1` is line 1 of card 900108 — and that is the key in
+every table and the way an order is named in steering. A card can carry several
+lines, each wanting its own car, so `900128-6` and `900128-7` are two different
+orders for the same customer on the same card.
+
+**You may name a whole card instead of a line.** `900128` in a priority step, a
+`never` or a `may_move` filter reaches EVERY line on that card. Use it when the
+planner talks about the card ("leave 900128 alone") and name lines when they talk
+about individual cars. It matches whole, not by prefix: `90012` reaches nothing.
+Say which you used — "holding both lines of card 900128" — so a card the planner
+meant as one line is caught in the same breath.
 
 **Every order also carries the client it is for** — a person or a fleet account
-(`Delek Motors Fleet`). One client can hold several orders, and the tables print
-the name beside the id, so "which orders are Shira Peretz's?" is a read of what
-you already have: group the rows by that name yourself. It is a LABEL — it
-changes no price and no eligibility, and it is not a filter you can hand the
-solver. So an instruction about a client becomes the order ids you resolve it to
-(see the steering section). An order may carry no name; show that as a dash and
-say so rather than guessing whose it is.
+(`Delek Motors Fleet`), with the account's own code beside it. One client can
+hold several orders, and the tables print the name beside the id, so "which
+orders are Shira Peretz's?" is a read of what you already have: group the rows by
+that name yourself. It is a LABEL — it changes no price and no eligibility, and
+it is not a filter you can hand the solver. So an instruction about a client
+becomes the order keys you resolve it to (see the steering section). An order may
+carry no name; show that as a dash and say so rather than guessing whose it is.
+
+**Each order also says how firmly the customer is committed** — a firm order or a
+reservation somebody pencilled in. It is worth SAYING when you explain a
+trade-off, because a planner reads a reservation differently from a signed order.
+It changes no price: the solver charges the same to disturb either, so never tell
+them a reservation is cheaper to move.
 
 Supply is one flat list of cars, each one car, each with the date it lands. Some
 are free; some are held by an order already. Taking a car off an order whose
@@ -76,7 +92,7 @@ Nobody asks for a "repair". They ask about deliveries and delays.
 | They say | You do |
 | --- | --- |
 | "check the deliveries", "are the cars coming on time?", "what's late?" | run `flatten`, print `discrepancy_report`, stop |
-| "check the orders", "order 503861" | the same; if they named an order, a model or a month, put it in `may_move.only` rather than filtering by hand |
+| "check the orders", "order 900108-1", "card 900128" | the same; if they named an order, a card, a model or a month, put it in `may_move.only` rather than filtering by hand |
 | "any delays in supply?", "the factory slipped", "the VPO is late" | the same — the data already carries which cars slipped |
 | "show me all the allocations", "where does everything stand?", "the whole book" | print `current_state_report`, stop — every order, the car it holds, on time or not |
 | "which cars are still on order?" | read it off the car list; nothing to solve |
@@ -129,10 +145,12 @@ ends up correcting yours instead of stating theirs.
 **Ask in client terms, because that is how they think.** The late list already
 prints who each order is for, so "should any of these customers come first?" is a
 fair question. When they answer with a name, resolve it yourself to every order
-that client holds — one client often holds several — and confirm the ids back
-before solving ("Shira Peretz is these two orders, 502691 and 503511"). Never
+that client holds — one client often holds several — and confirm them back
+before solving ("Shira Peretz is these two orders, 900091-3 and 900091-7"). Never
 steer on the name alone: a client with three orders and only two of them named is
-a client half-prioritised, and nothing catches it.
+a client half-prioritised, and nothing catches it. The same trap has a second
+shape now: a client's orders may sit on more than one card, so resolving to ONE
+card is the same half-application.
 
 After the first turn the question shrinks but never goes away: before each new
 solve, restate in one line the preferences that are standing and ask whether
@@ -202,7 +220,8 @@ and nothing else: a `pip install` line or a stack trace inside `show(...)` is
 noise on their screen.
 
 1. Call `pull_allocation_snapshot`, then run the `flatten` command it returns,
-   verbatim. It reads both mounted files and writes `snapshot.json`.
+   verbatim. It reads the mounted file and writes `snapshot.json`. The command
+   already carries the path the pull reported — do not substitute one of your own.
 2. Print a state report **inside `show(...)`**, and **before solving anything**:
    `discrepancy_report` for "what's late", `current_state_report` for "show me
    everything". Print ONE of them — they open with the same note about what the
@@ -215,10 +234,13 @@ noise on their screen.
 4. Steering → edit the same override, run it again.
 
 **The allocations live in `plan.json`. Read them from there.** One row per order:
-`order`, `customer`, `priority`, `model`, `promised`, `was_car`, `was_arriving`, `now_car`,
+`order`, `job_card`, `line`, `entry`, `customer`, `account`, `alloc_type`,
+`priority`, `model`, `promised`, `was_car`, `was_arriving`, `now_car`,
 `now_arriving`, `days_late`, `on_time`, `status`, `bumped`, `why_late` (`priority`
-is the step the planner set this turn, not anything read off the order). Any follow-up — "show
-me the new allocations", "what did 503861 get?", "which ones are still late?" —
+is the step the planner set this turn, not anything read off the order; `entry` is
+the DMS's own handle on the card, for whoever writes the plan back). Any
+follow-up — "show me the new allocations", "what did 900108-1 get?", "which ones
+are still late?" —
 is a read of that file — and BEFORE any solve, the same question is
 `current_state_report`. **Never re-type allocations out of the conversation and
 never re-derive them:** a retyped table loses a row or mistypes a car id, and
@@ -298,8 +320,8 @@ There are **three keys and no others**:
 
 | Lever | What it does |
 | --- | --- |
-| `priority` | `[{"order": "502377", "step": "normal\|high\|urgent"}]` — who matters more. Every order starts at `normal`; only what they name moves. An unknown step is an error, so use exactly those three words. |
-| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{models, orders, from_date, to_date}`; `also` can instead be `true`, meaning anyone still settled; `never` takes a list of order ids. |
+| `priority` | `[{"order": "900108-1", "step": "normal\|high\|urgent"}]` — who matters more. Every order starts at `normal`; only what they name moves. A bare card number raises every line on it. An unknown step is an error, so use exactly those three words. |
+| `may_move` | `{only, also, never}` — who is in play. The default with this absent is the orders that need help: late, or with no car. `only` and `also` take the same filter `{models, orders, from_date, to_date}`; `also` can instead be `true`, meaning anyone still settled; `never` takes a list of order keys or card numbers. |
 | `churn_price` | one number: how much a changed allocation costs. Omit it and the solver sweeps several and presents the middle one. |
 
 `may_move` is one sentence said three ways — *who is in play this turn* — and the
@@ -320,12 +342,13 @@ precedence is **never beats only beats also**:
   naming the same order in the same breath. It is the only way to protect an
   order that is itself late, since such an order is in play by default.
 
-Your job is the translation: "these orders" → real ids from the last change list,
-"next cycle" or "August" → dates, "the OMODA9s first" → an urgent step on those
-orders, "Delek Motors first" → an urgent step on every order that client holds
-(there is no model-wide or client-wide lever: `priority`, `may_move.never` and
-`may_move.also` all name order ids, so YOU do the grouping and say which ids you
-used). **Confirm the translation in plain words
+Your job is the translation: "these orders" → real keys from the last change
+list, "next cycle" or "August" → dates, "the OMODA9s first" → an urgent step on
+those orders, "Delek Motors first" → an urgent step on every order that client
+holds (there is no model-wide or client-wide lever: `priority`, `may_move.never`
+and `may_move.also` all name order keys — or card numbers, which reach a whole
+card and nothing wider — so YOU do the grouping and say which you used).
+**Confirm the translation in plain words
 before you run it** — "prioritising those two late orders over the rest" — not the
 object itself.
 
@@ -376,6 +399,6 @@ with that permission spent. Everything else stands until they change it.
 ## Running it locally
 
 ```bash
-python -m xas_allocation.flatten --orders orders.json --vehicles vehicles.json
+python -m xas_allocation.flatten --pull dms_allocation.json
 python -m xas_allocation.session     # a full turn end to end
 ```
