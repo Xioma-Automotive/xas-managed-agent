@@ -514,9 +514,9 @@ def test_skill_requires_the_exclusion_census_on_turn_one():
     """
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
     assert "exclusion_note" in skill
-    assert "Never present it as the whole book" in skill
+    assert "Never present a survivor as the whole book" in skill
     # and it must be excluded from the "stays internal" suppression list
-    assert "must always be reported" in skill
+    assert "must always be reported" in _flat(skill)
 
 
 def test_skill_offers_a_report_for_the_whole_book():
@@ -526,18 +526,10 @@ def test_skill_offers_a_report_for_the_whole_book():
     false claim about free cars in front of a planner."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
     assert "current_state_report" in skill
-    assert "There IS a report for the whole book, so you never build one." in skill
+    assert "the helpers already have it, including a report for the whole book" in _flat(skill)
     # the API block must actually offer it, and count itself correctly
     assert "S.current_state_report(snap)" in skill
     assert "The whole API is four calls" in skill
-
-
-def test_skill_forbids_retyping_a_printed_table_as_bullets():
-    """The rule was already there and was broken anyway, in the one shape it did
-    not name: the rows re-listed as bullets, one message after the planner read
-    them."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "**A list of bullets is a table.**" in skill
 
 
 def test_skill_names_the_eligibility_rule_and_its_hardness():
@@ -545,17 +537,17 @@ def test_skill_names_the_eligibility_rule_and_its_hardness():
     a skill that invites the agent to offer a car nobody can have."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
     assert "matched exactly" in skill
-    assert "no near-match and no substitution" in skill
+    assert "No near-match, no substitution" in skill
 
 
 def test_skill_separates_the_promise_from_the_arrival():
     """The one confusion that makes nothing ever late: the promise is the ORDER's
     date, the arrival is the CAR's."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "**The promise** is the date on the ORDER" in skill
-    assert "**The arrival** is the date on the CAR" in skill
+    assert "**The promise** is on the ORDER" in skill
+    assert "**The arrival** is on the CAR" in skill
     # and the MCP field names must be gone with the MCP
-    for gone in ("DueDateTime", "AvailableBy", "ModelId.Code", "JobKey", "LineNum"):
+    for gone in ("DueDateTime", "AvailableBy", "ModelId.Code", "JobKey"):
         assert gone not in skill, f"{gone} is app-MCP vocabulary; the pull is CSV now"
 
 
@@ -566,13 +558,13 @@ def test_skill_gates_every_repair_behind_the_preferences_question():
     three things to ask about, and say that "fix it" is not an answer to it."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
     assert "## Before you repair — ask what matters, every time" in skill
-    assert "Never suggest, offer or run a repair before asking the planner" in skill
-    assert "none of them is an answer to this question" in skill
+    assert "Never suggest, offer or run a repair before asking what should be protected" in skill
+    assert "not answers to this question" in _flat(skill)
     # the three levers the answer compiles into
     for lever in ("`priority`", "`may_move.never`", "`churn_price`"):
         assert lever in skill
     # and the ask must precede the solve, not follow it
-    assert "do not solve first" in skill
+    assert "or solve first and ask after" in _flat(skill)
 
 
 def test_skill_can_answer_in_client_terms_but_steers_on_ids():
@@ -582,17 +574,22 @@ def test_skill_can_answer_in_client_terms_but_steers_on_ids():
     say the agent groups orders by client itself and confirms the ids it used —
     a client with three orders and two of them named is half-prioritised."""
     skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
-    assert "Every order also carries the client it is for" in skill
+    assert "**Every order carries its client**" in skill
     assert "It is a LABEL" in skill
-    assert "resolve it yourself to every order" in skill
-    assert "there is no model-wide or client-wide lever" in skill
+    assert "resolve it yourself to every order" in _flat(skill)
+    assert "There is no model-wide or client-wide lever" in skill
 
 
-# --- The planner channel (web.py forwards the solver's marked reports) --------
-# `_render` drops builtin tool results as sandbox chatter. That is what forced the
-# agent to retype every table into its own reply — two copies of one table in the
-# conversation, and every retype a chance to lose a row. A marked span is the
-# exception: the solver's reports are already written for the planner.
+# --- What reaches the planner's screen ---------------------------------------
+# Nothing the sandbox prints does, since 2026-09-07. `web.py` drops EVERY builtin
+# tool result and the marker channel (`show()` / `planner_channel`) is deleted:
+# what reached the screen was a wall of script output. The agent reads the report
+# in the sandbox and writes its own short answer instead, which means it is now
+# the only writer of what a planner reads — so the rules that bound what it
+# writes are the whole mechanism, and they are pinned below. The tests that
+# pinned the channel (two `_render` cases, the skill's `show(S.` call and the
+# "you have already shown them the table" rule) went with it; git history holds
+# them.
 
 
 class _Block:
@@ -612,32 +609,46 @@ class _ToolResult:
         self.is_error = is_error
 
 
-def test_render_forwards_a_marked_span_to_the_planner():
-    from xas_allocation.planner_channel import show
-
-    out = web._render(_ToolResult("noise\n" + show("| Order |\n|---|") + "\ndone"))
-    assert out == {"type": "planner", "text": "| Order |\n|---|"}
-
-
-def test_render_still_drops_unmarked_sandbox_chatter():
-    assert web._render(_ToolResult("Successfully installed ortools-9.15.6755")) is None
-    assert web._render(_ToolResult("wrote /workspace/snapshot.json")) is None
-
-
-def test_render_drops_a_marked_span_that_failed():
-    """A traceback is not a planner report, even if the span opened before it."""
-    from xas_allocation.planner_channel import show
-
-    assert web._render(_ToolResult(show("half a table"), is_error=True)) is None
+def test_render_drops_every_builtin_tool_result():
+    """A report, a pip line and a traceback all reach the planner identically:
+    not at all. Anything that starts forwarding one again puts raw script output
+    back on their screen, which is the thing this change removed."""
+    for body, is_error in (
+        ("| Order | Customer |\n|---|---|\n| 900108-1 | Nadav Halevi |", False),
+        ("Successfully installed ortools-9.15.6755", False),
+        ("wrote /workspace/snapshot.json", False),
+        ("Traceback (most recent call last):", True),
+    ):
+        assert web._render(_ToolResult(body, is_error=is_error)) is None
 
 
-def test_the_skill_tells_the_agent_to_wrap_planner_prints():
-    body = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "show(S." in body, "the skill must show the agent how to reach the planner"
+def test_no_marker_channel_survives_anywhere():
+    """The channel is deleted, not disabled. A leftover `show()` in the skill
+    would have the agent wrapping reports for a renderer that no longer reads
+    them — the loud failure the marker design relied on, now silent."""
+    assert not (REPO_ROOT / "xas_allocation" / "planner_channel.py").exists()
+    for name in ("web.py", "skills/xas-allocation/SKILL.md"):
+        body = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert "planner_span" not in body and "show(S." not in body, f"{name} still marks"
 
 
-def test_the_skill_forbids_retyping_a_table_the_planner_has_seen():
-    """The double-copy rule. Prose is the whole mechanism, so pin the prose."""
-    lowered = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
-    assert "already seen" in lowered
-    assert "do not repeat the table" in lowered
+def test_the_skill_caps_what_the_agent_writes():
+    """The agent is now the only writer of what a planner reads, so what stops
+    the wall of output coming back in its own words is these three rules: ten
+    rows, decision rows only, and no column that does not drive a decision.
+    Prose is the whole mechanism — nothing structural can cap a reply."""
+    skill = _flat((setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**TEN ROWS IS THE CAP, and it is a ceiling, not a target.**" in skill
+    assert "the orders that are late or holding no car, worst first" in skill
+    assert "**No column that does not drive a decision.**" in skill
+    # and the reply has to account for what it left out, or a short table reads
+    # as the whole book — the same failure as presenting a survivor as one.
+    assert "how many orders were untouched" in skill
+
+
+def test_the_skill_says_its_reports_reach_nobody():
+    """The reports are working documents now. An agent that believes printing one
+    shows it to the planner answers with a summary of a table nobody can see."""
+    skill = _flat((setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**Nothing you print reaches the planner.**" in skill
+    assert "Your reply is the only thing on their screen" in skill

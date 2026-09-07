@@ -42,7 +42,6 @@ from sse_starlette.sse import EventSourceResponse
 import alloc_tools
 import appmcp_auth
 import datasource
-from xas_allocation import planner_channel
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
@@ -336,13 +335,16 @@ async def _stop(session_id: str) -> None:
 def _render(event) -> dict | None:
     """One session event -> what the browser shows, or None to drop it.
 
-    Builtin tool results are dropped as sandbox chatter EXCEPT for a marked
-    planner span (`xas_allocation.planner_channel`): the solver's reports are
-    already written for the planner, and forwarding them is what stops the agent
-    retyping every table into its own reply. The old rule here assumed "the
-    agent's own reply already says what came of them" — that assumption WAS the
-    second copy. A failed result is dropped whatever it contains: a traceback
-    with an open marker in front of it is not a report.
+    EVERY builtin tool result is dropped as sandbox chatter. The solver's reports
+    used to be forwarded through a marker (`show()` / `planner_channel`) so the
+    agent would not retype a table it had already printed; that channel was
+    removed on 2026-09-07 at the user's call, because what reached the screen was
+    a wall of script output. The agent now READS the report in the sandbox and
+    writes its own short answer, and the reports are working documents rather
+    than planner-facing ones. The cost is accepted knowingly: the agent is the
+    only writer of what a planner reads, so a mistyped car id in a four-row table
+    is uncaught. What holds it down is the skill's caps, and `plan.json` staying
+    the authority for every allocation.
 
     The *custom* tool's result is kept: it is answered by this process, so the
     transcript is the only place a planner can see what the pull actually
@@ -353,11 +355,7 @@ def _render(event) -> dict | None:
         text = "".join(b.text for b in event.content if b.type == "text")
         return {"type": "agent", "text": text}
     if kind == "agent.tool_result":
-        if getattr(event, "is_error", False):
-            return None
-        body = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
-        span = planner_channel.planner_span(body)
-        return {"type": "planner", "text": span} if span else None
+        return None
     if kind == "user.message":
         text = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
         return {"type": "user", "text": text}

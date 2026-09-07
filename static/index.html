@@ -49,10 +49,6 @@
   .msg.tool_result summary { cursor: pointer; color: var(--warn); }
   .msg.tool_result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
                          max-height: 320px; overflow-y: auto; color: var(--fg); }
-  /* A report the SOLVER wrote, forwarded out of the sandbox. Marked apart from
-     the agent's own prose because this text is generated, not composed — and it
-     is the authoritative copy of the numbers. */
-  .msg.planner { border-left: 3px solid var(--accent); }
   .msg.error { background: #fdeaea; color: #8a1c1c; border: 1px solid #f2c2c2; }
   .msg.output { background: var(--panel); border: 1px solid var(--line); white-space: normal; }
   .msg.output .output-name { font-weight: 600; margin-bottom: 6px; }
@@ -288,9 +284,6 @@ function render(event) {
   switch (event.type) {
     case "user":  return add("user", escape(event.text));
     case "agent": return addAgent(event.text);
-    // The solver's own report, forwarded from the sandbox. Same markdown
-    // rendering as an agent message so tables come out as tables.
-    case "planner": return addAgent(event.text, "planner");
     case "tool":  return add("tool", `<b>${escape(event.name)}</b> ${escape(event.detail)}`);
     case "tool_result":
       return add("tool_result",

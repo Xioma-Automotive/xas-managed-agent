@@ -633,6 +633,24 @@ XAS endpoint and its credential never touch the sandbox.
   `planner_report` is the only renderer OF A PLAN. Reinstating per-car rows means
   reinstating the grouping rule with it: collapsing was only ever allowed when
   every displayed column agreed.
+- **NOTHING the sandbox prints reaches the planner any more (2026-09-07).** The
+  marker channel — `xas_allocation/planner_channel.py`, `show()`, and `web.py`'s
+  forwarding of a marked span — is DELETED at the user's call, because what
+  landed on screen was a wall of script output: the exclusion note, the whole
+  discrepancy table, every column. `_render` now drops EVERY builtin tool result,
+  and the three reports are working documents the agent reads in the sandbox.
+  The agent writes the planner's answer itself, bounded by three prose rules in
+  the skill: **ten rows** (the reporting lane's cap, so there is one number in the
+  repo, not two), **only rows that need a decision** (late or holding no car), and
+  **no column that does not drive one** — model, both dates, account code and
+  commitment stay out unless asked for. This REVERSES the reason the channel
+  existed, knowingly: a retyped row can lose a car id and nothing catches it, and
+  that has happened here. What holds it down now is that the table is short enough
+  to check and `plan.json` stays the authority for every allocation. The rule it
+  replaced ("the planner has ALREADY SEEN what you printed", and "a list of
+  bullets is a table") is gone — there is no second copy to forbid. Pinned by
+  four tests in `tests/test_agent_contract.py`; the nine that pinned the channel
+  are in git history, and `static/index.html` lost its `planner` case with it.
 - **Three planner-facing reports, and the third exists so the agent stops writing
   its own.** `discrepancy_report` is what the delay broke, `planner_report` is
   what a solve did, and `current_state_report` (2026-08-30) is the whole book as

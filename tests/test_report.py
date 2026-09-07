@@ -495,31 +495,7 @@ def test_an_empty_bump_filter_is_not_an_authorisation():
 # which is what stops the agent retyping every table into its own reply.
 
 
-def test_show_wraps_text_and_planner_span_takes_it_back_out():
-    from xas_allocation.planner_channel import planner_span, show
-
-    wrapped = show("**Done** — 3 of 4 fixed.")
-    assert planner_span(wrapped) == "**Done** — 3 of 4 fixed."
-
-
-def test_planner_span_ignores_output_that_was_never_marked():
-    from xas_allocation.planner_channel import planner_span
-
-    assert planner_span("Successfully installed ortools-9.15.6755") is None
-    assert planner_span("") is None
-
-
-def test_planner_span_keeps_the_markdown_table_intact():
-    from xas_allocation.planner_channel import planner_span, show
-
-    body = planner_span(show(repair_and_report(_snapshot())))
-    assert body is not None
-    assert "| Order | Customer | Model |" in body
-    assert "<<<" not in body
-
-
-def test_show_survives_stdout_noise_around_the_span():
-    from xas_allocation.planner_channel import planner_span, show
-
-    printed = "WARNING: pip as root\n" + show("the table") + "\nwrote plan.json"
-    assert planner_span(printed) == "the table"
+# The four tests that lived here pinned the marker channel — `show()` round
+# tripping through `planner_span`, and the span surviving stdout noise. The
+# channel was deleted on 2026-09-07: nothing the sandbox prints reaches the
+# planner any more, so there is no span to keep intact. Git history holds them.
