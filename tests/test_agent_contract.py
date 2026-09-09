@@ -753,3 +753,18 @@ def test_the_skill_tells_the_planner_about_stale_rows():
     for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
         skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
         assert "Tell the planner about every stale row by name" in skill
+
+
+def test_the_push_recipe_sends_only_the_fields_the_tool_takes():
+    """The tool's row schema is `additionalProperties: False`, and a plan row
+    carries a dozen fields it does not accept. Both skills must therefore PROJECT
+    the row rather than passing it whole, or the call is rejected by validation
+    before the host ever sees it."""
+    allowed = set(
+        alloc_tools.PUSH_TOOL["input_schema"]["properties"]["changes"]["items"]["properties"]
+    )
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        projected = '{k: r[k] for k in ("order", "was_car", "now_car", "status", "bumped")}'
+        assert projected in skill, "the recipe must project, not pass the whole row"
+        assert allowed == {"order", "was_car", "now_car", "status", "bumped"}

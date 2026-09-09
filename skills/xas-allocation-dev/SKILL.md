@@ -45,8 +45,9 @@ never guess.
 
 **Each order says how firmly the customer is committed** — a firm order, or a
 reservation somebody pencilled in. Worth SAYING when you explain a trade-off; a
-planner reads the two differently. It changes no price, so never tell them a
-reservation is cheaper to move.
+planner reads the two differently, and so does the solver: taking a car off a
+firm order costs more than off a reservation. A price, not a rule — a firm order
+still moves when that is the better plan.
 
 Supply is one flat list of cars, one car each, each with the date it lands. Some
 free, some held by an order. Taking a car off an order whose promise was going to
@@ -149,7 +150,11 @@ sandbox until the turn ends, so the rows go in the call.
 plan = json.load(open("plan.json"))
 c = plan["counts"]
 push_allocation_plan(
-    changes=[r for r in plan["allocations"] if r["status"] != "unchanged"],
+    changes=[
+        {k: r[k] for k in ("order", "was_car", "now_car", "status", "bumped")}
+        for r in plan["allocations"]
+        if r["status"] != "unchanged"
+    ],
     pull_id=<the pull_id the pull returned>,
     source=<the source the pull returned>,
     mode="stage",

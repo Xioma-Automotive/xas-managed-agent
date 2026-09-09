@@ -286,16 +286,14 @@ PUSH_TOOL_NAME = "push_allocation_plan"
 
 PUSH_MODE = "stage"
 
+# Contract only. The procedure — copy the rows and counts out of plan.json, ask
+# the planner first, what to do with a refusal — is in the allocation skill,
+# which is read once a session; a tool description is paid on every turn of every
+# session, reporting turns included.
 PUSH_TOOL_DESCRIPTION = (
-    "Stage the plan you just saved for the planner to review. Send the CHANGED "
-    "rows of plan.json — every row whose status is not 'unchanged' — plus that "
-    "file's counts block and the pull_id and source of the snapshot you solved. "
-    "Copy both from the file; do not retype or re-total them. Nothing is "
-    "applied: staging holds the plan for a human to approve in the app, and "
-    "there is no way to apply one from here. Ask the planner before calling it, "
-    "every time — a plan they have not seen is not theirs to stage. Every check "
-    "that can refuse is about the plan matching the snapshot this session holds, "
-    "so a refusal means re-reading the pull, not resending."
+    "Hold the plan you just saved for the planner to approve in the app. Send the "
+    "changed rows of plan.json and its counts block. Nothing is applied from "
+    "here, and there is no mode that does. See the allocation skill first."
 )
 
 PUSH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
@@ -303,24 +301,17 @@ PUSH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "properties": {
         "changes": {
             "type": "array",
-            "description": (
-                "Every row of plan.json whose status is not 'unchanged', copied "
-                "from the file. `was_car` is required on each: it is the car the "
-                "line held at pull time, and without it a car someone else has "
-                "moved would be written over silently."
-            ),
+            "description": "Every row of plan.json whose status is not 'unchanged'.",
             "items": {
                 "type": "object",
                 "properties": {
                     "order": {"type": "string"},
-                    "job_card": {"type": "string"},
-                    "line": {"type": "string"},
                     "was_car": {"type": ["string", "null"]},
                     "now_car": {"type": ["string", "null"]},
                     "status": {"type": "string", "enum": ["moved", "no_car"]},
                     "bumped": {"type": "boolean"},
                 },
-                "required": ["order", "job_card", "line", "was_car", "now_car", "status"],
+                "required": ["order", "was_car", "now_car", "status"],
                 "additionalProperties": False,
             },
         },
@@ -336,11 +327,12 @@ PUSH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         },
         "summary": {
             "type": "object",
-            "description": (
-                "The counts block from the plan file, verbatim: moved, bumped, "
-                "unchanged, no_car. Checked against the file — do not retype it."
-            ),
-            "additionalProperties": {"type": "integer"},
+            "description": "The counts block from plan.json, copied.",
+            "properties": {
+                k: {"type": "integer"} for k in ("orders", "moved", "bumped", "unchanged", "no_car")
+            },
+            "required": ["orders", "moved", "bumped", "unchanged", "no_car"],
+            "additionalProperties": False,
         },
         "note": {
             "type": "string",
@@ -358,8 +350,8 @@ PUSH_TOOL: dict[str, Any] = {
     "input_schema": PUSH_TOOL_INPUT_SCHEMA,
 }
 
-# The counts that must agree with the plan file, and the three that partition it.
-SUMMARY_KEYS = ("moved", "bumped", "unchanged", "no_car")
+# The three row statuses that partition the book. `bumped` is a subset of
+# `moved`, so it is not one of them.
 PARTITION_KEYS = ("moved", "unchanged", "no_car")
 
 
@@ -395,8 +387,10 @@ def check_plan(
     """
     if mode != PUSH_MODE:
         raise PlanRefused(f"mode must be {PUSH_MODE!r}, not {mode!r}: nothing here applies a plan")
-    for field, ours in (("pull_id", pull.get("pull_id")), ("source", pull.get("source"))):
-        theirs = {"pull_id": pull_id, "source": source}[field]
+    for field, theirs, ours in (
+        ("pull_id", pull_id, pull.get("pull_id")),
+        ("source", source, pull.get("source")),
+    ):
         if theirs != ours:
             raise PlanRefused(
                 f"{field} {theirs!r} is not this session's snapshot ({ours!r}) — "
@@ -421,25 +415,33 @@ def check_plan(
             )
         )
     total = sum(summary.get(k, 0) for k in PARTITION_KEYS)
-    if summary.get("orders") is not None and total != summary["orders"]:
+    if total != summary.get("orders"):
         raise PlanRefused(
             f"the counts do not partition the book: "
             f"{ {k: summary.get(k) for k in PARTITION_KEYS} } is {total}, "
-            f"not the {summary['orders']} orders in it"
+            f"not the {summary.get('orders')} orders in it"
         )
 
+    # Imported here, like `_default_rich` does: both are host-side-only paths,
+    # and nothing in the mounted skill bundle may depend on this module pulling
+    # `datasource` in at import time.
+    import datasource
+
+    wanted = {row.get("order") for row in changes}
     held = {
-        f"{o['DMSJCNum']}-{o['LineNum']}": o.get("VehicleCode") or None
+        key: o.get("VehicleCode") or None
         for o in pull.get("orders", [])
+        if (key := datasource.order_key(o)) in wanted
     }
     stale, staged = [], 0
     for row in changes:
         key = row.get("order")
         if key in held and row.get("was_car") != held[key]:
+            card, _, line = str(key).rpartition("-")
             stale.append(
                 {
-                    "DMSJCNum": row.get("job_card"),
-                    "LineNum": row.get("line"),
+                    "DMSJCNum": card,
+                    "LineNum": line,
                     "expected": row.get("was_car"),
                     "actual": held[key],
                 }
@@ -451,14 +453,17 @@ def check_plan(
         "staged": staged,
         "skipped": summary.get("unchanged", 0),
         "rejected": len(stale),
-        "staged_key": f"plan/{str(pull.get('pull_id', '')).rpartition('/')[2]}",
         "stale": stale,
         "awaiting": "planner_review",
     }
 
 
-def make_push_tool(get_pull: Callable[[], dict | Awaitable[dict]]):
+def make_push_tool(get_rich: RichProvider):
     """Build the push tool over one session's pull.
+
+    Takes the SAME provider as `make_pull_tool` — `web.py` passes one closure to
+    both — so the mount path comes along and is ignored here rather than the two
+    tools disagreeing about the provider's shape.
 
     Nothing is read from disk: the rows arrive in the call, because a file the
     agent wrote is not indexed into the session's file store until the turn ends
@@ -468,11 +473,10 @@ def make_push_tool(get_pull: Callable[[], dict | Awaitable[dict]]):
     async def push_allocation_plan(
         changes: list[dict], pull_id: str, source: str, mode: str, summary: dict, note: str
     ) -> str:
-        pull = get_pull()
-        if inspect.isawaitable(pull):
-            pull = await pull
-        if isinstance(pull, tuple):  # the pull provider hands back (pull, path)
-            pull = pull[0]
+        rich = get_rich()
+        if inspect.isawaitable(rich):
+            rich = await rich
+        pull, _ = rich
         try:
             result = check_plan(changes, pull, mode, pull_id, source, summary)
         except PlanRefused as refused:

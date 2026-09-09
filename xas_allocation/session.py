@@ -115,8 +115,7 @@ DROP_PHRASES = {
     "vehicle_without_a_model": "no model on the car",
     "vehicle_without_an_arrival_date": "no arrival date on the car",
     "allocation_to_a_dropped_vehicle": "allocated to a car that is out of scope",
-    "not_dealer_supply": "not the dealer's supply any more (delivered, registered, in dispute)",
-    "duplicate_vehicle": "the same car listed twice",
+    "unreadable_commitment": "no readable firm-or-reservation on the order",
 }
 
 

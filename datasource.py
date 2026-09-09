@@ -74,6 +74,11 @@ DEFAULT_NOW = date(2026, 8, 25)
 # registered, in dispute or demo stock. In this export a car's status IS its
 # allocation state, so the split below is not about hard vs soft (there is no such
 # distinction any more): it is about whether the car is free or held by an order.
+# What `allocationType` may say: a firm commitment to a VIN, or a provisional
+# reservation. `solver.break_cost_of` prices the two differently, which is why an
+# order carrying anything else is dropped rather than guessed at.
+ALLOC_TYPES = frozenset({"hard", "soft"})
+
 POOL_STATUSES = frozenset({"available for sale", "dealer order confirmation", "dealer reservation"})
 AVAILABLE_STATUS = "available for sale"
 
@@ -263,15 +268,7 @@ def translate(
         if not in_pool(row):
             vehicle_drops["not_dealer_supply"] += 1
             continue
-        # The contract's `vehicles[]` lists a car once per line that could take
-        # it — `candidates[].vehicle` repeats, and a car on a workspace row can
-        # appear again as a candidate. Supply is capacity-1, so the same car
-        # arriving twice would be two cars to allocate.
         code = _text(row.get("vehicleCode"))
-        if code and code in seen_cars:
-            vehicle_drops["duplicate_vehicle"] += 1
-            continue
-        seen_cars.add(code)
         model = _text(row.get("SalesModel"))
         if not model:
             vehicle_drops["no_model"] += 1
@@ -280,9 +277,19 @@ def translate(
         if not eta:
             vehicle_drops["no_arrival_date"] += 1
             continue
+        # The contract's `vehicles[]` lists a car once per line that could take
+        # it — `candidates[].vehicle` repeats, and a car on a workspace row can
+        # appear again as a candidate. Supply is capacity-1, so the same car
+        # arriving twice would be two cars to allocate. Checked LAST, after the
+        # drops above: a row that is not going to be kept must not claim the code
+        # a later, usable copy of the same car needs.
+        if code in seen_cars:
+            vehicle_drops["duplicate_vehicle"] += 1
+            continue
+        seen_cars.add(code)
         vehicles.append(
             {
-                "VehicleCode": _text(row.get("vehicleCode")),
+                "VehicleCode": code,
                 "SalesModel": model,
                 "AvailableBy": eta,
                 # The day the car entered stock, or null while it is still
@@ -317,6 +324,16 @@ def translate(
         if not promise:
             order_drops["no_promised_date"] += 1
             continue
+        # Parsed here, with the file still in hand, because `break_cost` is keyed
+        # on it: a value that is neither has no price for a broken promise, and
+        # the solver would raise mid-solve — on turn 3 rather than turn 1, since
+        # the line has to reach the free set holding an on-time car first. Every
+        # other unusable field is dropped and COUNTED; this one used to be the
+        # exception.
+        commitment = _text(row.get("allocationType")).lower()
+        if commitment not in ALLOC_TYPES:
+            order_drops["unreadable_commitment"] += 1
+            continue
         kept.append(
             {
                 "DMSJCNum": _text(row.get("DMSJCNum")),
@@ -327,7 +344,7 @@ def translate(
                 "VehicleCode": _text(row.get("vehicleCode")) or None,
                 "Accounts.Owner.AccountName": _text(row.get("customer.name")),
                 "Accounts.Owner.AccountDMSCode": _text(row.get("Accounts.Owner.AccountDMSCode")),
-                "AllocType": _text(row.get("allocationType")),
+                "AllocType": commitment,
                 "JobStatus": {
                     "Code": _text(row.get("JobStatus.Code")),
                     "Label": _text(row.get("JobStatus.Label")),

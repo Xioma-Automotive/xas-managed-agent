@@ -562,8 +562,13 @@ XAS endpoint and its credential never touch the sandbox.
   and `plan.json`; nothing reads them — **except `AllocType`, which since
   2026-09-09 IS the break-cost split** (DECIDE-3, re-split at the user's call).
   `break_cost` is two numbers keyed on it, `soft: 200` (the old single value, so a
-  soft bump is unchanged) and `hard: 400`, and `break_cost_of` RAISES on anything
-  that is neither rather than defaulting to a price. This is not the retired
+  soft bump is unchanged) and `hard: 400`, and the value is PARSED AT THE BOUNDARY: `datasource.translate`
+  lowercases it and DROPS a row that says neither, counted as
+  `unreadable_commitment` so `exclusion_note` reports it like every other
+  unusable field. `break_cost_of` still raises rather than defaulting — it is the
+  last line of defence for a hand-built `Order`, and without the boundary drop
+  that raise landed mid-solve on turn 3 (a line has to reach the free set holding
+  an on-time car first), not on the turn that read the bad row. This is not the retired
   mechanism returning: that one keyed on a real-vs-future binding guessed off the
   CAR's status name, which the export does not carry, while `allocationType` is a
   column on the LINE that it does — 1,380 hard against 261 soft. Neither number

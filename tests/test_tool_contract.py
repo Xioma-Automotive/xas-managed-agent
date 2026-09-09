@@ -208,8 +208,6 @@ def _pull() -> dict:
 CHANGES = [
     {
         "order": "900002-1",
-        "job_card": "900002",
-        "line": "1",
         "was_car": None,
         "now_car": "CAR-B",
         "status": "moved",
@@ -231,7 +229,7 @@ def _push(changes=None, pull=None, **over):
         "note": "churn price 25 · weighted late-days 193 -> 63",
         **over,
     }
-    tool = alloc_tools.make_push_tool(lambda: pull or _pull())
+    tool = alloc_tools.make_push_tool(lambda: (pull or _pull(), ""))
     return json.loads(asyncio.run(tool.call(args)))
 
 
@@ -244,13 +242,15 @@ def test_the_plan_travels_in_the_call_not_as_a_path():
     assert "plan_file" not in alloc_tools.PUSH_TOOL["input_schema"]["properties"]
     rows = alloc_tools.PUSH_TOOL["input_schema"]["properties"]["changes"]
     assert "was_car" in rows["items"]["required"], "without it a moved car is overwritten blind"
+    for split in ("job_card", "line"):
+        assert split not in rows["items"]["properties"], f"{split} is `order` split in two"
     assert rows["items"]["properties"]["status"]["enum"] == ["moved", "no_car"]
 
 
 def test_push_declaration_matches_implementation():
     """Same one-contract rule as the pull: a declared name nothing answers parks
     the session on an idle that never times out."""
-    tool = alloc_tools.make_push_tool(lambda: _pull())
+    tool = alloc_tools.make_push_tool(lambda: (_pull(), ""))
     assert tool.name == alloc_tools.PUSH_TOOL["name"] == "push_allocation_plan"
     assert tool.input_schema == alloc_tools.PUSH_TOOL["input_schema"]
     assert tool.description == alloc_tools.PUSH_TOOL["description"]
@@ -269,7 +269,7 @@ def test_a_matching_plan_stages_and_waits_for_a_human():
     assert out["skipped"] == 1, "the unchanged line is not a change to stage"
     assert out["rejected"] == 0
     assert out["awaiting"] == "planner_review"
-    assert out["staged_key"] == "plan/a41c"
+    assert "staged_key" not in out, "no plan store here, so no id that names nothing"
 
 
 def test_a_plan_from_another_snapshot_is_refused():
@@ -301,8 +301,6 @@ def test_a_row_whose_car_moved_under_us_is_stale_and_does_not_stage():
     changes = CHANGES + [
         {
             "order": "900001-1",
-            "job_card": "900001",
-            "line": "1",
             "was_car": "CAR-A",
             "now_car": "CAR-C",
             "status": "moved",

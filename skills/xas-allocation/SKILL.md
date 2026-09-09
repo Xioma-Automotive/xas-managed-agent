@@ -49,10 +49,12 @@ becomes the order keys you resolve it to (see the steering section). An order ma
 carry no name; show that as a dash and say so rather than guessing whose it is.
 
 **Each order also says how firmly the customer is committed** — a firm order or a
-reservation somebody pencilled in. It is worth SAYING when you explain a
-trade-off, because a planner reads a reservation differently from a signed order.
-It changes no price: the solver charges the same to disturb either, so never tell
-them a reservation is cheaper to move.
+reservation somebody pencilled in. Worth SAYING when you explain a trade-off,
+because a planner reads a reservation differently from a signed order — and the
+solver agrees with them: taking the car off a FIRM order costs it more than off a
+reservation, so where it had a choice it will have leaned towards moving the
+reservation. It is still only a price, never a rule: a firm order can be moved,
+and is, when that is the better plan.
 
 Supply is one flat list of cars, each one car, each with the date it lands. Some
 are free; some are held by an order already. Taking a car off an order whose
@@ -176,7 +178,11 @@ the call.
 plan = json.load(open("plan.json"))
 c = plan["counts"]
 push_allocation_plan(
-    changes=[r for r in plan["allocations"] if r["status"] != "unchanged"],
+    changes=[
+        {k: r[k] for k in ("order", "was_car", "now_car", "status", "bumped")}
+        for r in plan["allocations"]
+        if r["status"] != "unchanged"
+    ],
     pull_id=<the pull_id the pull returned>,
     source=<the source the pull returned>,
     mode="stage",

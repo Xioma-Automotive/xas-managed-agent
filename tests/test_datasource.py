@@ -492,3 +492,38 @@ def test_the_same_car_twice_is_one_car():
     codes = [v["VehicleCode"] for v in pull["vehicles"]]
     assert len(codes) == len(set(codes)) == 2
     assert pull["meta"]["excluded"]["vehicle_drops"] == {"duplicate_vehicle": 1}
+
+
+def test_an_unreadable_commitment_is_dropped_and_counted():
+    """`break_cost` is keyed on `allocationType`, so a row that says neither
+    `hard` nor `soft` has no price for its broken promise. Dropped HERE, with the
+    file in hand and a counted reason, rather than raising inside the solver —
+    which would happen on turn 3, once the line reached the free set holding an
+    on-time car, not on the turn that read the bad row."""
+    pull = datasource.translate(
+        [_order_row(allocationType="firm-ish"), _order_row(LineNum="2")],
+        [_vehicle_row()],
+        now=NOW,
+    )
+    assert [o["LineNum"] for o in pull["orders"]] == ["2"]
+    assert pull["meta"]["excluded"]["order_drops"] == {"unreadable_commitment": 1}
+
+
+def test_the_commitment_is_normalised_on_the_way_in():
+    """Compared unstripped and uncased it would drop a real row: the export is
+    the file that ships `'Available For Sale '` with a trailing space."""
+    pull = datasource.translate([_order_row(allocationType=" Hard ")], [_vehicle_row()], now=NOW)
+    assert pull["orders"][0]["AllocType"] == "hard"
+
+
+def test_a_dropped_car_does_not_claim_the_code_a_usable_copy_needs():
+    """The dedupe runs LAST. A first copy of a car that has no arrival date is
+    dropped, so a second, usable copy of the same car must still get in — the
+    other order and this one would otherwise both lose it."""
+    pull = datasource.translate(
+        [_order_row()],
+        [_vehicle_row(availableBy=""), _vehicle_row()],
+        now=NOW,
+    )
+    assert [v["VehicleCode"] for v in pull["vehicles"]] == ["1004316"]
+    assert pull["meta"]["excluded"]["vehicle_drops"] == {"no_arrival_date": 1}
