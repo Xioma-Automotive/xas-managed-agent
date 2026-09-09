@@ -23,6 +23,7 @@ from xas_allocation.session import (
     planner_report,
     repair_and_report,
     run_cycle,
+    save_plan,
 )
 from xas_allocation.snapshot import Order, Snapshot, Vehicle
 
@@ -45,7 +46,14 @@ JARGON = ["λ", "lambda", "objective", "pareto", "allocations", "min-cost", "arc
 
 def _order(oid: str, model: str, promised: date) -> Order:
     card, _, line = oid.rpartition("-")
-    return Order(job_card=card, line=line, sales_model=model, delivery_date=promised)
+    return Order(
+        job_card=card,
+        line=line,
+        sales_model=model,
+        delivery_date=promised,
+        # Every fixture names a firmness: a displaced promise is priced by it.
+        alloc_type="soft",
+    )
 
 
 def _vehicle(vid: str, model: str, planned: date) -> Vehicle:
@@ -523,3 +531,19 @@ def test_show_survives_stdout_noise_around_the_span():
 
     printed = "WARNING: pip as root\n" + show("the table") + "\nwrote plan.json"
     assert planner_span(printed) == "the table"
+
+
+def test_the_saved_plan_counts_partition_the_book(tmp_path):
+    """The push contract's `summary`, and the property that makes it checkable:
+    `moved` + `unchanged` + `no_car` is every line, so a receiver can add it up
+    and refuse a mismatch. `bumped` is a subset of `moved`, never a fourth class.
+    Counted host-side because a total the model did by hand is unverifiable."""
+    snap = _snapshot()
+    steer = {"priority": [{"order": "KEPT-1", "step": "urgent"}], "may_move": {"also": True}}
+    cyc = run_cycle(snap, steer)
+    path = save_plan(snap, cyc.chosen, steer, tmp_path / "plan.json")
+    counts = json.loads(path.read_text())["counts"]
+
+    assert counts["moved"] + counts["unchanged"] + counts["no_car"] == counts["orders"]
+    assert counts["orders"] == len(snap.orders)
+    assert counts["bumped"] <= counts["moved"]

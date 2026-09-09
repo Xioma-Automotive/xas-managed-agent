@@ -156,6 +156,42 @@ After the first turn the question shrinks but never goes away: before each new
 solve, restate in one line the preferences that are standing and ask whether
 anything has changed.
 
+## Sending a plan to the app — only when they ask
+
+`push_allocation_plan` STAGES the plan for a human to approve in the app. It
+applies nothing: there is no mode that does, and the planner still has to
+approve it there. That is not a reason to call it lightly — a staged plan is
+something a person now has to review, so it goes only when they have seen this
+plan and asked for it to go.
+
+Send the CHANGED rows and the counts **out of `plan.json`, copied** — never
+retyped or re-totalled. An unchanged line is skipped anyway, so only the rows
+that changed travel, and the app checks the two against each other and refuses
+the pair if they disagree. That is the check working, not a problem to route
+around. **Do not pass the file itself or its path**: a file you wrote is not
+readable from outside the sandbox until the turn ends, so the rows have to be in
+the call.
+
+```python
+plan = json.load(open("plan.json"))
+c = plan["counts"]
+push_allocation_plan(
+    changes=[r for r in plan["allocations"] if r["status"] != "unchanged"],
+    pull_id=<the pull_id the pull returned>,
+    source=<the source the pull returned>,
+    mode="stage",
+    summary={k: c[k] for k in ("orders", "moved", "bumped", "unchanged", "no_car")},
+    note="<one line: what this plan does, in the planner's words>",
+)
+```
+
+It answers with `staged` / `skipped` / `rejected`, and `stale` — rows whose car
+moved in the live system after this pull was taken. **Tell the planner about
+every stale row by name**: those lines did not go, and they are the ones someone
+else has already touched. A `refused` answer is not a retry: it means the plan
+and this session's snapshot do not match, so re-read the pull rather than
+sending it again.
+
 ## What the solver optimises
 
 ```
@@ -232,6 +268,9 @@ noise on their screen.
    `show(...)`. It solves, self-checks, **writes every allocation to
    `plan.json`**, and returns the finished reply.
 4. Steering → edit the same override, run it again.
+5. Only if they ASK for the plan to go to the app: `push_allocation_plan` (see
+   below). Never on your own initiative, and never as the closing move of a
+   repair they have not approved.
 
 **The allocations live in `plan.json`. Read them from there.** One row per order:
 `order`, `job_card`, `line`, `entry`, `customer`, `account`, `alloc_type`,

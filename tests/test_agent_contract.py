@@ -724,3 +724,32 @@ def test_the_skill_forbids_retyping_a_table_the_planner_has_seen():
     lowered = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "already seen" in lowered
     assert "do not repeat the table" in lowered
+
+
+def test_the_write_back_is_declared_on_the_agent():
+    """Both custom tools or neither: `web.py` answers both over one runner, and a
+    declared name nothing answers parks the session on an idle that never times
+    out. The reverse — answering a tool the agent cannot call — is dead code."""
+    names = [t.get("name") for t in setup_agent.TOOLS if t.get("type") == "custom"]
+    assert names == [alloc_tools.TOOL_NAME, alloc_tools.PUSH_TOOL_NAME]
+
+
+def test_staging_a_plan_needs_the_planner_to_have_asked():
+    """Said TWICE on purpose, unlike the repair gate. A write-back is the one act
+    that puts work on another person's desk with no undo, and the skill body can
+    be summarised out of a long session while the prompt cannot."""
+    assert "only when the planner has seen that plan and asked for it" in _flat(
+        setup_agent.SYSTEM_PROMPT
+    )
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        assert "## Sending a plan to the app — only when they ask" in skill
+        assert "Never on your own initiative" in skill
+
+
+def test_the_skill_tells_the_planner_about_stale_rows():
+    """A row the live system moved under us did NOT stage. Silence there is the
+    worst outcome available: the planner believes the whole plan went."""
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        assert "Tell the planner about every stale row by name" in skill

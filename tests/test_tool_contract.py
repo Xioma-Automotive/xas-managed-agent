@@ -189,3 +189,128 @@ def test_same_dataset_same_summary():
     a, b = call(), call()
     assert a.pop("pull_id") != b.pop("pull_id")
     assert a == b
+
+
+# --- push_allocation_plan: the write-back, and what it refuses ----------------
+
+
+def _pull() -> dict:
+    return {
+        "pull_id": "2026-09-06T09:12:03Z/a41c",
+        "source": "scenario-mixed",
+        "orders": [
+            {"DMSJCNum": "900001", "LineNum": "1", "VehicleCode": "CAR-A"},
+            {"DMSJCNum": "900002", "LineNum": "1", "VehicleCode": None},
+        ],
+    }
+
+
+CHANGES = [
+    {
+        "order": "900002-1",
+        "job_card": "900002",
+        "line": "1",
+        "was_car": None,
+        "now_car": "CAR-B",
+        "status": "moved",
+        "bumped": False,
+    }
+]
+
+# The counts block from plan.json: one line moved, one kept its car.
+SUMMARY = {"orders": 2, "moved": 1, "bumped": 0, "unchanged": 1, "no_car": 0}
+
+
+def _push(changes=None, pull=None, **over):
+    args = {
+        "changes": CHANGES if changes is None else changes,
+        "pull_id": "2026-09-06T09:12:03Z/a41c",
+        "source": "scenario-mixed",
+        "mode": "stage",
+        "summary": SUMMARY,
+        "note": "churn price 25 · weighted late-days 193 -> 63",
+        **over,
+    }
+    tool = alloc_tools.make_push_tool(lambda: pull or _pull())
+    return json.loads(asyncio.run(tool.call(args)))
+
+
+def test_the_plan_travels_in_the_call_not_as_a_path():
+    """A file the agent writes is indexed into the session's file store only
+    ~1-3s AFTER the session goes idle, and this tool is answered MID-TURN — tried
+    live on 2026-09-09 and the host's listing had no plan.json, so the agent went
+    hunting the filesystem for it. Only the CHANGED rows travel: an unchanged line
+    is skipped anyway, so this is the part staging acts on."""
+    assert "plan_file" not in alloc_tools.PUSH_TOOL["input_schema"]["properties"]
+    rows = alloc_tools.PUSH_TOOL["input_schema"]["properties"]["changes"]
+    assert "was_car" in rows["items"]["required"], "without it a moved car is overwritten blind"
+    assert rows["items"]["properties"]["status"]["enum"] == ["moved", "no_car"]
+
+
+def test_push_declaration_matches_implementation():
+    """Same one-contract rule as the pull: a declared name nothing answers parks
+    the session on an idle that never times out."""
+    tool = alloc_tools.make_push_tool(lambda: _pull())
+    assert tool.name == alloc_tools.PUSH_TOOL["name"] == "push_allocation_plan"
+    assert tool.input_schema == alloc_tools.PUSH_TOOL["input_schema"]
+    assert tool.description == alloc_tools.PUSH_TOOL["description"]
+
+
+def test_stage_is_the_only_mode_there_is():
+    """The enum is the guardrail, so the value outside it is the one that must be
+    refused rather than interpreted: nothing here applies a plan."""
+    assert alloc_tools.PUSH_TOOL["input_schema"]["properties"]["mode"]["enum"] == ["stage"]
+    assert "refused" in _push(mode="apply")
+
+
+def test_a_matching_plan_stages_and_waits_for_a_human():
+    out = _push()
+    assert out["staged"] == 1, "the one changed line stages"
+    assert out["skipped"] == 1, "the unchanged line is not a change to stage"
+    assert out["rejected"] == 0
+    assert out["awaiting"] == "planner_review"
+    assert out["staged_key"] == "plan/a41c"
+
+
+def test_a_plan_from_another_snapshot_is_refused():
+    """The invariant at the boundary: re-applying an override against a different
+    pull is not the same turn, so a plan built on one cannot be staged here."""
+    assert "refused" in _push(pull_id="2026-09-01T00:00:00Z/ffff")
+    assert "refused" in _push(source="scenario-delayed")
+
+
+def test_a_summary_that_disagrees_with_the_rows_is_refused():
+    """The counts and the rows are two copies of the same plan, so a disagreement
+    means one of them belongs to another one. The message names which count."""
+    out = _push(summary={**SUMMARY, "moved": 7, "unchanged": -5})
+    assert "moved" in out["refused"] and "summary says 7" in out["refused"]
+
+
+def test_counts_that_do_not_partition_the_book_are_refused():
+    """`moved` + `unchanged` + `no_car` is every line in the book. If they do not
+    add up to it, a row was dropped between the count and the call."""
+    assert "refused" in _push(summary={**SUMMARY, "unchanged": 4})
+
+
+def test_a_row_whose_car_moved_under_us_is_stale_and_does_not_stage():
+    """The contract's `stale`, and what `expected` is: the car the line held when
+    the plan was built. Here the snapshot has that line on a different car, so
+    the row is reported rather than written over."""
+    pull = _pull()
+    pull["orders"][0]["VehicleCode"] = "CAR-Z"
+    changes = CHANGES + [
+        {
+            "order": "900001-1",
+            "job_card": "900001",
+            "line": "1",
+            "was_car": "CAR-A",
+            "now_car": "CAR-C",
+            "status": "moved",
+            "bumped": False,
+        }
+    ]
+    out = _push(changes=changes, pull=pull, summary={**SUMMARY, "moved": 2, "unchanged": 0})
+    assert out["rejected"] == 1 and out["staged"] == 1
+    assert out["stale"] == [
+        {"DMSJCNum": "900001", "LineNum": "1", "expected": "CAR-A", "actual": "CAR-Z"}
+    ]

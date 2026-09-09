@@ -96,6 +96,9 @@ REQUIRED_ORDER_COLUMNS = (
     "SalesModel",
     "etaDealer",
     "vehicleCode",
+    # The line's firmness. Required since 2026-09-09: `break_cost` is keyed on it,
+    # so a pull without it prices no broken promise at all.
+    "allocationType",
 )
 REQUIRED_VEHICLE_COLUMNS = (
     "InventoryEnteringDate",
@@ -160,6 +163,20 @@ def is_available(vehicle: dict[str, str]) -> bool:
 
 
 def in_pool(vehicle: dict[str, str]) -> bool:
+    """Is this car part of the dealer's supply at all?
+
+    NOT a business exclusion, and not a second opinion about a car someone else
+    already offered: this file is the WHOLE fleet, so the filter is what turns it
+    into a pull. The live contract's `vehicles[]` arrives pre-filtered — the cars
+    on workspace rows plus what `availableVehicles` itself offered — and a pull
+    like that must be taken whole, because filtering it again would drop supply
+    the DMS had already judged free.
+
+    What it removes here, measured on the export: 540 `Dealer Delivered` cars —
+    handed to a customer — 19 registered, 14 in dispute and 7 demo, 580 of 3,523.
+    Allocating any of them is worse than missing them, which is why this stays a
+    filter rather than becoming an empty one.
+    """
     return _text(vehicle.get("status.name")).lower() in POOL_STATUSES
 
 
@@ -230,10 +247,10 @@ def translate(
       a LABEL, never a key and never priced. ``Accounts.Owner.AccountDMSCode``
       beside it is the account's real key, which is what a client instruction
       should be resolved THROUGH; steering itself stays order-key-shaped.
-    * ``allocationType`` -> ``AllocType`` -> ``Order.alloc_type``. Carried and
-      shown, NOT priced: re-splitting ``break_cost`` hard/soft is DECIDE-3's
-      retired mechanism and needs its own decision, not a side effect of adopting
-      this file shape.
+    * ``allocationType`` -> ``AllocType`` -> ``Order.alloc_type``, ``hard`` or
+      ``soft``. PRICED since 2026-09-09: ``break_cost`` carries one number for
+      each, so this mapping is load-bearing rather than a label — a row that
+      loses it has no price for its broken promise and the solver raises.
     """
     order_drops: collections.Counter = collections.Counter()
     vehicle_drops: collections.Counter = collections.Counter()
@@ -241,10 +258,20 @@ def translate(
 
     # --- vehicles: in the pool, with a join key and a date it can be counted on -
     vehicles: list[dict] = []
+    seen_cars: set[str] = set()
     for row in vehicle_rows:
         if not in_pool(row):
-            vehicle_drops["out_of_pool_status"] += 1
+            vehicle_drops["not_dealer_supply"] += 1
             continue
+        # The contract's `vehicles[]` lists a car once per line that could take
+        # it — `candidates[].vehicle` repeats, and a car on a workspace row can
+        # appear again as a candidate. Supply is capacity-1, so the same car
+        # arriving twice would be two cars to allocate.
+        code = _text(row.get("vehicleCode"))
+        if code and code in seen_cars:
+            vehicle_drops["duplicate_vehicle"] += 1
+            continue
+        seen_cars.add(code)
         model = _text(row.get("SalesModel"))
         if not model:
             vehicle_drops["no_model"] += 1

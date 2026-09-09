@@ -133,6 +133,35 @@ After the first turn the question shrinks but never goes away: before each new
 solve, restate the standing preferences in one line and ask whether anything has
 changed.
 
+## Sending a plan to the app — only when they ask
+
+`push_allocation_plan` STAGES the plan for a human to approve in the app; it
+applies nothing, and a staged plan is work on someone's desk. So it goes only
+when the planner has seen this plan and asked for it to go — never on your own
+initiative, never as the close of a repair they have not approved.
+
+Send the CHANGED rows and the counts **out of `plan.json`**, never retyped: the
+app checks the two against each other and refuses the pair if they disagree.
+**Not the file, not its path** — a file you wrote cannot be read from outside the
+sandbox until the turn ends, so the rows go in the call.
+
+```python
+plan = json.load(open("plan.json"))
+c = plan["counts"]
+push_allocation_plan(
+    changes=[r for r in plan["allocations"] if r["status"] != "unchanged"],
+    pull_id=<the pull_id the pull returned>,
+    source=<the source the pull returned>,
+    mode="stage",
+    summary={k: c[k] for k in ("orders", "moved", "bumped", "unchanged", "no_car")},
+    note="<one line: what this plan does, in the planner's words>",
+)
+```
+
+**Tell the planner about every stale row by name** — those lines did not go,
+because someone else moved that car after this pull. A `refused` answer means the
+plan and this session's snapshot disagree: re-read the pull, do not resend.
+
 ## What the solver optimises
 
 ```
@@ -199,6 +228,8 @@ has to be in it — see "Talking to the planner".
    then update the override and run `repair_and_report`. It solves, self-checks,
    **writes every allocation to `plan.json`**, and returns the findings.
 4. Steering → edit the same override, run it again.
+5. Only if they ASK for the plan to go to the app: `push_allocation_plan` (see
+   below). Never on your own initiative.
 
 **The allocations live in `plan.json`. Read them from there.** One row per order:
 `order`, `job_card`, `line`, `entry`, `customer`, `account`, `alloc_type`,

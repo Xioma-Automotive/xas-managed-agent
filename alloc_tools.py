@@ -259,3 +259,229 @@ def _default_rich() -> tuple[dict, str]:
 
 # A ready-to-use instance over the default source, for host-side tests/local runs.
 pull_allocation_snapshot = make_pull_tool(_default_rich)
+
+
+# --- The write-back: stage a plan for the planner to review -------------------
+#
+# Same one-definition rule as the pull: ``PUSH_TOOL`` is what the agent declares,
+# ``make_push_tool`` is what answers it, both built from the constants below.
+#
+# STAGE IS A HOLD, and that is why this can be answered honestly here. The
+# contract has no ``apply`` value, so nothing this tool does reaches the DMS: it
+# checks the plan against the snapshot the session actually holds and records it
+# for a human to approve. The approval is the planner's, in the app.
+#
+# THE PLAN TRAVELS IN THE CALL, NOT AS A PATH — and that is a platform fact, not
+# a preference. The contract asked for ``plan_file``, but a file the agent writes
+# in the sandbox is indexed into the session's file store only ~1-3s AFTER the
+# session goes idle, and a custom tool is answered MID-TURN: `web.py` even sets
+# `check_files: False` for a `requires_action` idle for exactly this reason. So
+# the host's listing cannot yet see the plan the agent just wrote — tried live on
+# 2026-09-09, `no file named plan.json`, and the agent then went hunting the
+# filesystem for it. Only the CHANGED rows are sent: an unchanged line is
+# `skipped` anyway, so the payload is the part staging acts on and is far smaller
+# than the file (4 rows of 10 in the live trace).
+
+PUSH_TOOL_NAME = "push_allocation_plan"
+
+PUSH_MODE = "stage"
+
+PUSH_TOOL_DESCRIPTION = (
+    "Stage the plan you just saved for the planner to review. Send the CHANGED "
+    "rows of plan.json — every row whose status is not 'unchanged' — plus that "
+    "file's counts block and the pull_id and source of the snapshot you solved. "
+    "Copy both from the file; do not retype or re-total them. Nothing is "
+    "applied: staging holds the plan for a human to approve in the app, and "
+    "there is no way to apply one from here. Ask the planner before calling it, "
+    "every time — a plan they have not seen is not theirs to stage. Every check "
+    "that can refuse is about the plan matching the snapshot this session holds, "
+    "so a refusal means re-reading the pull, not resending."
+)
+
+PUSH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "changes": {
+            "type": "array",
+            "description": (
+                "Every row of plan.json whose status is not 'unchanged', copied "
+                "from the file. `was_car` is required on each: it is the car the "
+                "line held at pull time, and without it a car someone else has "
+                "moved would be written over silently."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "order": {"type": "string"},
+                    "job_card": {"type": "string"},
+                    "line": {"type": "string"},
+                    "was_car": {"type": ["string", "null"]},
+                    "now_car": {"type": ["string", "null"]},
+                    "status": {"type": "string", "enum": ["moved", "no_car"]},
+                    "bumped": {"type": "boolean"},
+                },
+                "required": ["order", "job_card", "line", "was_car", "now_car", "status"],
+                "additionalProperties": False,
+            },
+        },
+        "pull_id": {
+            "type": "string",
+            "description": "pull_id of the snapshot this plan was built on.",
+        },
+        "source": {"type": "string", "description": "source of that same snapshot."},
+        "mode": {
+            "type": "string",
+            "enum": [PUSH_MODE],
+            "description": "Only 'stage' exists. Nothing here applies a plan.",
+        },
+        "summary": {
+            "type": "object",
+            "description": (
+                "The counts block from the plan file, verbatim: moved, bumped, "
+                "unchanged, no_car. Checked against the file — do not retype it."
+            ),
+            "additionalProperties": {"type": "integer"},
+        },
+        "note": {
+            "type": "string",
+            "description": "One line for the planner's pending bar: why this plan.",
+        },
+    },
+    "required": ["changes", "pull_id", "source", "mode", "summary", "note"],
+    "additionalProperties": False,
+}
+
+PUSH_TOOL: dict[str, Any] = {
+    "type": "custom",
+    "name": PUSH_TOOL_NAME,
+    "description": PUSH_TOOL_DESCRIPTION,
+    "input_schema": PUSH_TOOL_INPUT_SCHEMA,
+}
+
+# The counts that must agree with the plan file, and the three that partition it.
+SUMMARY_KEYS = ("moved", "bumped", "unchanged", "no_car")
+PARTITION_KEYS = ("moved", "unchanged", "no_car")
+
+
+class PlanRefused(Exception):
+    """A staged plan that does not match the session's snapshot. Refusing is the
+    whole job: every check here exists because the alternative is staging a plan
+    built on a pull that is not this one."""
+
+
+def check_plan(
+    changes: list[dict], pull: dict, mode: str, pull_id: str, source: str, summary: dict
+) -> dict:
+    """Validate one plan against the snapshot the session holds, and say what
+    would stage. Pure: no I/O, so the rules are testable without a session.
+
+    Four refusals, in the order they cost least to check, and every one of them
+    is "this is not the plan for this snapshot":
+
+    * ``mode`` is anything but ``stage`` — the enum is the guardrail, so a value
+      outside it is a caller that thinks it can apply.
+    * ``pull_id`` / ``source`` differ from the pull — the plan was solved against
+      another snapshot or another tenant, and re-applying an override to a
+      different pull is not the same turn.
+    * ``summary`` disagrees with the rows sent — ``moved`` and ``bumped`` are
+      counted here from ``changes`` and must match what the file said, and
+      ``moved`` + ``unchanged`` + ``no_car`` must add up to the book. A summary
+      copied from a different plan than the rows is the wrong plan.
+
+    Then per row: a row whose ``was_car`` is not the car the snapshot has that
+    line holding is STALE and does not stage. Within one session that can only
+    happen if the rows were not built from this pull; against a live workspace it
+    is the ordinary race, which is why the contract has the field.
+    """
+    if mode != PUSH_MODE:
+        raise PlanRefused(f"mode must be {PUSH_MODE!r}, not {mode!r}: nothing here applies a plan")
+    for field, ours in (("pull_id", pull.get("pull_id")), ("source", pull.get("source"))):
+        theirs = {"pull_id": pull_id, "source": source}[field]
+        if theirs != ours:
+            raise PlanRefused(
+                f"{field} {theirs!r} is not this session's snapshot ({ours!r}) — "
+                "the plan was built on a different pull"
+            )
+
+    # What the rows themselves say, against what the file's counts said. Only
+    # the changed rows travel, so `unchanged` is the one count nothing here can
+    # recount — which is why the partition below has to hold instead.
+    from_rows = {
+        "moved": sum(1 for r in changes if r.get("status") == "moved"),
+        "no_car": sum(1 for r in changes if r.get("status") == "no_car"),
+        "bumped": sum(1 for r in changes if r.get("bumped")),
+    }
+    mismatched = {k: (summary.get(k), v) for k, v in from_rows.items() if summary.get(k) != v}
+    if mismatched:
+        raise PlanRefused(
+            "the summary does not match the rows sent: "
+            + ", ".join(
+                f"{k}: summary says {sent!r}, the rows are {found!r}"
+                for k, (sent, found) in mismatched.items()
+            )
+        )
+    total = sum(summary.get(k, 0) for k in PARTITION_KEYS)
+    if summary.get("orders") is not None and total != summary["orders"]:
+        raise PlanRefused(
+            f"the counts do not partition the book: "
+            f"{ {k: summary.get(k) for k in PARTITION_KEYS} } is {total}, "
+            f"not the {summary['orders']} orders in it"
+        )
+
+    held = {
+        f"{o['DMSJCNum']}-{o['LineNum']}": o.get("VehicleCode") or None
+        for o in pull.get("orders", [])
+    }
+    stale, staged = [], 0
+    for row in changes:
+        key = row.get("order")
+        if key in held and row.get("was_car") != held[key]:
+            stale.append(
+                {
+                    "DMSJCNum": row.get("job_card"),
+                    "LineNum": row.get("line"),
+                    "expected": row.get("was_car"),
+                    "actual": held[key],
+                }
+            )
+        else:
+            staged += 1
+
+    return {
+        "staged": staged,
+        "skipped": summary.get("unchanged", 0),
+        "rejected": len(stale),
+        "staged_key": f"plan/{str(pull.get('pull_id', '')).rpartition('/')[2]}",
+        "stale": stale,
+        "awaiting": "planner_review",
+    }
+
+
+def make_push_tool(get_pull: Callable[[], dict | Awaitable[dict]]):
+    """Build the push tool over one session's pull.
+
+    Nothing is read from disk: the rows arrive in the call, because a file the
+    agent wrote is not indexed into the session's file store until the turn ends
+    and this runs mid-turn. See the note at the top of this section.
+    """
+
+    async def push_allocation_plan(
+        changes: list[dict], pull_id: str, source: str, mode: str, summary: dict, note: str
+    ) -> str:
+        pull = get_pull()
+        if inspect.isawaitable(pull):
+            pull = await pull
+        if isinstance(pull, tuple):  # the pull provider hands back (pull, path)
+            pull = pull[0]
+        try:
+            result = check_plan(changes, pull, mode, pull_id, source, summary)
+        except PlanRefused as refused:
+            return json.dumps({"refused": str(refused)}, indent=2)
+        return json.dumps({**result, "note": note}, indent=2)
+
+    return beta_async_tool(
+        push_allocation_plan,
+        name=PUSH_TOOL_NAME,
+        description=PUSH_TOOL_DESCRIPTION,
+        input_schema=PUSH_TOOL_INPUT_SCHEMA,
+    )

@@ -115,6 +115,8 @@ DROP_PHRASES = {
     "vehicle_without_a_model": "no model on the car",
     "vehicle_without_an_arrival_date": "no arrival date on the car",
     "allocation_to_a_dropped_vehicle": "allocated to a car that is out of scope",
+    "not_dealer_supply": "not the dealer's supply any more (delivered, registered, in dispute)",
+    "duplicate_vehicle": "the same car listed twice",
 }
 
 
@@ -614,6 +616,29 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
     return rows
 
 
+def _plan_counts(rows: list[dict], snapshot: Snapshot) -> dict[str, int]:
+    """The push contract's `summary`, counted from the plan rows themselves.
+
+    The four row statuses PARTITION the book — `moved` + `unchanged` + `no_car`
+    is every line — which is what makes the staging side's cross-check able to
+    add up. `bumped` is a subset of `moved`, not a fourth class, and it is the
+    number a planner reads first: someone who was not late lost their car.
+
+    Counted here rather than by the agent, on purpose. A summary the model
+    totalled by hand is a number nobody can reproduce, and the whole point of
+    sending it is that the receiver can refuse a mismatch.
+    """
+    by_status: dict[str, int] = {"moved": 0, "unchanged": 0, "no_car": 0}
+    for row in rows:
+        by_status[row["status"]] += 1
+    return {
+        "orders": len(snapshot.orders),
+        **by_status,
+        "bumped": sum(1 for row in rows if row["bumped"]),
+        "still_late": sum(1 for row in rows if row["days_late"]),
+    }
+
+
 def save_plan(
     snapshot: Snapshot,
     result: SolveResult,
@@ -626,21 +651,15 @@ def save_plan(
     config it was priced with — the numbers live in ``solver_config.yaml`` now,
     so a saved plan that did not name a version could not be traced to them."""
     out = Path(path)
+    rows = plan_rows(snapshot, result, override)
     payload = {
         "now": date_label(snapshot.now),
         "solver_version": SOLVER_VERSION,
         "override": override or {},
         "churn_price": result.churn_price,
         "self_check": result.self_check,
-        "counts": {
-            "orders": len(snapshot.orders),
-            "moved": sum(
-                1 for r in plan_rows(snapshot, result, override) if r["status"] == "moved"
-            ),
-            "still_late": sum(1 for r in plan_rows(snapshot, result, override) if r["days_late"]),
-            "no_car": len(result.unfilled),
-        },
-        "allocations": plan_rows(snapshot, result, override),
+        "counts": _plan_counts(rows, snapshot),
+        "allocations": rows,
     }
     out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return out

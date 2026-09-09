@@ -76,7 +76,7 @@ client lazily rather than at import.
 
 | Where | Holds | Runs |
 | --- | --- | --- |
-| `web.py` here | organization API key, `MCP_TOKEN_ENC_KEY`, the dev login (`.env`) | the one custom tool, the host-side fetches that become mounts, and the 20-min bearer rotation |
+| `web.py` here | organization API key, `MCP_TOKEN_ENC_KEY`, the dev login (`.env`) | the two custom tools (the pull and the write-back), the host-side fetches that become mounts, and the 20-min bearer rotation |
 | Anthropic's vault | the app-MCP bearer only (write-only; never returned) | credential injection at egress |
 | Anthropic's sandbox | nothing of ours | bash, file tools, the solver, the MCP tool calls |
 
@@ -88,18 +88,34 @@ prompt injection. That is the whole reason this branch
 exists.
 
 **A custom tool is answered by the client wherever the sandbox lives.** That is
-the one host-side obligation left: `web.py` runs a `tool_runner` task per session
-answering `pull_allocation_snapshot`, and leaves every other tool name for the
-cloud sandbox. The credentialed data pull (DECIDE-7) lives here too — `web.py`
+the host-side obligation left: `web.py` runs ONE `tool_runner` task per session
+answering both `pull_allocation_snapshot` and `push_allocation_plan`, and leaves
+every other tool name for the cloud sandbox. `mode: "stage"` is a HOLD for a
+human to approve in the app: no value applies a plan, which is why the write-back
+can be answered here at all without a DMS write.
+
+**The write-back takes ROWS, not a path, and that is a platform fact.** The
+contract asked for `plan_file`. A file the agent writes in the sandbox is indexed
+into the session's file store only **~1-3s after the session goes idle** — `web.py`
+has always known this (`check_files` is False for a `requires_action` idle) — and
+a custom tool is answered MID-TURN, so the host's `files.list(scope_id=…)` cannot
+yet see the plan the agent just wrote. Tried live on 2026-09-09 against the dev
+agent: `no file named plan.json`, and the agent then spent a turn searching the
+filesystem for a path that was never going to be there. So `push_allocation_plan`
+takes the CHANGED rows in the call — an `unchanged` line is `skipped` anyway, so
+the payload is the part staging acts on and is far smaller than the file (4 rows
+of 10 in that trace). `was_car` is required on every row: it is what makes a
+staleness check possible, and a row without it overwrites a moved car blind. The credentialed data pull (DECIDE-7) lives here too — `web.py`
 calls `datasource.get_source()` host-side and mounts the result as a file, so the
 XAS endpoint and its credential never touch the sandbox.
 
 ## Invariants that bite if you change them
 
-- **The tool contract has exactly one definition.** `alloc_tools.py` holds
-  `PULL_TOOL` (what the agent declares) *and* `make_pull_tool` / the module-level
-  `pull_allocation_snapshot` (what `web.py` registers per session), all built from
-  the same constants. Splitting them is how you get an `agent.custom_tool_use`
+- **The tool contract has exactly one definition, and there are TWO tools now.**
+  `alloc_tools.py` holds `PULL_TOOL` + `make_pull_tool` / the module-level
+  `pull_allocation_snapshot`, and since 2026-09-09 `PUSH_TOOL` + `make_push_tool`
+  (the write-back) — declaration and implementation side by side, all built from
+  the same constants, both answered by the ONE `tool_runner` in `web.py`. Splitting them is how you get an `agent.custom_tool_use`
   nothing answers — which parks the session on a `requires_action` idle that
   **never times out**, so the failure looks like a hang, not an error.
   `tests/test_tool_contract.py` guards the wiring.
@@ -543,12 +559,17 @@ XAS endpoint and its credential never touch the sandbox.
   account's real key, which is what a client instruction should resolve THROUGH),
   `DMSJCEntry` (the DMS's handle on the card, so a write-back has something to
   quote) and `Accounts.Owner.AccountName`. They reach `Order`, the planner tables
-  and `plan.json`; nothing reads them. **`AllocType` in particular is NOT a
-  break-cost split** — that is DECIDE-3's retired mechanism, and re-splitting it
-  needs two validated numbers and its own decision, not a side effect of adopting
-  the file shape. `break_cost_of` says so in its docstring and
-  `tests/test_datasource.py` pins that a `soft` order still costs the full
-  `break_cost`. `JobStatus` is in the file because the contract requires it and
+  and `plan.json`; nothing reads them — **except `AllocType`, which since
+  2026-09-09 IS the break-cost split** (DECIDE-3, re-split at the user's call).
+  `break_cost` is two numbers keyed on it, `soft: 200` (the old single value, so a
+  soft bump is unchanged) and `hard: 400`, and `break_cost_of` RAISES on anything
+  that is neither rather than defaulting to a price. This is not the retired
+  mechanism returning: that one keyed on a real-vs-future binding guessed off the
+  CAR's status name, which the export does not carry, while `allocationType` is a
+  column on the LINE that it does — 1,380 hard against 261 soft. Neither number
+  has been validated by a planner; `tests/test_bump.py` pins the ordering and the
+  raise, and patches the pair for the behavioural test precisely because the
+  shipped values are guesses. `JobStatus` is in the file because the contract requires it and
   reaches `Order` nowhere: every order in this export is an open card, so the
   field would carry one value.
 - **Six vehicle columns are PRESENT and NULL, deliberately.** `SalesStatus`,
@@ -862,11 +883,15 @@ line counts what is genuinely undecided. The shape of it:
   id, mounted like the pull) is the candidate fix, not a decision. Check the
   Managed Agents persistence surface against current docs before wiring it.
 - **Two are settled in SHAPE but carry a number nobody has validated** —
-  DECIDE-3 (`break_cost=200`) and DECIDE-15 (`early_weight=0.15`), both in
-  `solver_config.yaml`. Never checked against a planner's judgment. The mechanism
-  is not up for debate; the value is, and it is reviewed at first real dealer
-  data. DECIDE-3's own MECHANISM retired on 2026-08-27 — the hard/soft split read
-  a real-vs-future binding the export does not carry — leaving one number.
+  DECIDE-3 (`break_cost.soft=200` / `break_cost.hard=400`) and DECIDE-15
+  (`early_weight=0.15`), both in `solver_config.yaml`. Never checked against a
+  planner's judgment. The mechanism is not up for debate; the value is, and it is
+  reviewed at first real dealer data. DECIDE-3 is TWO numbers again as of
+  2026-09-09: the split retired on 2026-08-27 read a real-vs-future binding off
+  the car's status name, and this one reads `AllocType` on the order line, which
+  the export actually carries. 400 is a guess about how much dearer a firm
+  commitment is; it is not a wall, and the shipped pair still lets an urgent
+  rescue through.
 - **Five are RETIRED** — DECIDE-1 (aging), DECIDE-2 (time fence), DECIDE-4 (pin
   mechanism), DECIDE-11 (reschedule fairness), DECIDE-14 (time scale). Built,
   reviewed and removed on 2026-08-26. They stay in the register with what went

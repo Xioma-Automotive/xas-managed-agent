@@ -141,7 +141,7 @@ def test_a_car_held_by_an_order_is_still_supply():
 def test_a_car_out_of_the_pool_is_dropped_with_a_reason():
     pull = _pull([_order_row()], [_vehicle_row(**{"status.name": "Delivered"})])
     assert pull["vehicles"] == []
-    assert pull["meta"]["excluded"]["vehicle_drops"] == {"out_of_pool_status": 1}
+    assert pull["meta"]["excluded"]["vehicle_drops"] == {"not_dealer_supply": 1}
 
 
 # --- eligibility -------------------------------------------------------------
@@ -426,10 +426,12 @@ def test_an_order_with_no_client_name_still_allocates():
     assert flatten(datasource.document(pull)).order_by_key()["900001-1"].customer == ""
 
 
-def test_the_commitment_rides_through_as_a_label_and_is_never_priced():
-    """`allocationType` -> `AllocType` -> `Order.alloc_type`. Carried and shown;
-    re-splitting the break cost on it is DECIDE-3's retired mechanism, and
-    `solver.break_cost_of` deliberately still takes one number."""
+def test_the_commitment_rides_through_and_prices_the_broken_promise():
+    """`allocationType` -> `AllocType` -> `Order.alloc_type` -> `break_cost`.
+
+    DECIDE-3 was re-split on 2026-09-09 on this column. The mapping is the whole
+    reason it could be: the firmness has to survive the pull and the flatten to
+    reach the one function that prices it."""
     from xas_allocation import solver
 
     pull = datasource.translate(
@@ -443,7 +445,7 @@ def test_the_commitment_rides_through_as_a_label_and_is_never_priced():
     snap = flatten(datasource.document(pull))
     soft = snap.order_by_key()["900001-1"]
     assert soft.alloc_type == "soft"
-    assert solver.break_cost_of(soft, snap.vehicles[0]) == solver.CFG["break_cost"]
+    assert solver.break_cost_of(soft, snap.vehicles[0]) == solver.CFG["break_cost"]["soft"]
 
 
 def test_the_committed_scenarios_carry_client_names():
@@ -475,3 +477,18 @@ def test_the_order_key_is_built_in_one_place():
     # half a key names nothing, and is not guessed at
     assert datasource.order_key({"DMSJCNum": "900001", "LineNum": ""}) == ""
     assert datasource.order_key({"LineNum": "1"}) == ""
+
+
+def test_the_same_car_twice_is_one_car():
+    """The contract's `vehicles[]` names a car once per line that could take it —
+    `candidates[].vehicle` repeats across lines, and a car already on a workspace
+    row can come back as a candidate too. Supply is capacity-1, so a duplicate
+    would be a second car to allocate that does not exist."""
+    pull = datasource.translate(
+        [_order_row()],
+        [_vehicle_row(), _vehicle_row(), _vehicle_row(vehicleCode="OTHER-CAR")],
+        now=NOW,
+    )
+    codes = [v["VehicleCode"] for v in pull["vehicles"]]
+    assert len(codes) == len(set(codes)) == 2
+    assert pull["meta"]["excluded"]["vehicle_drops"] == {"duplicate_vehicle": 1}

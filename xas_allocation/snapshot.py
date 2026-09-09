@@ -18,11 +18,11 @@ instruction about a whole card resolvable (``solver.names_order``); the line hal
 is what keeps two lines of one card from collapsing into each other.
 
 Supply is ONE ``vehicles`` list; each vehicle is capacity-1 with a
-``sales_model`` and an ``eta_dealer`` date. There is no hard/soft binding any
-more (2026-08-27): in this export a car's status IS its allocation state, so what
-matters about a car is whether an order holds it (``allocations``) and when it
-lands (``eta_dealer``). Breaking a kept promise costs the same whatever kind of
-car it is — one ``break_cost`` in the config, not two.
+``sales_model`` and an ``eta_dealer`` date. Nothing about the CAR carries a
+hard/soft binding (2026-08-27): in this export a car's status IS its allocation
+state, so what matters about a car is whether an order holds it (``allocations``)
+and when it lands (``eta_dealer``). The firmness that IS priced belongs to the
+order line — see ``alloc_type`` below.
 
 Everything is keyed on **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
 `now` is the pull date, carried on the snapshot as the provenance of the picture —
@@ -71,10 +71,12 @@ class Order:
     * **no delay history and no price.** The three escalation fields were read
       only by weight terms deleted on 2026-08-26 and were zero on every real row;
       ``price`` was display-only and the export does not carry it.
-    * **no ``AllocType`` PRICE.** ``alloc_type`` below is carried and shown, and
-      ``solver.break_cost_of`` deliberately does not read it — re-splitting the
-      break cost hard/soft is DECIDE-3's retired mechanism, and it needs its own
-      decision and a validated pair of numbers.
+    * **``AllocType`` IS priced, since 2026-09-09.** ``alloc_type`` below is the
+      line's firmness — ``hard`` for a committed VIN, ``soft`` for a provisional
+      reservation — and ``solver.break_cost_of`` selects one of two config prices
+      with it, so a hard promise costs more to disturb (DECIDE-3). Neither number
+      has been validated by a planner. It is priced and nothing else: not
+      eligibility, not a filter.
     * **no job-card STATUS.** The contract carries ``JobStatus`` in the file
       because the DMS does; nothing here reads it, and every order in this export
       is an open card, so adding a field would be a column with one value in it.

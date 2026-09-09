@@ -123,23 +123,38 @@ def arc_cost_float(order: Order, vehicle: Vehicle, priority: dict[str, str]) -> 
     return cost
 
 
+ALLOC_TYPES = ("hard", "soft")
+
+
 def break_cost_of(order: Order, allocated_vehicle: Vehicle | None) -> float:
     """Cost to take ``order``'s car away from it.
 
     Zero when it holds no car, OR when the car it holds is already LATE — a
     broken promise protects nothing, so re-allocating an order that is already in
-    trouble is free. Only disturbing a promise that was going to be KEPT costs,
-    and it costs the same whatever kind of car it is: the hard/soft split went on
-    2026-08-27 with the classification it read (DECIDE-3). The contract's
-    ``AllocType`` brought that classification BACK onto the order
-    (``Order.alloc_type``) and this function deliberately still does not read it —
-    re-splitting the cost is a decision with two numbers to validate, not a side
-    effect of the file shape changing. This is what makes
-    "bump someone for the sake of another" price the *victim* (whose kept promise
-    is disturbed), not the order being rescued."""
+    trouble is free. Only disturbing a promise that was going to be KEPT costs.
+
+    What it costs depends on how firmly the line is committed: the contract's
+    ``AllocType`` (``Order.alloc_type``) is ``hard`` for a firm commitment to a
+    VIN and ``soft`` for a provisional reservation, and the config carries a price
+    for each. Re-split on 2026-09-09 (DECIDE-3) — the split retired in August
+    read a real-vs-future binding guessed off the CAR's status name, which the
+    export does not carry; this one reads a column on the LINE that it does.
+
+    An unrecognised ``alloc_type`` RAISES rather than falling back to either
+    price, for the same reason an unknown priority step does: a silent default
+    makes a line whose firmness we could not read look deliberately priced.
+
+    This is what makes "bump someone for the sake of another" price the *victim*
+    (whose kept promise is disturbed), not the order being rescued."""
     if allocated_vehicle is None or tardiness(order, allocated_vehicle) > 0:
         return 0.0
-    return CFG["break_cost"]
+    kind = order.alloc_type.strip().lower()
+    if kind not in ALLOC_TYPES:
+        raise ValueError(
+            f"order {order.key}: AllocType {order.alloc_type!r} is neither "
+            f"'hard' nor 'soft', so its broken promise has no price"
+        )
+    return CFG["break_cost"][kind]
 
 
 def eligible(order: Order, vehicle: Vehicle) -> bool:

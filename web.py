@@ -234,17 +234,21 @@ async def _pull_for(session_id: str) -> tuple[dict, str]:
 async def _answer_custom_tools(session_id: str) -> None:
     """Answer this session's custom tool calls for as long as it lives.
 
-    Registers exactly one tool, built over this session's fetched-and-mounted
-    pull. A tool name the runner does not own is left unanswered, which is what
-    lets the cloud sandbox keep serving bash and the file tools while we serve the
-    data pull over the same session.
+    Registers the TWO tools we own, both built over this session's
+    fetched-and-mounted pull: the data pull, and the write-back that stages a
+    plan against it. A tool name the runner does not own is left unanswered,
+    which is what lets the cloud sandbox keep serving bash and the file tools
+    while we serve these over the same session.
 
     Runs as a background task owned by the session, not by the browser: the
     session idles on ``requires_action`` while a custom call is pending and never
     times out, so an unanswered call is a hang rather than an error.
     """
-    tool = alloc_tools.make_pull_tool(lambda: _pull_for(session_id))
-    runner = client.beta.sessions.events.tool_runner(session_id, tools=[tool])
+    tools = [
+        alloc_tools.make_pull_tool(lambda: _pull_for(session_id)),
+        alloc_tools.make_push_tool(lambda: _pull_for(session_id)),
+    ]
+    runner = client.beta.sessions.events.tool_runner(session_id, tools=tools)
     try:
         async for call in runner:
             # Log the arguments and a digest of the answer, not just the name.

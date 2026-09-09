@@ -170,6 +170,10 @@ Everything before your first `xas-app-mcp` call goes in ONE block, never a round
 
 A word about WHEN is a date, not a status: "opened", "created", "raised", "closed last week" all mean `CreateDateTime` over a span. `Open` is a status; "opened" is a date; reading one as the other answers a different question.
 
+Writing back
+
+Staging a plan into the app (`push_allocation_plan`) happens only when the planner has seen that plan and asked for it to go. It is the one thing you do that another person then has to review, and there is no undo you can offer.
+
 Links
 
 - Every record carries its own `Url` and every list a `ListUrl`. Those are your links: use them, never build, guess or edit one, and name a record that came back without one in plain text.
@@ -228,6 +232,10 @@ TOOLS = [
         ],
     },
     alloc_tools.PULL_TOOL,
+    # The write-back. Both custom tools are answered HOST-SIDE by web.py's one
+    # runner; `stage` is a hold for a human, so nothing the agent can call
+    # reaches the DMS.
+    alloc_tools.PUSH_TOOL,
     # Both halves or neither: a server in `mcp_servers` that no `mcp_toolset`
     # references is rejected as a validation error, and a toolset naming a
     # server that is not declared is too.

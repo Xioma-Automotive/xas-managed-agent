@@ -38,7 +38,8 @@ Field mapping (document → solver):
     the account's real key. Nothing in the solver reads either, and an order with
     no account still allocates.
   * ``AllocType``    → ``Order.alloc_type`` — how firmly the customer is
-    committed. Carried and shown, NOT priced (see ``solver.break_cost_of``).
+    committed, ``hard`` or ``soft``. PRICED: ``solver.break_cost_of`` charges more
+    to break a hard promise than a soft one, and raises on anything else.
 
 Eligibility arcs are NOT built here — the solver computes them at solve time
 (the sparse-arc rule), never stored.

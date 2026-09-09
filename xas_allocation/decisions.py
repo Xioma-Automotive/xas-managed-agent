@@ -81,22 +81,25 @@ DECISIONS: list[Decision] = [
     Decision(
         key="DECIDE-3",
         status=(
-            "MECHANISM RETIRED 2026-08-27 (the hard/soft split is gone) — ONE break_cost survives, VALUE tuned but unvalidated: no planner has seen it. Review at first real dealer data. (break_cost=200.0 in solver_config.yaml — the 'days-late worth one broken promise' ratio is the number a planner must own)"
+            "RE-SPLIT 2026-09-09 on the LINE's AllocType — TWO numbers now, VALUE tuned but unvalidated for both: no planner has seen either. Review at first real dealer data. (break_cost.soft=200.0, break_cost.hard=400.0 in solver_config.yaml — the 'days-late worth one broken promise' ratio is the number a planner must own, and now there are two of them)"
         ),
         title="Break cost: what disturbing a kept promise costs",
-        default="one break_cost in solver_config.yaml, charged only on an ON-TIME allocation",
+        default="two break_costs keyed on AllocType, charged only on an ON-TIME allocation",
         rationale=(
-            "The COST stands and the SPLIT is gone. It used to be two numbers keyed on a "
-            "real-vs-future binding read off the vehicle's status name (hard 200 for a car on "
-            "the lot, soft 0 for one still coming). The export the pull now reads carries no "
-            "such distinction: a car's status IS its allocation state (Available For Sale / "
-            "Dealer Order Confirmation / Dealer Reservation), and the physical stage beside it "
-            "(Sea Transit, Bonded, PDI, Future Vehicle) says where a shipment is, not what a "
-            "promise costs to disturb. Timing is already carried by the arrival date, so the "
-            "binding priced nothing the model did not already know. What remains: one "
-            "break_cost, charged ONLY when the displaced order's car was arriving ON TIME. An "
-            "already-late allocation protects nothing, so re-allocating a disrupted order is "
-            "free — the break prices the bump VICTIM, not the disrupted order being rescued. "
+            "The COST stands and the SPLIT is back, on a different column. It was two "
+            "numbers keyed on a real-vs-future binding read off the VEHICLE's status name "
+            "(hard 200 for a car on the lot, soft 0 for one still coming); that binding is "
+            "not in the export — a car's status IS its allocation state, and the physical "
+            "stage beside it says where a shipment is, not what a promise costs to disturb. "
+            "It is now two numbers keyed on the ORDER LINE's own AllocType, which the export "
+            "carries on every row: 'hard' is a firm commitment to a VIN, 'soft' a provisional "
+            "reservation, 1,380 against 261 in the real book. That is a fact about the "
+            "promise, which is exactly what a break cost prices — so this is not the retired "
+            "mechanism in a smaller form, it is the same shape reading a real column instead "
+            "of a guessed one. 'soft' keeps the old single value, so nothing about a soft "
+            "bump changed. Both exemptions survive: no car at all, or a car already LATE, "
+            "costs nothing however firm the line — rescuing a disrupted order stays free. An "
+            "unreadable AllocType RAISES, like an unknown priority step. "
             "It is NOT a wall: the repair loop may bump a kept promise 'for the sake of "
             "another' order, it just pays for it. And it is CONFIG, not steering — it left the "
             "override object on 2026-08-26 because it is a constant somebody exposed per "

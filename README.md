@@ -12,7 +12,7 @@ Agents REST surface via the Python `anthropic` SDK, model `claude-sonnet-5` (Opu
 | File | Plane | Role |
 | ---- | ----- | ---- |
 | `setup_agent.py` | control (once) | Creates the cloud environment, uploads the skill **with the solver inside it**, creates the agent. Re-runnable: updates in place. |
-| `web.py` + `static/index.html` | run | The only process. Session control, transcript, and the one custom tool the sandbox cannot answer for itself. |
+| `web.py` + `static/index.html` | run | The only process. Session control, transcript, and the two custom tools the sandbox cannot answer for itself — the data pull and the write-back. |
 | `alloc_tools.py` | both | The `pull_allocation_snapshot` contract — declared and implemented in one place. |
 | `xas_allocation/` | — | The deterministic reference solver. Uploaded as part of the skill. |
 | `skills/xas-allocation/SKILL.md` | — | The allocation skill: data model, cost model, procedure, steering contract, planner-report contract. |
@@ -275,7 +275,7 @@ anything, and `web.py` logs `target: DEV|LIVE agent …` at startup.
 
 | Where | Holds | Runs |
 | --- | --- | --- |
-| `web.py` (here) | organization API key | the one custom tool |
+| `web.py` (here) | organization API key | the two custom tools (the pull, and the write-back that stages a plan) |
 | Anthropic's sandbox | nothing of yours | bash, file tools, the solver |
 
 **If `.env` already holds self-hosted IDs**, clear all three `ALLOC_*` values
@@ -358,7 +358,7 @@ Summary:
 |---|----------|---------|--------|
 | 1 | Aging term: additive vs multiplicative | **deleted** — the whole escalation term went; all three fields it read are zero on every real row | RETIRED |
 | 2 | Time-fence boundaries | **deleted** — it fired before the authorisation check and cancelled bumps a planner had asked for; a settled order is protected by not being in the free set | RETIRED |
-| 3 | Break cost: disturbing a kept promise | ONE `break_cost=200`, charged only when the displaced order's car was arriving on time. The hard/soft split retired 2026-08-27 — it read a real-vs-future binding the export does not carry. Config, not steering | value unvalidated |
+| 3 | Break cost: disturbing a kept promise | TWO numbers keyed on the line's `AllocType` — `soft: 200`, `hard: 400` — charged only when the displaced order's car was arriving on time. Re-split 2026-09-09: the 2026-08-27 retirement dropped a split keyed on the CAR's status name, which the export does not carry; `allocationType` on the LINE is a column it does. Config, not steering | both values unvalidated |
 | 4 | Pin mechanism | **deleted** with the instruction pin: deferring an order is a NEW PROMISED DATE, which lateness and earliness already price | RETIRED |
 | 5 | Managed Agents session-persistence API | steering is one combined override carried in the conversation; durable host-side store deferred | **OPEN** |
 | 6 | xas-code MCP liveness pattern | none, and there will not be one — the pull happens host-side before the session exists | settled (not applicable) |
