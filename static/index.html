@@ -87,6 +87,7 @@
   .msg.agent.md > :last-child { margin-bottom: 0; }
   .msg.agent.md h1, .msg.agent.md h2, .msg.agent.md h3 { margin: .5em 0 .3em; font-size: 1.05em; }
   .msg.agent.md p { margin: .4em 0; }
+  .msg.agent.md a { color: var(--accent); }
   .msg.agent.md ul, .msg.agent.md ol { margin: .3em 0; padding-left: 1.3em; }
   .msg.agent.md code { background: #eef1f5; border: 1px solid var(--line); border-radius: 4px;
                        padding: 0 3px; font-family: ui-monospace, monospace; font-size: .92em; }
@@ -135,6 +136,11 @@ let viewing = null;  // the session whose transcript is on screen
 let running = false; // is the agent currently working?
 let stream = null;
 
+// The app the records live in. Every link the MCP returns is a PATH
+// (/job_cards/8814), so without an origin here they resolve against this demo
+// and 404. Empty = leave them relative.
+const APP_ORIGIN = "";
+
 async function api(path, options) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
@@ -176,12 +182,20 @@ function add(kind, html) {
 }
 
 // --- Minimal, dependency-free Markdown -> safe HTML (tables, code, headings,
-//     lists, bold/inline-code). Everything is escaped first, so only our own
+//     lists, bold/inline-code, links). Everything is escaped first, so only our own
 //     tags reach innerHTML. ```mermaid blocks become <pre class="mermaid">. ---
 function mdInline(s) {  // s is already HTML-escaped
   return s
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+?)`/g, "<code>$1</code>");
+    .replace(/`([^`]+?)`/g, "<code>$1</code>")
+    // [106114](/job_cards/8814) -- the Url the record came back with. The path
+    // must start with "/" and carry no quote, so nothing the agent echoes can
+    // become a javascript: href or escape the attribute.
+    .replace(
+      /\[([^\]]+)\]\((\/[^)\s"']*)\)/g,
+      (_m, label, path) =>
+        `<a href="${APP_ORIGIN}${path}" target="_blank" rel="noopener">${label}</a>`
+    );
 }
 function splitRow(line) {
   let s = line.trim();

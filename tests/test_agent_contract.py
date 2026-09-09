@@ -325,6 +325,27 @@ def test_reporting_skill_sends_the_agent_to_the_mcp_not_to_a_file():
     assert "xas-app-mcp" in skill, "the skill must say where records come from"
 
 
+def test_reporting_skill_spells_out_the_owner_filter():
+    """A filter key the agent guesses comes back 0, not an error, so a live turn
+    spent three tries and ~35s on `Accounts.Owner.Code` before falling back to a
+    free-text search that returns other customers' cards. The two entities spell
+    the owner differently -- and the account CODE, not its id, is the one that
+    counts every card (389 of one customer's 403 answer to the id)."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert '{"Accounts.Owner.AccountName": "XAS Tester New"}' in skill
+    assert '{"owner.name": "XAS Tester New"}' in skill
+    assert '{"Accounts.Owner.AccountDMSCode": "10000"}' in skill
+
+
+def test_reporting_skill_keeps_links_out_of_bold():
+    """The app's chat renderer does not re-scan a bold node for inline syntax, so
+    `**[106114](/job_cards/8814)**` reaches the planner as raw brackets while the
+    same link unbolded is clickable. Their bug, our one-clause workaround -- it
+    comes out when the renderer recurses."""
+    skill = (setup_agent.REPORTING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "**A link is never bolded.**" in skill
+
+
 @pytest.mark.parametrize(
     "phrase", ["deliveries", "sales order", "vehicle purchase order", "what is late"]
 )

@@ -278,6 +278,23 @@ XAS endpoint and its credential never touch the sandbox.
   round trip a count does not need, which is why the rule is scoped to answers whose
   subject is the customers. The real fix is a `Url` on `Accounts.Owner` — a fourth
   item for `docs/appmcp-requests.md`, not yet filed.
+- **The owner filter is WRITTEN DOWN now, because a guessed one returns 0.** A live
+  turn on 2026-09-07 spent three tries and ~35s on `Accounts.Owner.Code` — taken from
+  the `fields` enum, which the skill already forbids without naming an alternative —
+  and settled on `searchAllFields`, which is not an owner filter: it also reads the
+  plate, the entry number and the FINANCER, and for one customer returned 48 cards
+  where 47 are theirs. So `## Worked examples` in the reporting skill states the keys
+  outright, and the two entities are NOT alike (probed 2026-09-07):
+  `Accounts.Owner.AccountName` is a case-insensitive PARTIAL match (`"XAS"` finds the
+  same 13 cards as `"XAS Tester New"`) and `$like` on it is broken — the same 5,378
+  for any text, nonsense included; the vehicles' `owner.name` is EXACT and
+  case-sensitive, and `$like` there works. The fourth example resolves an ambiguous
+  name through `get_account_list` and filters `Accounts.Owner.AccountDMSCode`, the
+  CODE — the account's id undercounts (389 of Hertz's 403). Two things were
+  deliberately NOT written into the skill, at the user's call: the three don'ts above,
+  and the fact that a common word merges customers (`"Test"` alone is 2,082 cards).
+  Examples instead of rules — if a turn ever falls back to a free-text search for a
+  customer, that is the cause, and one sentence restores it.
 - **The type list says what the ENTITY word does, and it is generated too.**
   `entity_heading()` opens each of the three lists with the words that mean the
   WHOLE set and take NO filter — `"job cards", "jobs"` for `JobClassification`,
@@ -468,8 +485,19 @@ XAS endpoint and its credential never touch the sandbox.
   unconditional, and now every MCP row hands over a ready path, which makes the gap
   worse rather than better. Restoring it is one clause in either place.
   Every link is still RELATIVE (2026-08-31) and now unavoidably so — the server
-  returns paths, not origins — so answers rendered outside the app, the `web.py`
-  demo chat included, have dead links until that surface resolves them.
+  returns paths, not origins — so answers rendered outside the app have dead links
+  until that surface resolves them. The demo chat is the one that does: its
+  markdown renderer had NO link rule at all until 2026-09-07 (it does bold and
+  inline code, and `[106114](/job_cards/8814)` reached the screen as literal text),
+  and `mdInline` now links a path that starts with `/` and holds no quote — the two
+  conditions that keep a `javascript:` href out of a string the agent wrote.
+  `static/index.html`'s `APP_ORIGIN` is the origin to prefix and is EMPTY: until it
+  is set, the links render and resolve against the demo itself.
+  The APP's own chat renderer is a different bug, found 2026-09-07: it does not
+  re-scan a bold node for inline syntax, so `**[106114](/job_cards/8814)**` — which
+  is how the agent naturally writes a named record — arrives as raw brackets while
+  the same link unbolded is clickable. Not our repo, so the reporting skill carries
+  the workaround as one line in `## The links`; delete it when the renderer recurses.
   What survives of the old machinery is `route_for`, **whose job was never really
   the link**: it groups a job card's types into the three business areas a planner
   asks for by NAME ("vehicle sales", "sales cards"), which the skill's type list

@@ -61,6 +61,21 @@ In `/workspace/skills/xas-reporting/`:
   paging. A customer's cards or vehicles come from `get_job_list` /
   `get_vehicle_list` filtered on the owner.
 
+## Worked examples
+
+**A customer's cards** — the name as typed, matched on part of it, any case:
+`{"Accounts.Owner.AccountName": "XAS Tester New"}`
+
+**Only their open ones**:
+`{"Accounts.Owner.AccountName": "XAS Tester New", "JobStatus.ID": ["6530d9a89c098a33be3e0c73"]}`
+
+**Their vehicles** — lower-case keys here, and an exact name; `$like` for part of one:
+`{"owner.name": "XAS Tester New"}` · `{"owner.name": {"$like": "XAS"}}`
+
+**A name that could be more than one customer** — resolve it, filter the code:
+`get_account_list {"search": "Hertz"}` → `Code: "10000"`
+`get_job_list {"filter": {"Accounts.Owner.AccountDMSCode": "10000"}}`
+
 ## The links
 
 **Every link comes back with the data.** Each record carries its own `Url`;
@@ -78,6 +93,9 @@ past ten say how many more there are.
 one `get_account_list` call over the names or codes you found brings back their
 pages and every name goes out as a link. An account path composed from an id on a
 card is the one thing that looks right and is not.
+
+**A link is never bolded.** `**[106114](/job_cards/8814)**` reaches the planner as
+raw brackets; `[106114](/job_cards/8814)` is the link.
 
 **Several types, several links.** Break the figure up by type — each its own
 count and its own `ListUrl` — then the total.
