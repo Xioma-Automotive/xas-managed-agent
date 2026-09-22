@@ -123,6 +123,9 @@ Do not pre-fill the answer, infer it from the data, or solve first and ask after
 a plan on the table is an anchor, and they end up correcting yours instead of
 stating theirs.
 
+**No options line on this question.** A menu anchors exactly as a plan does —
+they pick the nearest of yours instead of saying what matters. Ask it in words.
+
 **Ask in client terms.** When they answer with a name, resolve it yourself to
 every order that client holds and confirm them back ("Shira Peretz is these two
 orders, 900091-3 and 900091-7"). Never steer on the name alone: a client with

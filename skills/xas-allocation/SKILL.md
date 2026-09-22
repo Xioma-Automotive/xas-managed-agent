@@ -144,6 +144,10 @@ Do not pre-fill the answer, do not infer it from the data, and do not solve firs
 and ask afterwards — a plan already on the table is an anchor, and the planner
 ends up correcting yours instead of stating theirs.
 
+**This question carries no options line.** A menu of three answers anchors a
+planner exactly as a finished plan does: they pick the nearest of yours instead
+of saying what actually matters to them. Ask it in words and leave it open.
+
 **Ask in client terms, because that is how they think.** The late list already
 prints who each order is for, so "should any of these customers come first?" is a
 fair question. When they answer with a name, resolve it yourself to every order

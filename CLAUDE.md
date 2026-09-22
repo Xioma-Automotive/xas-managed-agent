@@ -497,6 +497,43 @@ XAS endpoint and its credential never touch the sandbox.
   heading. Its tests moved whole from the deleted `tests/test_link.py` into
   `tests/test_phrasebook.py`. What it still does not solve: a job-card filter naming
   no classification has no single area, and the server just picks `/job_cards`.
+- **The options line is the PROMPT's, and only its format (2026-09-17).** A
+  message ending `[[choices: A | B | C]]` is drawn as buttons by
+  `static/index.html` (`CHOICES_RE`, newest message only, the line stripped from
+  the text); tapping one sends that text as an ordinary message. It started in
+  `skills/xas-transfer/SKILL.md` and moved up for two reasons: the WINDOW renders
+  it for every agent message whatever lane wrote it, so a rule kept in one skill
+  left the other lanes unable to use a capability the UI already had; and a
+  prompt survives a summary where a skill body does not — buttons that quietly
+  stop appearing halfway through a long check-in have been summarized away.
+  **Only the format moved** (the marker, last line, two-to-five options, write
+  the message as if they were not there). When to REPEAT the line, the
+  confirm-the-value-on-record case and the hand-back's next step stay in the
+  transfer skill. The cost is +144 tokens on a prompt that was deliberately
+  halved twice, measured with `messages.count_tokens` against `claude-opus-4-8`
+  (823 -> 967 including the framing), and the risk it buys is real: a menu
+  ANCHORS. So the allocation ask-what-matters question explicitly takes NO
+  options line, in BOTH forks — that question exists to be open, and three
+  buttons anchor a planner exactly as a finished plan does. Three tests pin the
+  split: the prompt and the window agree on the marker, the format is in the
+  prompt and NOT in the transfer skill, and both forks carry the no-options rule
+  (`options line` is in the fork drift guard's token list).
+- **A file dragged into the chat is an ATTACHMENT, never a mount (2026-09-17).**
+  `web.py`'s `/message` is multipart now: what the planner typed plus whatever
+  they dropped, uploaded on Send and referenced from the `user.message` event as
+  an `image` or `document` block, picture FIRST so the words that describe it
+  read against something already seen. So the MODEL SEES the photo — the point,
+  for a worker standing at a car. The other door, `sessions.resources.add`, would
+  mount it into the running sandbox instead, and is deliberately shut: the
+  sandbox's one input is the pull, and a file the agent could read with `bash` is
+  a second source of facts about the same book. `attachment_kind` decides what a
+  message can carry (images, PDFs, text) off the EXTENSION and refuses the rest
+  by name before anything is uploaded — a `.csv` uploads as `text/plain` because
+  the block's source type has to match what was uploaded. What the drop cannot
+  do is come back: an uploaded input is not downloadable, and the event carries a
+  file id and no name, so `_attachment_names` holds the names IN THIS PROCESS and
+  a transcript replayed after a restart says `image`. `tests/test_attachments.py`
+  pins the shapes, the order and the refusals.
 - **ONE mount, and reporting has no file at all.** `/workspace/dms_allocation.json`
   is the pull — both row streams in one document, because the contract says one
   document — and it is the only thing `web.py` mounts. It replaced

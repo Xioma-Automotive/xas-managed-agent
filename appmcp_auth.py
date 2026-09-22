@@ -57,7 +57,10 @@ USER_TOKEN_COOKIE = "__DMS_app_token"
 # the server answers a bare 401 with no indication which param was wrong.
 ISS = "http://dev_aibot:5050"
 CLAIM_TYPE = "appmcp"
-SCOPE = "jobcards.read accounts.read vehicles.read"
+# `jobcards.write` is the checklist editor's scope, and the name is NOT yet
+# confirmed against the MCP — the read three are what the server was known to
+# accept. Adding it is what gives a session `edit_job_checklist` at all.
+SCOPE = "jobcards.read jobcards.write accounts.read vehicles.read"
 
 OUTER_TTL_SECONDS = 7 * 24 * 60 * 60  # a week, per Olga's call
 ROTATE_EVERY_SECONDS = 20 * 60  # 20 min — comfortably inside the inner 30

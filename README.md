@@ -325,6 +325,36 @@ dropping the source rather than widening the projection, and its two spec docs
 went with it on 2026-08-30. The MCP tools the agent holds are the reporting
 lane's and are unaffected.
 
+### Dragging a picture or a file into the chat
+
+Drag anything onto the window and it waits in a tray above the box; Send uploads
+it and attaches it to that message, so the **model sees the picture in the turn
+it answers** — a worker photographing a scratch gets it looked at, not read off
+disk. Up to five files a message, 10MB each: images (png/jpg/gif/webp), PDFs, and
+text (txt/md/csv/json/log/yaml). Anything else comes back as a refusal naming the
+file, and nothing is uploaded until it is known to be carryable.
+
+A dropped file is **not** mounted into the sandbox. The sandbox has one input,
+the pull, and a file the agent could read with `bash` would be a second source of
+facts about the same book. `tests/test_attachments.py` pins the shapes and the
+refusals; `test_the_pull_is_the_only_mount` pins that the drop never becomes a
+mount.
+
+The transcript names what a message carried (`📎 scratch.jpg`) rather than
+showing it again: an uploaded input cannot be read back from the API, so the name
+is kept here, in this process, and a replay after a restart says `image` instead.
+
+### Buttons under a message
+
+An agent message ending with an options line — `[[choices: None | Scratches |
+Dents]]` — is drawn as buttons; tapping one sends that text as an ordinary
+message, and the line itself never appears. Only the newest message's buttons
+are live. The rule lives in the system prompt, because the window does this for
+every message whatever lane wrote it. What each lane does with it is the skill's:
+the transfer walkthrough ends nearly every question with one, and the allocation
+lane's "what matters to you?" question deliberately offers none — a menu anchors
+a planner the same way a finished plan does.
+
 ### One session at a time
 
 A product choice here rather than a constraint — with a cloud sandbox nothing

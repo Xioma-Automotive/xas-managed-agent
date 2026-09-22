@@ -34,7 +34,7 @@ from pathlib import Path
 
 from anthropic import APIError, AsyncAnthropic
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -130,8 +130,54 @@ class NewSession(BaseModel):
     scenario: str | None = None
 
 
-class Message(BaseModel):
-    text: str
+# What a planner may drag into the chat window. The file is attached to the
+# user's message so the MODEL SEES IT in the turn — a photo of a scratch is
+# looked at, not read off disk — which leaves exactly two shapes: an image block
+# and a document block. The media type decides which, and anything else is
+# refused at the boundary rather than uploaded and silently dropped.
+#
+# Nothing dragged in reaches the sandbox. That is deliberate: the sandbox's one
+# input is the mounted pull, and a file the agent could read with `bash` would be
+# a second source of allocation facts.
+ATTACHMENT_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+# Everything here travels as a `document` block. A PDF keeps its own type; the
+# rest are plain text whatever the browser called them, because the block's
+# source type has to match what was uploaded.
+ATTACHMENT_DOCUMENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/plain",
+    ".csv": "text/plain",
+    ".json": "text/plain",
+    ".log": "text/plain",
+    ".yaml": "text/plain",
+    ".yml": "text/plain",
+}
+MAX_ATTACHMENTS = 5
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+# file_id -> the name it was dropped under, so a replayed transcript can say
+# "photo.jpg" rather than "image". The event carries the id and no name, and an
+# uploaded input cannot be read back, so this is the only place the name exists.
+# In-process only: after a restart a replayed attachment falls back to its kind.
+_attachment_names: dict[str, str] = {}
+
+
+def attachment_kind(filename: str) -> tuple[str, str] | None:
+    """(media type to upload as, content block type) for a dropped file, or None
+    if it is not something a message can carry."""
+    suffix = os.path.splitext(filename or "")[1].lower()
+    if suffix in ATTACHMENT_IMAGE_TYPES:
+        return ATTACHMENT_IMAGE_TYPES[suffix], "image"
+    if suffix in ATTACHMENT_DOCUMENT_TYPES:
+        return ATTACHMENT_DOCUMENT_TYPES[suffix], "document"
+    return None
 
 
 def _require_config() -> None:
@@ -364,7 +410,7 @@ def _render(event) -> dict | None:
         return {"type": "planner", "text": span} if span else None
     if kind == "user.message":
         text = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
-        return {"type": "user", "text": text}
+        return {"type": "user", "text": text, "attachments": _attachment_labels(event.content)}
     if kind == "agent.thinking":
         return {"type": "thinking"}
     if kind == "agent.tool_use":
@@ -600,14 +646,77 @@ async def events(session_id: str) -> EventSourceResponse:
     return EventSourceResponse(relay())
 
 
+def _attachment_labels(content) -> list[str]:
+    """What was dragged into a user message, named for the transcript."""
+    labels = []
+    for block in content or []:
+        kind = getattr(block, "type", None)
+        if kind not in ("image", "document"):
+            continue
+        file_id = getattr(getattr(block, "source", None), "file_id", None)
+        labels.append(_attachment_names.get(file_id or "") or kind)
+    return labels
+
+
+async def _attachment_content(files: list[UploadFile]) -> list[dict]:
+    """Upload each dropped file and turn it into a content block.
+
+    Refusals are 400s with the offending name in them: a planner who drags a
+    .docx in has to be told, and a file uploaded and then left out of the
+    message would be a silent nothing.
+    """
+    if len(files) > MAX_ATTACHMENTS:
+        raise HTTPException(400, f"at most {MAX_ATTACHMENTS} files per message")
+    content = []
+    for upload in files:
+        name = os.path.basename(upload.filename or "attachment")
+        kind = attachment_kind(name)
+        if kind is None:
+            raise HTTPException(400, f"{name}: only images, PDFs and text files can be attached")
+        media_type, block = kind
+        blob = await upload.read()
+        if not blob:
+            raise HTTPException(400, f"{name} is empty")
+        if len(blob) > MAX_ATTACHMENT_BYTES:
+            raise HTTPException(400, f"{name} is {len(blob) // (1024 * 1024)}MB; the limit is 10MB")
+        uploaded = await _upload(name, blob, media_type)
+        _attachment_names[uploaded.id] = name
+        source = {"type": "file", "file_id": uploaded.id}
+        content.append(
+            {"type": "image", "source": source}
+            if block == "image"
+            else {"type": "document", "source": source, "title": name}
+        )
+        log.info("attached %s (%s, %d bytes) as %s", name, media_type, len(blob), uploaded.id)
+    return content
+
+
 @app.post("/message")
-async def message(body: Message) -> dict:
+async def message(
+    text: str = Form(""),
+    files: list[UploadFile] | None = File(None),
+) -> dict:
+    """The planner's turn: what they typed, and whatever they dragged in with it.
+
+    multipart rather than JSON because the files ride along — the attachments
+    belong to the message, so they are uploaded and sent in one act and there is
+    no half-sent state where a file exists but no turn quotes it.
+    """
     if not _active:
         raise HTTPException(409, "no active session")
+    text = text.strip()
+    files = files or []
+    if not text and not files:
+        raise HTTPException(400, "nothing to send")
+    # Attachments first: a picture is the subject and the text is about it, and
+    # the model reads a block it has already seen.
+    content = await _attachment_content(files)
+    if text:
+        content.append({"type": "text", "text": text})
     try:
         await client.beta.sessions.events.send(
             session_id=_active,
-            events=[{"type": "user.message", "content": [{"type": "text", "text": body.text}]}],
+            events=[{"type": "user.message", "content": content}],
         )
     except APIError as e:
         # A session paused at its budget takes only events that settle work

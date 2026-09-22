@@ -9,6 +9,9 @@ description: >-
   late, which vehicle an order gets, bumping, pinning, deliveries, arrivals,
   VSOs / sales orders, or delays in supply or in a VPO belong to xas-allocation,
   which answers them from the solver; that holds even when phrased as a count.
+  Do NOT use for a worker's own transfer jobs either — "what transfers do I
+  have today", "what's my next job" — that is the xas-transfer walkthrough,
+  even though it asks for a list.
 ---
 
 # XAS reporting

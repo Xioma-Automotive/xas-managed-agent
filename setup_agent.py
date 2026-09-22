@@ -89,11 +89,28 @@ ALLOC_SKILL_DIRS = {
 }
 ALLOC_SKILL_DIR = ALLOC_SKILL_DIRS[DEV]
 
+# The transfer walkthrough is a THIRD LANE on both agents (promoted 2026-09-22).
+# It was dev-only from 2026-09-17 while it was unproven; it now deploys like the
+# other two, which means each target carries its OWN skill object — `.env` keys
+# `TRANSFER_SKILL_ID` and `DEV_TRANSFER_SKILL_ID` — so a dev push cannot reach the
+# live agent, which pins no skill version. The prompt does not name the lane: the
+# skill's own description is what routes to it, exactly as for allocation.
+#
+# What that costs is a phrasing the two lanes BOTH fit. "What vehicle transfers do
+# I have for today" is first-person and current — the worker's queue, this skill —
+# but it reads as a list, which is reporting's own word, and the transfer
+# description used to hand every question ABOUT transfers away. Both descriptions
+# now say which one wins, in the words a worker types; the prompt's first-block
+# read was scoped with them, because it named `xas-reporting` for everything
+# before the first MCP call and a transfer turn's first call is `get_job_list`.
+TRANSFER_SKILL_DIR = REPO_ROOT / "skills" / "xas-transfer"
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ALLOC_AGENT_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_AGENT_ID")
 ALLOC_ENV_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_ENV_ID")
 ALLOC_SKILL_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_SKILL_ID")
 REPORTING_SKILL_ID = os.environ.get(f"{ENV_PREFIX}REPORTING_SKILL_ID")
+TRANSFER_SKILL_ID = os.environ.get(f"{ENV_PREFIX}TRANSFER_SKILL_ID")
 
 # The credential check and the client are deliberately NOT module-level: the
 # prompt, the tool list and the skill bundles are the agent's contract, and
@@ -143,17 +160,27 @@ APPMCP_SERVER_NAME = "xas-app-mcp"
 _DEV_SUFFIX = " (dev)" if DEV else ""
 ALLOC_SKILL_TITLE = f"XAS allocation repair (cloud sandbox){_DEV_SUFFIX}"
 REPORTING_SKILL_TITLE = f"XAS reporting (cloud sandbox){_DEV_SUFFIX}"
+TRANSFER_SKILL_TITLE = f"XAS transfer walkthrough (cloud sandbox){_DEV_SUFFIX}"
 
 # §10 — the system prompt says what each component is FOR and leaves the reasoning
 # to the model. It carries identity, the pieces the agent has, what rides in the
-# first block, the two link kinds and the never-show-the-kitchen rule — and no
-# procedure at all: which call to send, how to bound a page and how to present a
+# first block, the two link kinds, the options line the window turns into buttons,
+# and the never-show-the-kitchen rule — and no procedure at all: which call to send, how to bound a page and how to present a
 # figure are the reporting skill's, and routing to `xas-allocation` is that skill's
 # own description. The tenant's VOCABULARY moved into the skill on 2026-09-06 with
 # the lookup's deletion: it is only ever wanted once you are already answering a
 # reporting question, and by then the skill has landed in the same block. `dates.py`
 # stays here because it fires in that block, beside the read, and so cannot live in
 # the file it would have to wait for.
+#
+# The OPTIONS LINE came up here from the transfer skill on 2026-09-17, and it is
+# here for two reasons: `static/index.html` turns that line into buttons for EVERY
+# agent message whatever lane wrote it, so the rule belongs where the renderer's
+# reach is; and a prompt survives a summary where a skill body does not — a
+# walkthrough that quietly stops offering buttons halfway through a check-in has
+# lost them to a summary. Only the FORMAT moved. When to repeat the line is the
+# transfer skill's, and the allocation ask-what-matters question takes no options
+# at all — a menu of three anchors a planner exactly as a finished plan does.
 SYSTEM_PROMPT = """\
 You are the XAS Agent for Xioma Automotive. You answer questions over this dealership's own records — counts, breakdowns, lists, charts. Read the skill that fits before you act.
 
@@ -166,7 +193,7 @@ The pieces
 
 The first block
 
-Everything before your first `xas-app-mcp` call goes in ONE block, never a round trip each: read the `xas-reporting` skill, and in that same block turn every named period into a date range. That is the whole of it — two things, one block, and nothing else stands between a question and its answer.
+Everything before your first `xas-app-mcp` call goes in ONE block, never a round trip each: read the skill the question belongs to — `xas-reporting` unless another one claims the ask — and in that same block turn every named period into a date range. That is the whole of it — two things, one block, and nothing else stands between a question and its answer.
 
 A word about WHEN is a date, not a status: "opened", "created", "raised", "closed last week" all mean `CreateDateTime` over a span. `Open` is a status; "opened" is a date; reading one as the other answers a different question.
 
@@ -182,9 +209,17 @@ Links
 - TEN named records is the ceiling; past ten the set link is the list, so print ten and say how many more there are.
 - A link is a name made clickable, never a bare address.
 
+Offering the answer as buttons
+
+When the answer is one of a few known things, close the message with an options line — last, nothing after it:
+
+    [[choices: None | Scratches | Dents]]
+
+They see buttons, not the line, and tapping one sends that text back as their message. Two to five options, a couple of words each, only ones you can act on, and the message reads as if the buttons were not there. Answers you cannot list are asked for in words, with no line.
+
 Never show the kitchen
 
-The reply is the answer, in the planner's own words. No file path or filename, no tool, field or column name, no code or id where a name belongs, no account of what you ran or checked. Trouble in business terms ("the live system returned nothing for July"). The links above are the one exception.
+The reply is the answer, in the planner's own words. No file path or filename, no tool, field or column name, no code or id where a name belongs, no account of what you ran or checked. Trouble in business terms ("the live system returned nothing for July"). The links and the options line above are the exceptions.
 """
 
 
@@ -352,6 +387,17 @@ def reporting_bundle() -> list[tuple[str, bytes]]:
     )
 
 
+def transfer_bundle() -> list[tuple[str, bytes]]:
+    """SKILL.md alone — the walkthrough carries no code and no data.
+
+    It reads the live system through the same `xas-app-mcp` tools the reporting
+    lane uses, so there is nothing to ship beside the procedure. The job-card
+    status ids it filters on are written into the skill, like the reporting
+    vocabulary and for the same reason: a round trip to look one up buys nothing.
+    """
+    return skill_files(TRANSFER_SKILL_DIR)
+
+
 # Still deny-by-default: no allowed_hosts, so the agent reaches no host of its
 # own choosing. Package managers stay on so it can `pip install ortools`.
 # `allow_mcp_servers` opens egress to the agent's DECLARED MCP endpoints only —
@@ -404,29 +450,45 @@ def update_skill(skill_id: str, files: list[tuple[str, bytes]], title: str) -> N
     print(f"Updated skill:       {skill_id} -> version {version.version}  ({title})")
 
 
-def _skills(alloc_skill_id: str, reporting_skill_id: str) -> list[dict]:
-    """Both entries, every time — agents.update() PRESERVES omitted array fields,
-    so a skills list that is not sent is a skills list that does not change."""
-    return [
+def _skills(
+    alloc_skill_id: str, reporting_skill_id: str, transfer_skill_id: str | None = None
+) -> list[dict]:
+    """Every entry, every time — agents.update() PRESERVES omitted array fields,
+    so a skills list that is not sent is a skills list that does not change.
+
+    The transfer id is optional because it is dev-only: a live run passes None and
+    sends the same two entries it always did.
+    """
+    skills = [
         {"type": "custom", "skill_id": alloc_skill_id},
         {"type": "custom", "skill_id": reporting_skill_id},
     ]
+    if transfer_skill_id:
+        skills.append({"type": "custom", "skill_id": transfer_skill_id})
+    return skills
 
 
-def create_agent(alloc_skill_id: str, reporting_skill_id: str) -> str:
+def create_agent(
+    alloc_skill_id: str, reporting_skill_id: str, transfer_skill_id: str | None = None
+) -> str:
     agent = client().beta.agents.create(
         name=AGENT_NAME,
         model=model_config(),
         system=SYSTEM_PROMPT,
         tools=TOOLS,
         mcp_servers=MCP_SERVERS,
-        skills=_skills(alloc_skill_id, reporting_skill_id),
+        skills=_skills(alloc_skill_id, reporting_skill_id, transfer_skill_id),
     )
     print(f"Created agent:       {agent.id}  (version {agent.version})")
     return agent.id
 
 
-def update_agent(agent_id: str, alloc_skill_id: str, reporting_skill_id: str) -> None:
+def update_agent(
+    agent_id: str,
+    alloc_skill_id: str,
+    reporting_skill_id: str,
+    transfer_skill_id: str | None = None,
+) -> None:
     agent = client().beta.agents.update(
         agent_id,
         # Sent on update too: the agent predates the merge and would otherwise
@@ -436,9 +498,10 @@ def update_agent(agent_id: str, alloc_skill_id: str, reporting_skill_id: str) ->
         system=SYSTEM_PROMPT,
         tools=TOOLS,
         mcp_servers=MCP_SERVERS,
-        skills=_skills(alloc_skill_id, reporting_skill_id),
+        skills=_skills(alloc_skill_id, reporting_skill_id, transfer_skill_id),
     )
-    print(f"Updated agent:       {agent.id}  (version {agent.version}, 2 skills, 1 MCP)")
+    count = len(_skills(alloc_skill_id, reporting_skill_id, transfer_skill_id))
+    print(f"Updated agent:       {agent.id}  (version {agent.version}, {count} skills, 1 MCP)")
 
 
 def check_environment_type(environment_id: str) -> None:
@@ -458,6 +521,19 @@ def check_environment_type(environment_id: str) -> None:
         )
 
 
+def _refresh_transfer_skill() -> str:
+    """The third skill: create it on this target's first run, push a version after.
+
+    Each target has its own skill object, because the agent attaches a skill with no
+    version pinned — a version pushed to the live object is live on the next session
+    whoever pushed it.
+    """
+    if TRANSFER_SKILL_ID:
+        update_skill(TRANSFER_SKILL_ID, transfer_bundle(), TRANSFER_SKILL_TITLE)
+        return TRANSFER_SKILL_ID
+    return create_skill(transfer_bundle(), TRANSFER_SKILL_TITLE)
+
+
 def main() -> None:
     """Three paths, because the allocation agent already exists.
 
@@ -470,7 +546,8 @@ def main() -> None:
     # Which agent is being written to is the one thing a mis-run cannot be allowed
     # to leave ambiguous.
     print(f"Target:                   {'DEV (XAS_DEV=1)' if DEV else 'LIVE'} — {AGENT_NAME}")
-    print(f"Allocation skill:         skills/{ALLOC_SKILL_DIR.name}/\n")
+    print(f"Allocation skill:         skills/{ALLOC_SKILL_DIR.name}/")
+    print("Transfer skill:           skills/xas-transfer/\n")
 
     if ALLOC_ENV_ID:
         check_environment_type(ALLOC_ENV_ID)
@@ -481,7 +558,14 @@ def main() -> None:
         update_environment(ALLOC_ENV_ID)
         update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
         update_skill(REPORTING_SKILL_ID, reporting_bundle(), REPORTING_SKILL_TITLE)
-        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, REPORTING_SKILL_ID)
+        transfer_skill_id = _refresh_transfer_skill()
+        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, REPORTING_SKILL_ID, transfer_skill_id)
+        if transfer_skill_id and not TRANSFER_SKILL_ID:
+            print("\n" + "=" * 60)
+            print("Add this ONE line to your .env (the others are unchanged):\n")
+            print(f"{ENV_PREFIX}TRANSFER_SKILL_ID={transfer_skill_id}")
+            print("=" * 60)
+            return
         print("\nDone. The IDs in .env are unchanged.")
         return
 
@@ -491,10 +575,13 @@ def main() -> None:
         update_environment(ALLOC_ENV_ID)
         update_skill(ALLOC_SKILL_ID, alloc_bundle(), ALLOC_SKILL_TITLE)
         reporting_skill_id = create_skill(reporting_bundle(), REPORTING_SKILL_TITLE)
-        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, reporting_skill_id)
+        transfer_skill_id = _refresh_transfer_skill()
+        update_agent(ALLOC_AGENT_ID, ALLOC_SKILL_ID, reporting_skill_id, transfer_skill_id)
         print("\n" + "=" * 60)
-        print("Add this ONE line to your .env (the others are unchanged):\n")
+        print("Add these to your .env (the others are unchanged):\n")
         print(f"{ENV_PREFIX}REPORTING_SKILL_ID={reporting_skill_id}")
+        if transfer_skill_id and not TRANSFER_SKILL_ID:
+            print(f"{ENV_PREFIX}TRANSFER_SKILL_ID={transfer_skill_id}")
         print("=" * 60)
         return
 
@@ -505,7 +592,8 @@ def main() -> None:
     reporting_skill_id = REPORTING_SKILL_ID or create_skill(
         reporting_bundle(), REPORTING_SKILL_TITLE
     )
-    agent_id = ALLOC_AGENT_ID or create_agent(alloc_skill_id, reporting_skill_id)
+    transfer_skill_id = _refresh_transfer_skill()
+    agent_id = ALLOC_AGENT_ID or create_agent(alloc_skill_id, reporting_skill_id, transfer_skill_id)
 
     print("\n" + "=" * 60)
     print("Setup complete. Paste these into your .env:\n")
@@ -513,6 +601,8 @@ def main() -> None:
     print(f"{ENV_PREFIX}ALLOC_ENV_ID={environment_id}")
     print(f"{ENV_PREFIX}ALLOC_SKILL_ID={alloc_skill_id}")
     print(f"{ENV_PREFIX}REPORTING_SKILL_ID={reporting_skill_id}")
+    if transfer_skill_id:
+        print(f"{ENV_PREFIX}TRANSFER_SKILL_ID={transfer_skill_id}")
     print("=" * 60)
     print(
         "\nThe environment is Anthropic-hosted — there is no worker to start and no\n"

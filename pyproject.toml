@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn[standard]",
     "sse-starlette",
     "cryptography>=50.0.0",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]
@@ -38,3 +39,8 @@ line-length = 100
 # Every script here carries a shebang and is run as `python <script>.py`, none
 # are chmod +x. Matching the convention, not the rule.
 ignore = ["EXE001"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares an upload parameter as `File(...)` in the signature; that is
+# the framework's idiom, not a mutable default.
+extend-immutable-calls = ["fastapi.File"]
