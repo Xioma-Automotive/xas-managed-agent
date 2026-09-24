@@ -113,13 +113,12 @@ def test_transfer_skill_starts_a_checklist_when_none_is_on_the_card():
     deleted — so there is no decision to hand the worker; asking just costs a turn.
     The ask was "no OPEN checklist", but a card holds one of each type: adding
     "Vehicle Check-in" to card 80, whose copy was 5/5 done, came back
-    `"Vehicle Check-in" is already on job card 80.` So a finished one is reported as
-    done, never re-added — an instruction to add it would be refused on every card.
+    `"Vehicle Check-in" is already on job card 80.` So the rule is scoped to a card
+    with none; a finished one needs no rule of its own (the user's call, 2026-09-24).
     """
     skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "No checklist — start one, without asking" in skill
     assert '"action": "add_checklist"' in skill
-    assert "A done one cannot be restarted" in skill
 
 
 def test_transfer_skill_tells_the_agent_to_say_less():

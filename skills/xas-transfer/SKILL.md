@@ -175,10 +175,6 @@ the card, add it straight away and walk the tasks it returns:
 
 Tell the worker in one line that a fresh check-in was started.
 
-**A done one cannot be restarted.** A card holds one checklist of each type, so
-a second "Vehicle Check-in" is refused. When `DoneCount` equals `TotalCount`,
-say the check-in is already done and move on.
-
 When the last task is answered, save them ALL in ONE call:
 
     edit_job_checklist {"action": "set_tasks",
