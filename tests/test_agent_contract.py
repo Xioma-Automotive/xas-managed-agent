@@ -76,22 +76,87 @@ def test_the_transfer_skill_is_attached_like_the_other_two():
     assert [s["skill_id"] for s in first_run] == ["sk_alloc", "sk_reporting"]
 
 
-def test_transfer_skill_says_a_missing_vehicle_360_out_loud():
-    """A card with no record has no `vehicle360` key at all, and the agent skipped it.
+def test_transfer_skill_shows_one_job_card():
+    """The oldest card and no queue — asked for on 2026-09-22.
+
+    It shipped fetching 20 and naming the first, and a live turn printed all three
+    with a button each. `count: 1` makes it structural: the queue never reaches the
+    model, so it cannot be listed, and `totalCount` still carries how many wait.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert '"paging": {"count": 1}' in skill
+    assert '"paging": {"count": 20}' not in skill
+    assert "Never list the queue behind it" in skill
+    assert "totalCount" in skill
+
+
+def test_transfer_skill_holds_answers_and_writes_once():
+    """No write lands between two questions — the worker answers the set, then it saves.
+
+    Asked for on 2026-09-22: a call per answer made the walkthrough stop and start,
+    and on the Vehicle 360 each call rewrites the whole record and syncs it to SAP.
+    Both tools say it themselves ("Send every task you are changing in ONE call"), so
+    the skill collects and fires once per set. The cost is that a held answer is lost
+    if the worker walks away, which is why the save-what-you-have line is pinned too.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Nothing is written between two" in skill
+    assert "**One call, every task in it**" in skill
+    assert "save what you have before you leave the card" in skill
+    assert "One call per answer" not in skill
+
+
+def test_transfer_skill_starts_a_checklist_when_none_is_on_the_card():
+    """A card with no check-in checklist gets one added, and the worker is not asked first.
+
+    Asked for on 2026-09-24. `add_checklist` only attaches a checklist — nothing is
+    deleted — so there is no decision to hand the worker; asking just costs a turn.
+    The ask was "no OPEN checklist", but a card holds one of each type: adding
+    "Vehicle Check-in" to card 80, whose copy was 5/5 done, came back
+    `"Vehicle Check-in" is already on job card 80.` So a finished one is reported as
+    done, never re-added — an instruction to add it would be refused on every card.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "No checklist — start one, without asking" in skill
+    assert '"action": "add_checklist"' in skill
+    assert "A done one cannot be restarted" in skill
+
+
+def test_transfer_skill_tells_the_agent_to_say_less():
+    """A worker with one hand on the phone does not read a paragraph.
+
+    The voice rule is a section of its own so it survives being skimmed, and the
+    steps that used to invite prose — the step 4 brief, the step 7 hand-back — now
+    name their own length.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Say less" in skill
+    assert "No preamble, no sign-off" in skill
+    assert "Never explain yourself" in skill
+    assert "one short paragraph" not in skill
+    assert "in three sentences" not in skill
+
+
+def test_transfer_skill_opens_a_vehicle_360_when_none_is_open():
+    """A card with no open record gets one opened, and the worker is not asked first.
 
     Live on 2026-09-22 (`sthr_01LNG4J6mq33qxxsV3JjQwNT`, card 8815): the section was
     requested, came back absent — not `[]`, not `{"error": ...}` — and the walkthrough
     never mentioned the Vehicle 360. It reported the check-in complete off a ticked
     "Vehicle 360 Completed" checklist task on a card that holds no record. So the
-    absence is named by its shape, the offer to open one is an options line, and the
-    checklist tick is called out as not being the record. `edit_vehicle_360` cannot
-    create one — the tool says so itself — so the offer hands over the card link.
+    absence is named by its shape and the checklist tick is called out as not being
+    the record. Then the skill handed the worker the card link to open one in the app,
+    because `edit_vehicle_360` could not create one. It can now (`action: "open"`,
+    refused while a non-completed record exists), so on 2026-09-24 the skill opens one
+    itself — the same no-ask rule as the checklist.
     """
     skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "no `vehicle360` key at all" in skill
-    assert "[[choices: I'll open one | Skip it]]" in skill
+    assert "no\n  `vehicle360` key at all" in skill
+    assert "No open record — open one, without asking" in skill
+    assert '"action": "open"' in skill
     assert '"Vehicle 360 Completed" task is not a record' in skill
-    assert "you cannot create a record" in skill
+    assert "you cannot create a record" not in skill
+    assert "I'll open one" not in skill
 
 
 def test_transfer_bundle_is_the_skill_and_nothing_else():
