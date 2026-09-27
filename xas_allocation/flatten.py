@@ -1,7 +1,7 @@
 """Flatten the mounted pull into the solver snapshot — pure, cheap code.
 
-This runs IN THE SANDBOX, over the two files the host mounted: ``orders.json``
-and ``vehicles.json``, written by ``datasource.translate`` out of the export's
+This runs IN THE SANDBOX, over the ONE file the host mounted — the "Allocation
+solve contract" document, written by ``datasource.translate`` out of the export's
 ``orders.csv`` + ``vehicles.csv``. It is the "flatten + freeze at pull time" step.
 
 The invariant (``plan = pure_function(data_snapshot, …)``) REQUIRES it to be
@@ -9,28 +9,37 @@ deterministic code, not model reasoning: if the agent re-derived this mapping ea
 turn, that is the exact state-leak the whole design guards against. So it lives
 here, is O(n), and makes zero model calls.
 
-Input — the two mounted payloads::
+Input — the mounted document::
 
-    orders.json    {"now": "2026-08-25", "meta": {...}, "orders": [...]}
-    vehicles.json  {"vehicles": [...]}
+    dms_allocation.json  {"captured_at": "2026-08-25", "pull_id": "…",
+                          "source": "…", "meta": {...},
+                          "orders": [...], "vehicles": [...]}
 
 Output — an ``xas_allocation.snapshot.Snapshot``: the ``orders[] / vehicles[] /
 allocations{}`` arrays the solver reads.
 
-Field mapping (pull → solver):
+Field mapping (document → solver):
 
-  * ``OrderId``      → ``Order.order_id``; one row is one order for ONE car, so
-    the id IS the key. No cards, no lines, no ``Quantity``.
+  * ``DMSJCNum`` + ``LineNum`` → ``Order.job_card`` / ``Order.line``, and together
+    ``Order.key`` — the contract's identity for one order line. One line is one
+    order for ONE car; there is still no ``Quantity``.
+  * ``DMSJCEntry``   → ``Order.entry`` — the DMS's own handle on the card, carried
+    because a write-back has to quote it. Nothing here reads it.
   * ``DeliveryDate`` → ``Order.delivery_date`` — the promise, from the ORDER's own
     ``etaDealer`` column. The car's date is a different field entirely.
   * ``SalesModel``   → ``Order.sales_model`` / ``Vehicle.sales_model``;
     eligibility is exact equality between the two.
-  * ``EtaDealer``    → ``Vehicle.eta_dealer`` — from the car's ``availableBy``,
+  * ``AvailableBy``  → ``Vehicle.eta_dealer`` — from the car's ``availableBy``,
     the one field a delay moves.
   * ``VehicleCode`` on an order → ``allocations[key]``, the car it holds today.
-  * ``Customer``     → ``Order.customer`` — the client's name, from the order's
-    ``customer.name``. A label: nothing in the solver reads it, and an order with
-    no name still allocates.
+    ``null`` means it holds none.
+  * ``Accounts.Owner.AccountName`` → ``Order.customer`` and
+    ``…AccountDMSCode`` → ``Order.account_code`` — the client, as a label and as
+    the account's real key. Nothing in the solver reads either, and an order with
+    no account still allocates.
+  * ``AllocType``    → ``Order.alloc_type`` — how firmly the customer is
+    committed, ``hard`` or ``soft``. PRICED: ``solver.break_cost_of`` charges more
+    to break a hard promise than a soft one, and raises on anything else.
 
 Eligibility arcs are NOT built here — the solver computes them at solve time
 (the sparse-arc rule), never stored.
@@ -45,8 +54,8 @@ from pathlib import Path
 from .snapshot import Order, Snapshot, Vehicle, parse_date
 
 
-def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
-    """The two mounted payloads -> a flattened Snapshot. Pure, deterministic.
+def flatten(pull: dict) -> Snapshot:
+    """The mounted document -> a flattened Snapshot. Pure, deterministic.
 
     A row missing the field that makes it solvable — an order with no promised
     date, a car with no eligibility key or no arrival date — is SKIPPED and
@@ -65,10 +74,15 @@ def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
 
     orders: list[Order] = []
     allocations: dict[str, str] = {}
-    for row in orders_doc["orders"]:
-        order_id = str(row.get("OrderId") or "").strip()
-        if not order_id:
-            skip("order_without_an_id")
+    for row in pull["orders"]:
+        # The DMS sends LineNum as a number and a CSV sends it as a string; both
+        # end up the same key because both go through str() here and in
+        # `datasource.order_key`. Two spellings of one key match nothing and say
+        # nothing about why.
+        card = str(row.get("DMSJCNum") or "").strip()
+        line = str(row.get("LineNum") or "").strip()
+        if not (card and line):
+            skip("order_without_a_card_or_line_number")
             continue
         if not str(row.get("SalesModel") or "").strip():
             skip("order_without_a_model")
@@ -77,10 +91,14 @@ def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
             skip("order_without_a_promised_date")
             continue
         order = Order(
-            order_id=order_id,
+            job_card=card,
+            line=line,
             sales_model=str(row["SalesModel"]).strip(),
             delivery_date=parse_date(row["DeliveryDate"]),
-            customer=str(row.get("Customer") or "").strip(),
+            customer=str(row.get("Accounts.Owner.AccountName") or "").strip(),
+            account_code=str(row.get("Accounts.Owner.AccountDMSCode") or "").strip(),
+            alloc_type=str(row.get("AllocType") or "").strip(),
+            entry=str(row.get("DMSJCEntry") or "").strip(),
         )
         orders.append(order)
         held = str(row.get("VehicleCode") or "").strip()
@@ -88,18 +106,18 @@ def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
             allocations[order.key] = held
 
     vehicles: list[Vehicle] = []
-    for row in vehicles_doc["vehicles"]:
+    for row in pull["vehicles"]:
         if not str(row.get("SalesModel") or "").strip():
             skip("vehicle_without_a_model")
             continue
-        if not row.get("EtaDealer"):
+        if not row.get("AvailableBy"):
             skip("vehicle_without_an_arrival_date")
             continue
         vehicles.append(
             Vehicle(
                 vehicle_id=str(row["VehicleCode"]),
                 sales_model=str(row["SalesModel"]).strip(),
-                eta_dealer=parse_date(row["EtaDealer"]),
+                eta_dealer=parse_date(row["AvailableBy"]),
             )
         )
 
@@ -125,7 +143,12 @@ def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
         )
     }
 
-    meta = dict(orders_doc.get("meta") or {})
+    meta = dict(pull.get("meta") or {})
+    # The contract's three header fields ride into the snapshot so the sandbox can
+    # say which pull an answer was built on without re-reading the file.
+    for field_name in ("captured_at", "pull_id", "source"):
+        if pull.get(field_name):
+            meta[field_name] = pull[field_name]
     if skips:
         excluded = dict(meta.get("excluded") or {})
         excluded["flatten_skips"] = dict(sorted(skips.items()))
@@ -136,34 +159,30 @@ def flatten(orders_doc: dict, vehicles_doc: dict) -> Snapshot:
         vehicles=vehicles,
         allocations=allocations,
         disruption=disruption,
-        now=parse_date(orders_doc["now"]),
+        now=parse_date(pull["captured_at"]),
         meta=meta,
     )
 
 
-def flatten_paths(orders_path: str | Path, vehicles_path: str | Path) -> Snapshot:
-    """Flatten the two mounted files. These are the paths the host mounted the
-    pull at — see ``alloc_tools.ORDERS_MOUNT_PATH`` / ``VEHICLES_MOUNT_PATH``."""
-    return flatten(
-        json.loads(Path(orders_path).read_text()),
-        json.loads(Path(vehicles_path).read_text()),
-    )
+def flatten_path(pull_path: str | Path) -> Snapshot:
+    """Flatten the mounted document. This is the path the host mounted the pull
+    at — see ``alloc_tools.PULL_MOUNT_PATH`` and the ``file`` the tool returns."""
+    return flatten(json.loads(Path(pull_path).read_text()))
 
 
 def main() -> None:
-    """``python -m xas_allocation.flatten --orders … --vehicles …`` — flatten the
-    mounted pull and write ``snapshot.json``. This is what the pull tool's command
-    runs; it takes explicit paths because the platform decides where a mounted
-    file lands (see ``alloc_tools.mount_candidates``)."""
+    """``python -m xas_allocation.flatten --pull …`` — flatten the mounted pull and
+    write ``snapshot.json``. This is what the pull tool's command runs; it takes an
+    explicit path because the platform decides where a mounted file lands (see
+    ``alloc_tools.mount_candidates``)."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Mounted pull -> snapshot.json")
-    parser.add_argument("--orders", required=True, help="path to the mounted orders.json")
-    parser.add_argument("--vehicles", required=True, help="path to the mounted vehicles.json")
+    parser.add_argument("--pull", required=True, help="path to the mounted document")
     parser.add_argument("--out", default="snapshot.json")
     args = parser.parse_args()
 
-    snap = flatten_paths(args.orders, args.vehicles)
+    snap = flatten_path(args.pull)
     Path(args.out).write_text(json.dumps(snap.as_dict(), indent=2, sort_keys=True))
     print(
         f"wrote {args.out}: {len(snap.orders)} orders, {len(snap.vehicles)} vehicles, "

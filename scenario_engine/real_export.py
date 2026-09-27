@@ -53,6 +53,14 @@ AVAILABLE = "available for sale"
 # available cars carry it — so the mock keeps the trap a mapper has to strip.
 AVAILABLE_CODE, AVAILABLE_NAME = "2", "Available For Sale "
 
+# How firmly the customer is committed, written onto the order row by
+# `scenario_engine.label_commitment` from the car's own status (Dealer Order
+# Confirmation -> hard, Dealer Reservation -> soft). It is a property of the
+# DEMAND, so it survives `deallocate_order` — an unallocated hard order is still
+# hard — and the carve carries it for free by copying whole rows.
+COMMITMENT_COLUMN = "allocationType"
+HARD, SOFT = "hard", "soft"
+
 # Cleared on an order whose allocation is deleted. ``description`` opens with the
 # vehicleCode ("1004326 - OMODA9 ..."), so it names the car, not the demand.
 ALLOCATION_FIELDS = ("vehicleCode", "description")
@@ -78,6 +86,12 @@ def in_pool(vehicle: dict[str, str]) -> bool:
 
 def is_available(vehicle: dict[str, str]) -> bool:
     return vehicle["status.name"].strip().lower() == AVAILABLE
+
+
+def commitment(order: dict[str, str]) -> str:
+    """This order's commitment. Unlabelled reads as ``hard``: an export that has
+    not been through `label_commitment` must not look cheap to break."""
+    return order.get(COMMITMENT_COLUMN, "").strip().lower() or HARD
 
 
 def slack_days(order: dict[str, str], vehicle: dict[str, str]) -> int:
@@ -233,20 +247,57 @@ def on_time_orders(data: Export) -> list[dict[str, str]]:
     return [o for o in data.allocated if slack_days(o, data.car(o)) >= 0]
 
 
+def draw_both_kinds(rng: random.Random, pool: list[dict[str, str]], k: int) -> list[dict[str, str]]:
+    """``k`` orders at random, spanning BOTH commitments where that is possible.
+
+    Used for the untouched control group. A delayed order is always hard — every
+    reservation car in the export has already landed (Bonded, PDI, Dealer
+    Vehicle), and only an INBOUND car can be slipped — so the control group is
+    the one class of a delayed book that can hold a soft order at all. Left to a
+    plain sample it drew two hard ones and the whole book priced nothing.
+
+    Random within each kind, so the draw stays seeded and reproducible; it only
+    guarantees that both kinds are represented, never how many of each."""
+    picked = rng.sample(pool, k)
+    kinds = {commitment(o) for o in pool}
+    if k < 2 or len(kinds) < 2 or len({commitment(o) for o in picked}) > 1:
+        return picked
+    missing = (kinds - {commitment(picked[0])}).pop()
+    # Every pick is the other kind, so this cannot collide with one of them.
+    picked[-1] = rng.choice([o for o in pool if commitment(o) == missing])
+    return picked
+
+
 def focus(data: Export, models: int) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    """Narrow the draw to the ``models`` most-demanded sales models, or all of them
-    at 0. Eligibility is sales-model equality, so a subset spread thin across all
-    66 models gives most orders nothing but their own car back — 60 cars over 66
+    """Narrow the draw to ``models`` sales models, or all of them at 0.
+
+    Eligibility is sales-model equality, so a subset spread thin across all 66
+    models gives most orders nothing but their own car back — 60 cars over 66
     models is 0.9 cars each. Concentrating is the only way a SMALL subset poses a
     choice; it makes the scenario less representative of the whole book, which is
-    the trade."""
+    the trade.
+
+    Most-demanded first, and then ONE correction: if none of those models holds a
+    soft order, the least-demanded pick is swapped for the most-demanded model
+    that does. Without it every scenario comes out 100% hard, because the export's
+    reservations avoid the popular models entirely — the six most-demanded hold
+    1,380 orders and not one reservation between them — and a book where the
+    column has a single value can demonstrate nothing and test nothing.
+
+    The swap needs at least two picks to have anywhere to put the second kind, so
+    at ``models=1`` demand wins and the book is whatever that model is.
+    """
     if models <= 0:
         return data.allocated, data.available
-    ranked = Counter(o["SalesModel"] for o in data.allocated).most_common(models)
-    wanted = {model for model, _ in ranked}
+    ranked = [model for model, _ in Counter(o["SalesModel"] for o in data.allocated).most_common()]
+    wanted = ranked[:models]
+    soft_models = {o["SalesModel"] for o in data.allocated if commitment(o) == SOFT}
+    if models > 1 and not (set(wanted) & soft_models):
+        wanted[-1] = next(model for model in ranked if model in soft_models)
+    wanted_set = set(wanted)
     return (
-        [o for o in data.allocated if o["SalesModel"] in wanted],
-        [v for v in data.available if v["SalesModel"] in wanted],
+        [o for o in data.allocated if o["SalesModel"] in wanted_set],
+        [v for v in data.available if v["SalesModel"] in wanted_set],
     )
 
 
@@ -275,8 +326,9 @@ def carve(
     rng = random.Random(seed)
     allocated, available = focus(data, models)
     if models > 0:
+        chosen = sorted({o["SalesModel"] for o in allocated})
         print(
-            f"  narrowed to the {models} most-demanded sales models: "
+            f"  narrowed to {models} sales models ({', '.join(chosen)}): "
             f"{len(allocated)} allocated orders, {len(available)} available cars"
         )
     keep = on_time_share(empty + late, on_time_pct)
@@ -310,7 +362,7 @@ def carve(
             f"cannot keep {keep} orders on time ({on_time_pct}% of the book): only "
             f"{len(intact)} allocated orders are on time and not already delayed here."
         )
-    untouched = rng.sample(intact, keep)
+    untouched = draw_both_kinds(rng, intact, keep)
     spoken = slipped_ids | {o["OrderId"] for o in untouched}
     rest = [o for o in allocated if o["OrderId"] not in spoken]
     if empty + extra_free > len(rest):
@@ -365,6 +417,13 @@ def carve(
         f"orders   {len(orders)}  unallocated {empty}  late {late}  on time {keep} "
         f"({100 * keep / len(orders):.0f}% of the book)  (dropped from the book {extra_free})"
     )
+    # Measured on the finished book, like the late count below it — the draws are
+    # random within the focused models, so the mix is an OUTCOME, not a knob. A
+    # single-kind book is legal (``--models 0`` or ``1`` can produce one) but it
+    # prices nothing, so say so rather than leaving it to be discovered.
+    split = Counter(commitment(o) for o in orders)
+    note = "" if len(split) > 1 else "  — ONE KIND ONLY: this book cannot show hard vs soft"
+    print(f"         commitment: {split[HARD]} hard, {split[SOFT]} soft{note}")
     inherited = len(late_orders(orders, vehicles)) - late
     if inherited:
         # The on-time draw is on-time-only, so this cannot happen — and if it ever

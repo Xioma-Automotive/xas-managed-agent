@@ -21,7 +21,7 @@ PROMISED = date(2026, 11, 1)  # far enough out that nothing else is in play
 
 
 def _order() -> Order:
-    return Order(order_id="500001", sales_model="SM1", delivery_date=PROMISED)
+    return Order(job_card="900001", line="1", sales_model="SM1", delivery_date=PROMISED)
 
 
 def _vehicle(vid: str, planned: date) -> Vehicle:
@@ -37,8 +37,8 @@ def _snap(vehicles: list[Vehicle]) -> Snapshot:
     return Snapshot(
         orders=[_order()],
         vehicles=[*vehicles, inc],
-        allocations={"500001": "VEH-INC"},
-        disruption={"disrupted_orders": ["500001"]},  # free to re-allocate
+        allocations={"900001-1": "VEH-INC"},
+        disruption={"disrupted_orders": ["900001-1"]},  # free to re-allocate
         now=NOW,
     )
 
@@ -48,7 +48,7 @@ def test_closer_early_car_preferred():
     far = _vehicle("VEH-FAR", date(2026, 9, 22))  # 40 days early
     snap = _snap([near, far])
     result = solve(snap, {}, churn_price=0)
-    assert result.plan["500001"] == "VEH-NEAR", "should prefer the less-early car"
+    assert result.plan["900001-1"] == "VEH-NEAR", "should prefer the less-early car"
 
 
 def test_slightly_early_beats_slightly_late():
@@ -56,7 +56,7 @@ def test_slightly_early_beats_slightly_late():
     late = _vehicle("VEH-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([early, late])
     result = solve(snap, {}, churn_price=0)
-    assert result.plan["500001"] == "VEH-EARLY", "early should beat late for equal small gaps"
+    assert result.plan["900001-1"] == "VEH-EARLY", "early should beat late for equal small gaps"
 
 
 def test_extreme_early_can_lose_to_slight_late():
@@ -66,7 +66,7 @@ def test_extreme_early_can_lose_to_slight_late():
     slight_late = _vehicle("VEH-SLIGHT-LATE", date(2026, 11, 2))  # 1 day late
     snap = _snap([far_early, slight_late])
     result = solve(snap, {}, churn_price=0)
-    assert result.plan["500001"] == "VEH-SLIGHT-LATE", (
+    assert result.plan["900001-1"] == "VEH-SLIGHT-LATE", (
         "extreme earliness may lose to slight lateness"
     )
 

@@ -1,5 +1,5 @@
-"""`datasource` is the one mapping: the export's two CSVs -> the two mounted
-payloads.
+"""`datasource` is the one mapping: the export's two CSVs -> the ONE mounted
+document the "Allocation solve contract" specifies.
 
 It runs HOST-SIDE, before the session exists, and it is the only place a row is
 filtered or a field renamed. `translate` is pure — no clock, no filesystem — so
@@ -18,8 +18,11 @@ What the tests are guarding, in order of how quietly it would fail:
     presented as the whole book is the worst thing this pipeline can do.
   * **a missing column raises**, naming it — the CSV equivalent of the app MCP's
     projection gap, except there is no "absent from some rows" case to tell apart.
+  * **identity is `DMSJCNum` + `LineNum`**, and one place builds it. Two spellings
+    of one key match nothing and say nothing about why.
 """
 
+import collections
 from datetime import date
 from pathlib import Path
 
@@ -33,12 +36,22 @@ DATA = Path(datasource.DATA_DIR)
 
 
 def _order_row(**over) -> dict:
+    """One export row AFTER `scenario_engine.dms_fields` — the shape `translate`
+    actually reads. `DMSJCNum`/`LineNum` are the identity; `OrderId` is the
+    vendor's own reference and rides along."""
     row = {
+        "DMSJCNum": "900001",
+        "LineNum": "1",
+        "DMSJCEntry": "100001",
+        "JobStatus.Code": "02",
+        "JobStatus.Label": "In Process",
+        "Accounts.Owner.AccountDMSCode": "C0001",
         "OrderId": "500001",
         "vehicleCode": "",
         "modelId.name": "OMODA9 PHEV Premium",
         "SalesModel": "T6480J1BXLX0018",
         "etaDealer": "2026-09-20T00:00:00.000Z",
+        "allocationType": "hard",
     }
     row.update(over)
     return row
@@ -51,10 +64,12 @@ def _vehicle_row(**over) -> dict:
         "modelId.code": "T6480J1XXLX0018",
         "modelId.name": "OMODA9 PHEV Premium",
         "SalesModel": "T6480J1BXLX0018",
+        "inventoryStatus": "7",
         "inv status label": "Sea Transit",
         "status.code": "2",
         "status.name": "Available For Sale ",
         "availableBy": "2026-09-22T12:00:00.000Z",
+        "InventoryEnteringDate": "",
     }
     row.update(over)
     return row
@@ -62,6 +77,10 @@ def _vehicle_row(**over) -> dict:
 
 def _pull(orders, vehicles, now=NOW):
     return datasource.translate(orders, vehicles, now=now)
+
+
+def _keys(pull) -> list[str]:
+    return [datasource.order_key(o) for o in pull["orders"]]
 
 
 # --- the two dates -----------------------------------------------------------
@@ -73,9 +92,9 @@ def test_the_promise_comes_from_the_order_and_the_arrival_from_the_car():
         [_vehicle_row(availableBy="2026-10-05T00:00:00.000Z")],
     )
     assert pull["orders"][0]["DeliveryDate"] == "2026-09-20"
-    assert pull["vehicles"][0]["EtaDealer"] == "2026-10-05"
+    assert pull["vehicles"][0]["AvailableBy"] == "2026-10-05"
     # and the order is late BECAUSE the car lands after the order's own date
-    assert pull["disruption"]["disrupted_orders"] == ["500001"]
+    assert pull["disruption"]["disrupted_orders"] == ["900001-1"]
 
 
 def test_the_time_of_day_is_dropped_but_the_day_is_not_shifted():
@@ -87,7 +106,7 @@ def test_the_time_of_day_is_dropped_but_the_day_is_not_shifted():
         [_vehicle_row(availableBy="2026-09-22T12:00:00.000Z")],
     )
     assert pull["orders"][0]["DeliveryDate"] == "2026-09-20"
-    assert pull["vehicles"][0]["EtaDealer"] == "2026-09-22"
+    assert pull["vehicles"][0]["AvailableBy"] == "2026-09-22"
 
 
 # --- supply and the trailing space -------------------------------------------
@@ -122,7 +141,7 @@ def test_a_car_held_by_an_order_is_still_supply():
 def test_a_car_out_of_the_pool_is_dropped_with_a_reason():
     pull = _pull([_order_row()], [_vehicle_row(**{"status.name": "Delivered"})])
     assert pull["vehicles"] == []
-    assert pull["meta"]["excluded"]["vehicle_drops"] == {"out_of_pool_status": 1}
+    assert pull["meta"]["excluded"]["vehicle_drops"] == {"not_dealer_supply": 1}
 
 
 # --- eligibility -------------------------------------------------------------
@@ -148,8 +167,8 @@ def test_a_vehicle_with_no_sales_model_is_dropped_rather_than_falling_back():
 
 
 def test_an_order_with_no_promised_date_is_dropped_with_a_reason():
-    pull = _pull([_order_row(etaDealer=""), _order_row(OrderId="500002")], [_vehicle_row()])
-    assert [o["OrderId"] for o in pull["orders"]] == ["500002"]
+    pull = _pull([_order_row(etaDealer=""), _order_row(LineNum="2")], [_vehicle_row()])
+    assert _keys(pull) == ["900001-2"]
     assert pull["meta"]["excluded"]["order_drops"] == {"no_promised_date": 1}
     assert pull["meta"]["excluded"]["orders_seen"] == 2
     assert pull["meta"]["excluded"]["orders_kept"] == 1
@@ -177,15 +196,18 @@ def test_an_order_with_no_matching_car_is_kept_and_named():
     reply has to be able to say WHICH."""
     pull = _pull([_order_row(SalesModel="NOBODY-STOCKS-THIS")], [_vehicle_row()])
     assert len(pull["orders"]) == 1
-    assert pull["meta"]["excluded"]["orders_with_no_eligible_car"] == ["500001"]
+    assert pull["meta"]["excluded"]["orders_with_no_eligible_car"] == ["900001-1"]
 
 
-def test_a_duplicate_order_id_raises_rather_than_collapsing():
-    """Two rows with one id is demand this pull cannot represent. Failing here
-    names the file; `Snapshot.order_by_key` would only raise later, further from
-    the cause."""
-    with pytest.raises(ValueError, match="duplicate OrderId"):
+def test_a_duplicate_card_and_line_raises_rather_than_collapsing():
+    """Two rows with one card+line is demand this pull cannot represent. Failing
+    here names the file; `Snapshot.order_by_key` would only raise later, further
+    from the cause. Note that two rows sharing a CARD are fine — that is a
+    two-line card, which is the ordinary case."""
+    with pytest.raises(ValueError, match="duplicate card"):
         _pull([_order_row(), _order_row()], [_vehicle_row()])
+    two_lines = _pull([_order_row(), _order_row(LineNum="2")], [_vehicle_row()])
+    assert _keys(two_lines) == ["900001-1", "900001-2"]
 
 
 # --- allocations -------------------------------------------------------------
@@ -197,19 +219,19 @@ def test_a_double_booked_car_yields_no_allocation_for_anyone():
     and the clash rides in meta rather than being swallowed."""
     pull = _pull(
         [
-            _order_row(OrderId="500001", vehicleCode="1004316"),
-            _order_row(OrderId="500002", vehicleCode="1004316"),
+            _order_row(LineNum="1", vehicleCode="1004316"),
+            _order_row(LineNum="2", vehicleCode="1004316"),
         ],
         [_vehicle_row()],
     )
-    assert all(o["VehicleCode"] == "" for o in pull["orders"])
-    assert pull["meta"]["conflicts"] == [{"vehicle": "1004316", "orders": ["500001", "500002"]}]
+    assert all(o["VehicleCode"] is None for o in pull["orders"])
+    assert pull["meta"]["conflicts"] == [{"vehicle": "1004316", "orders": ["900001-1", "900001-2"]}]
     assert pull["meta"]["excluded"]["link_drops"]["double_booked_vehicle"] == 2
 
 
 def test_an_allocation_to_a_car_not_in_the_file_is_dropped_and_counted():
     pull = _pull([_order_row(vehicleCode="NOT-HERE")], [_vehicle_row()])
-    assert pull["orders"][0]["VehicleCode"] == ""
+    assert pull["orders"][0]["VehicleCode"] is None
     assert pull["meta"]["excluded"]["link_drops"]["vehicle_not_in_the_file"] == 1
 
 
@@ -219,18 +241,18 @@ def test_the_disruption_is_derived_not_declared():
     an allocated order whose car now lands past its promise."""
     pull = _pull(
         [
-            _order_row(OrderId="LATE", vehicleCode="CAR-LATE"),
-            _order_row(OrderId="OKAY", vehicleCode="CAR-OKAY"),
-            _order_row(OrderId="NOCAR"),
+            _order_row(LineNum="1", vehicleCode="CAR-LATE"),
+            _order_row(LineNum="2", vehicleCode="CAR-OKAY"),
+            _order_row(LineNum="3"),
         ],
         [
             _vehicle_row(vehicleCode="CAR-LATE", availableBy="2026-10-05T00:00:00.000Z"),
             _vehicle_row(vehicleCode="CAR-OKAY", availableBy="2026-09-01T00:00:00.000Z"),
         ],
     )
-    # LATE only: an on-time order needs no repair, and an order with no car needs
-    # no manifest — `partition` frees anything unassigned already.
-    assert pull["disruption"]["disrupted_orders"] == ["LATE"]
+    # line 1 only: an on-time order needs no repair, and an order with no car
+    # needs no manifest — `partition` frees anything unassigned already.
+    assert pull["disruption"]["disrupted_orders"] == ["900001-1"]
 
 
 # --- purity, and the payload split -------------------------------------------
@@ -245,17 +267,73 @@ def test_translate_is_pure():
     assert (repr(orders), repr(vehicles)) == before, "input rows must not be mutated"
 
 
-def test_the_two_payloads_carry_the_whole_pull_between_them():
-    """What the host mounts has to be everything the sandbox needs: the demand,
-    the pull date and the provenance in one, the supply in the other."""
+def test_the_document_is_the_contracts_shape_and_carries_the_whole_pull():
+    """One document, both streams, the three header fields on it — and the drop
+    funnel, because the sandbox has to be able to say what the pull could not
+    use. `disruption` is deliberately NOT in it: `flatten` re-derives it, and a
+    second copy is a second thing to disagree."""
     pull = datasource.get_source("scenario-mixed").pull()
-    orders_doc = datasource.orders_payload(pull)
-    vehicles_doc = datasource.vehicles_payload(pull)
-    assert set(orders_doc) == {"now", "meta", "orders"}
-    assert set(vehicles_doc) == {"vehicles"}
-    snap = flatten(orders_doc, vehicles_doc)
+    doc = datasource.document(pull)
+    assert set(doc) == {"captured_at", "pull_id", "source", "meta", "orders", "vehicles"}
+    assert doc["captured_at"] == "2026-08-25" and doc["source"] == "scenario-mixed"
+    assert doc["pull_id"]
+    snap = flatten(doc)
     assert len(snap.orders) == len(pull["orders"])
     assert len(snap.vehicles) == len(pull["vehicles"])
+
+
+def test_the_header_fields_are_top_level_and_no_longer_under_meta():
+    """`source` and the pull date moved OUT of `meta` when the pull became one
+    document, and a reader left on the old path raises `KeyError` at the moment a
+    session is created — which is how it reached a browser as a 500 rather than a
+    test failure. Pinned on both sides: present at the top, absent from `meta`."""
+    pull = datasource.get_source("scenario-mixed").pull()
+    for field in ("captured_at", "pull_id", "source"):
+        assert pull[field], f"{field} must be a top-level header field"
+        assert field not in pull["meta"], f"{field} must not be duplicated into meta"
+    assert "now" not in pull and "now" not in pull["meta"], "the pull date is `captured_at`"
+
+
+def test_every_column_the_contract_requires_is_on_every_row():
+    """The contract's "columns that must be present" list, checked against the
+    real files rather than a fixture. A column the carve stopped writing would
+    otherwise surface as a field that is quietly absent in the sandbox."""
+    doc = datasource.document(datasource.get_source("scenario-mixed").pull())
+    for order in doc["orders"]:
+        assert set(order) >= {
+            "DMSJCNum",
+            "LineNum",
+            "DMSJCEntry",
+            "SalesModel",
+            "DeliveryDate",
+            "VehicleCode",
+            "Accounts.Owner.AccountName",
+            "Accounts.Owner.AccountDMSCode",
+            "AllocType",
+            "JobStatus",
+        }
+        assert set(order["JobStatus"]) == {"Code", "Label"}
+    for vehicle in doc["vehicles"]:
+        assert set(vehicle) >= {
+            "VehicleCode",
+            "SalesModel",
+            "AvailableBy",
+            "InventoryEnteringDate",
+            "Status",
+            "InventoryStatus",
+            *datasource.UNSOURCED_VEHICLE_FIELDS,
+        }
+        assert set(vehicle["Status"]) == {"Code", "Name"}
+
+
+def test_the_columns_this_export_cannot_source_are_present_and_null():
+    """Present because the contract requires them; NULL because a plausible value
+    would read as real. A car with no `OpenDamage` on record must not come back
+    looking undamaged."""
+    doc = datasource.document(datasource.get_source("scenario-mixed").pull())
+    for vehicle in doc["vehicles"]:
+        for name in datasource.UNSOURCED_VEHICLE_FIELDS:
+            assert vehicle[name] is None, name
 
 
 # --- reading a scenario directory --------------------------------------------
@@ -296,7 +374,7 @@ def test_the_pull_date_is_the_scenarios_own_and_never_the_clock():
     """A static file plus a wall clock means the same rows mean something new
     tomorrow: an order late by 3 days becomes late by 4 with nothing changed."""
     assert datasource.scenario_now(DATA / "scenario-mixed") == NOW
-    assert datasource.get_source("scenario-mixed").pull()["now"] == "2026-08-25"
+    assert datasource.get_source("scenario-mixed").pull()["captured_at"] == "2026-08-25"
 
 
 def test_the_pull_date_can_be_overridden_for_a_what_if(monkeypatch):
@@ -328,31 +406,124 @@ def test_the_client_name_survives_into_the_snapshot_as_a_label():
     """`customer.name` is on every row of the export, and a planner steers by
     client ("prioritise Delek Motors") long before they steer by id. Carried
     end to end — pull, then flatten — so the agent can resolve a name to the
-    orders that hold it. A LABEL only: no filter, no price."""
+    orders that hold it. A LABEL only: no filter, no price. Its account CODE
+    rides beside it, which is what a name should be resolved THROUGH."""
     pull = datasource.translate(
         [_order_row(**{"customer.name": " Delek Motors Fleet "})], [_vehicle_row()], now=NOW
     )
-    assert pull["orders"][0]["Customer"] == "Delek Motors Fleet"
+    assert pull["orders"][0]["Accounts.Owner.AccountName"] == "Delek Motors Fleet"
+    assert pull["orders"][0]["Accounts.Owner.AccountDMSCode"] == "C0001"
 
-    snap = flatten({"now": pull["now"], "orders": pull["orders"]}, {"vehicles": pull["vehicles"]})
-    assert snap.order_by_key()["500001"].customer == "Delek Motors Fleet"
+    order = flatten(datasource.document(pull)).order_by_key()["900001-1"]
+    assert order.customer == "Delek Motors Fleet" and order.account_code == "C0001"
 
 
 def test_an_order_with_no_client_name_still_allocates():
     """The column is optional — absent, or blank on a row — because it prices
     nothing. Dropping such an order would lose real demand over a display field."""
     pull = datasource.translate([_order_row()], [_vehicle_row()], now=NOW)
-    assert pull["orders"][0]["Customer"] == ""
-    snap = flatten({"now": pull["now"], "orders": pull["orders"]}, {"vehicles": pull["vehicles"]})
-    assert snap.order_by_key()["500001"].customer == ""
+    assert pull["orders"][0]["Accounts.Owner.AccountName"] == ""
+    assert flatten(datasource.document(pull)).order_by_key()["900001-1"].customer == ""
+
+
+def test_the_commitment_rides_through_and_prices_the_broken_promise():
+    """`allocationType` -> `AllocType` -> `Order.alloc_type` -> `break_cost`.
+
+    DECIDE-3 was re-split on 2026-09-09 on this column. The mapping is the whole
+    reason it could be: the firmness has to survive the pull and the flatten to
+    reach the one function that prices it."""
+    from xas_allocation import solver
+
+    pull = datasource.translate(
+        [_order_row(allocationType="soft", vehicleCode="1004316")],
+        # on time, so the break cost is the one a KEPT promise costs — the case
+        # the retired hard/soft split used to make cheaper for a reservation
+        [_vehicle_row(availableBy="2026-09-01T00:00:00.000Z")],
+        now=NOW,
+    )
+    assert pull["orders"][0]["AllocType"] == "soft"
+    snap = flatten(datasource.document(pull))
+    soft = snap.order_by_key()["900001-1"]
+    assert soft.alloc_type == "soft"
+    assert solver.break_cost_of(soft, snap.vehicles[0]) == solver.CFG["break_cost"]["soft"]
 
 
 def test_the_committed_scenarios_carry_client_names():
     """Guards the real files, not a fixture: a re-carve that dropped the column
     would leave the skill promising something the data no longer has."""
     pull = datasource.ScenarioSource(DATA / "scenario-mixed").pull()
-    named = [o for o in pull["orders"] if o["Customer"]]
+    named = [o for o in pull["orders"] if o["Accounts.Owner.AccountName"]]
     assert named, "the mixed scenario must carry client names"
     # one client holding several orders is the case the agent must group, not the
     # exception -- if this ever stops being true the grouping guidance is untested
-    assert len({o["Customer"] for o in named}) < len(named)
+    assert len({o["Accounts.Owner.AccountName"] for o in named}) < len(named)
+
+
+def test_the_committed_scenarios_carry_a_multi_line_card():
+    """The card+line key only earns its keep if a card really has two lines on it.
+    A carve that lost that would leave the card-level steering rule untested and
+    the grain looking like ceremony."""
+    pull = datasource.ScenarioSource(DATA / "scenario-mixed").pull()
+    cards = collections.Counter(o["DMSJCNum"] for o in pull["orders"])
+    assert max(cards.values()) > 1, "no card in the mixed scenario has two lines"
+
+
+def test_the_order_key_is_built_in_one_place():
+    """A key that is `900001-1` on the host and `900001-1.0` in the sandbox matches
+    nothing and says nothing about why, so both sides go through one builder over
+    the same two columns."""
+    assert datasource.order_key({"DMSJCNum": "900001", "LineNum": 1}) == "900001-1"
+    assert datasource.order_key({"DMSJCNum": "900001", "LineNum": " 2 "}) == "900001-2"
+    # half a key names nothing, and is not guessed at
+    assert datasource.order_key({"DMSJCNum": "900001", "LineNum": ""}) == ""
+    assert datasource.order_key({"LineNum": "1"}) == ""
+
+
+def test_the_same_car_twice_is_one_car():
+    """The contract's `vehicles[]` names a car once per line that could take it —
+    `candidates[].vehicle` repeats across lines, and a car already on a workspace
+    row can come back as a candidate too. Supply is capacity-1, so a duplicate
+    would be a second car to allocate that does not exist."""
+    pull = datasource.translate(
+        [_order_row()],
+        [_vehicle_row(), _vehicle_row(), _vehicle_row(vehicleCode="OTHER-CAR")],
+        now=NOW,
+    )
+    codes = [v["VehicleCode"] for v in pull["vehicles"]]
+    assert len(codes) == len(set(codes)) == 2
+    assert pull["meta"]["excluded"]["vehicle_drops"] == {"duplicate_vehicle": 1}
+
+
+def test_an_unreadable_commitment_is_dropped_and_counted():
+    """`break_cost` is keyed on `allocationType`, so a row that says neither
+    `hard` nor `soft` has no price for its broken promise. Dropped HERE, with the
+    file in hand and a counted reason, rather than raising inside the solver —
+    which would happen on turn 3, once the line reached the free set holding an
+    on-time car, not on the turn that read the bad row."""
+    pull = datasource.translate(
+        [_order_row(allocationType="firm-ish"), _order_row(LineNum="2")],
+        [_vehicle_row()],
+        now=NOW,
+    )
+    assert [o["LineNum"] for o in pull["orders"]] == ["2"]
+    assert pull["meta"]["excluded"]["order_drops"] == {"unreadable_commitment": 1}
+
+
+def test_the_commitment_is_normalised_on_the_way_in():
+    """Compared unstripped and uncased it would drop a real row: the export is
+    the file that ships `'Available For Sale '` with a trailing space."""
+    pull = datasource.translate([_order_row(allocationType=" Hard ")], [_vehicle_row()], now=NOW)
+    assert pull["orders"][0]["AllocType"] == "hard"
+
+
+def test_a_dropped_car_does_not_claim_the_code_a_usable_copy_needs():
+    """The dedupe runs LAST. A first copy of a car that has no arrival date is
+    dropped, so a second, usable copy of the same car must still get in — the
+    other order and this one would otherwise both lose it."""
+    pull = datasource.translate(
+        [_order_row()],
+        [_vehicle_row(availableBy=""), _vehicle_row()],
+        now=NOW,
+    )
+    assert [v["VehicleCode"] for v in pull["vehicles"]] == ["1004316"]
+    assert pull["meta"]["excluded"]["vehicle_drops"] == {"no_arrival_date": 1}

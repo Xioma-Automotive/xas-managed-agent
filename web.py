@@ -3,7 +3,8 @@
 
 Thin FastAPI server between the browser and the Managed Agents session API.
 
-  uv run uvicorn web:app --reload --port 8000
+  uv run uvicorn web:app --reload --port 8000              # the LIVE agent
+  XAS_DEV=1 uv run uvicorn web:app --reload --port 8000    # the DEV agent
 
 The ONLY process. The sandbox is Anthropic's, so nothing here executes the
 agent's bash / file tools and there is no worker to run alongside.
@@ -33,7 +34,7 @@ from pathlib import Path
 
 from anthropic import APIError, AsyncAnthropic
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -51,8 +52,17 @@ log = logging.getLogger("web")
 load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parent
-ALLOC_AGENT_ID = os.environ.get("ALLOC_AGENT_ID")
-ALLOC_ENV_ID = os.environ.get("ALLOC_ENV_ID")
+
+# `XAS_DEV=1 uv run uvicorn web:app` points this server at the DEV agent instead
+# of the one the frontend talks to — same flag `setup_agent.py` reads, so the pair
+# cannot disagree about which agent is being exercised. Sessions, the pull tool and
+# the vault are per-session and need no switch; only the agent and its environment
+# do.
+DEV = os.environ.get("XAS_DEV", "").lower() not in ("", "0", "false", "no")
+ENV_PREFIX = "DEV_" if DEV else ""
+ALLOC_AGENT_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_AGENT_ID")
+ALLOC_ENV_ID = os.environ.get(f"{ENV_PREFIX}ALLOC_ENV_ID")
+log.info("target: %s agent %s", "DEV" if DEV else "LIVE", ALLOC_AGENT_ID or "(unset)")
 DOWNLOAD_DIR = Path(
     os.environ.get("ALLOC_DOWNLOAD_DIR") or Path.home() / "xas-alloc-outputs"
 ).expanduser()
@@ -91,18 +101,17 @@ _answering: asyncio.Task | None = None
 _rotating: asyncio.Task | None = None
 _lock = asyncio.Lock()
 
-# The pull we translated and mounted for each session, so the tool answerer can
-# summarize it without re-reading. A convenience cache: the mounted files are the
-# durable copy, rebuilt from them after a restart (see _pull_for).
-_pull_by_session: dict[str, dict] = {}
+# The pull we translated and mounted for each session, and the path the platform
+# reported for it, so the tool answerer can summarize without re-reading. A
+# convenience cache: the mounted file is the durable copy, rebuilt from it after a
+# restart (see _pull_for).
+_pull_by_session: dict[str, tuple[dict, str]] = {}
 
-# The two mounts, named by the paths the flatten command already resolves — one
-# file per row stream, because the export has two and folding them into one
-# document would only make `flatten` take it apart again.
-ORDERS_FILENAME = os.path.basename(alloc_tools.ORDERS_MOUNT_PATH)
-VEHICLES_FILENAME = os.path.basename(alloc_tools.VEHICLES_MOUNT_PATH)
+# The ONE mount: the "Allocation solve contract" document, both row streams in one
+# file. The two payloads it replaced (orders.json + vehicles.json) are gone.
+PULL_FILENAME = os.path.basename(alloc_tools.PULL_MOUNT_PATH)
 
-# These two are the ONLY mounts. The reporting lane used to get a third — a
+# It is also the only mount at all. The reporting lane used to get a second — a
 # fabricated jobcards.json under /workspace/reports/ — and the prompt's hard rule
 # forbade that path. Reporting now reads the live system through `xas-app-mcp`
 # instead, so the fence is toolset-shaped and there is no records file to mount.
@@ -110,7 +119,7 @@ VEHICLES_FILENAME = os.path.basename(alloc_tools.VEHICLES_MOUNT_PATH)
 # Mounted inputs come back from files.list(scope_id=...) alongside whatever the
 # agent wrote, so both the listing and the download filter them out — otherwise a
 # planner asking for "the outputs" gets their own inputs handed back.
-MOUNTED_INPUT_FILENAMES = frozenset({ORDERS_FILENAME, VEHICLES_FILENAME})
+MOUNTED_INPUT_FILENAMES = frozenset({PULL_FILENAME})
 
 
 class NewSession(BaseModel):
@@ -121,16 +130,63 @@ class NewSession(BaseModel):
     scenario: str | None = None
 
 
-class Message(BaseModel):
-    text: str
+# What a planner may drag into the chat window. The file is attached to the
+# user's message so the MODEL SEES IT in the turn — a photo of a scratch is
+# looked at, not read off disk — which leaves exactly two shapes: an image block
+# and a document block. The media type decides which, and anything else is
+# refused at the boundary rather than uploaded and silently dropped.
+#
+# Nothing dragged in reaches the sandbox. That is deliberate: the sandbox's one
+# input is the mounted pull, and a file the agent could read with `bash` would be
+# a second source of allocation facts.
+ATTACHMENT_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+# Everything here travels as a `document` block. A PDF keeps its own type; the
+# rest are plain text whatever the browser called them, because the block's
+# source type has to match what was uploaded.
+ATTACHMENT_DOCUMENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/plain",
+    ".csv": "text/plain",
+    ".json": "text/plain",
+    ".log": "text/plain",
+    ".yaml": "text/plain",
+    ".yml": "text/plain",
+}
+MAX_ATTACHMENTS = 5
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+# file_id -> the name it was dropped under, so a replayed transcript can say
+# "photo.jpg" rather than "image". The event carries the id and no name, and an
+# uploaded input cannot be read back, so this is the only place the name exists.
+# In-process only: after a restart a replayed attachment falls back to its kind.
+_attachment_names: dict[str, str] = {}
+
+
+def attachment_kind(filename: str) -> tuple[str, str] | None:
+    """(media type to upload as, content block type) for a dropped file, or None
+    if it is not something a message can carry."""
+    suffix = os.path.splitext(filename or "")[1].lower()
+    if suffix in ATTACHMENT_IMAGE_TYPES:
+        return ATTACHMENT_IMAGE_TYPES[suffix], "image"
+    if suffix in ATTACHMENT_DOCUMENT_TYPES:
+        return ATTACHMENT_DOCUMENT_TYPES[suffix], "document"
+    return None
 
 
 def _require_config() -> None:
     if not (ALLOC_AGENT_ID and ALLOC_ENV_ID):
         raise HTTPException(
             500,
-            "ALLOC_AGENT_ID / ALLOC_ENV_ID are not set. Run setup_agent.py "
-            "and paste the printed IDs into .env.",
+            f"{ENV_PREFIX}ALLOC_AGENT_ID / {ENV_PREFIX}ALLOC_ENV_ID are not set. Run "
+            f"{'XAS_DEV=1 ' if DEV else ''}uv run python setup_agent.py and paste the "
+            "printed IDs into .env.",
         )
 
 
@@ -147,9 +203,11 @@ def _digest(call) -> str:
     except json.JSONDecodeError:
         return f"{len(body)} chars"
     late = d.get("days_late") or {}
+    counts = d.get("counts") or {}
     return (
-        f"scenario={d.get('scenario')} now={d.get('now')} orders={d.get('orders')} "
-        f"(no car: {d.get('orders_holding_no_car')}) supply={d.get('supply')} "
+        f"scenario={d.get('source')} captured_at={d.get('captured_at')} "
+        f"pull_id={d.get('pull_id')} orders={counts.get('orders')} "
+        f"(no car: {d.get('orders_holding_no_car')}) supply={counts.get('vehicles')} "
         f"(free: {d.get('free_supply')}) late={d.get('late_orders')} "
         f"by {late.get('min')}-{late.get('max')} days"
     )
@@ -162,46 +220,55 @@ async def _upload(filename: str, blob: bytes, media_type: str):
     )
 
 
-async def _download_pull(session_id: str) -> dict:
-    """Rebuild a session's pull from the two files we mounted into its sandbox.
+async def _download_pull(session_id: str) -> tuple[dict, str]:
+    """Rebuild a session's pull from the document we mounted into its sandbox, and
+    recover the path the platform reported for it.
 
-    The mounts are the durable copy; used when ``_pull_by_session`` is cold (this
-    process restarted while the session lived on). Both halves are required —
-    summarizing half a pull would report counts the sandbox does not have."""
+    The mount is the durable copy; used when ``_pull_by_session`` is cold (this
+    process restarted while the session lived on)."""
     listing = await client.beta.files.list(scope_id=session_id, betas=[MANAGED_AGENTS_BETA])
-    parts: dict[str, dict] = {}
+    document = None
     for f in listing.data:
-        name = os.path.basename(f.filename or "")
-        if name in MOUNTED_INPUT_FILENAMES:
+        if os.path.basename(f.filename or "") == PULL_FILENAME:
             content = await client.beta.files.download(f.id)
-            parts[name] = json.loads(await content.read())
-    missing = [n for n in (ORDERS_FILENAME, VEHICLES_FILENAME) if n not in parts]
-    if missing:
-        raise RuntimeError(f"session {session_id} is missing mounted {', '.join(missing)}")
-    orders, vehicles = parts[ORDERS_FILENAME], parts[VEHICLES_FILENAME]
+            document = json.loads(await content.read())
+    if document is None:
+        raise RuntimeError(f"session {session_id} is missing mounted {PULL_FILENAME}")
+
+    session = await client.beta.sessions.retrieve(session_id, betas=[MANAGED_AGENTS_BETA])
+    mounted_path = _mounted_path(session) or alloc_tools.PULL_MOUNT_PATH
+
+    # Derived, not mounted — same rule as in `flatten`, over the same rows.
+    eta_of = {v["VehicleCode"]: v["AvailableBy"] for v in document["vehicles"]}
     return {
-        "now": orders["now"],
-        "meta": orders["meta"],
-        "orders": orders["orders"],
-        "vehicles": vehicles["vehicles"],
-        # Derived, not mounted — same rule as in `flatten`, over the same rows.
+        **document,
         "disruption": {
             "disrupted_orders": sorted(
-                o["OrderId"]
-                for o in orders["orders"]
-                if o.get("VehicleCode")
-                and {v["VehicleCode"]: v["EtaDealer"] for v in vehicles["vehicles"]}.get(
-                    o["VehicleCode"], ""
-                )
-                > o["DeliveryDate"]
+                datasource.order_key(o)
+                for o in document["orders"]
+                if o.get("VehicleCode") and eta_of.get(o["VehicleCode"], "") > o["DeliveryDate"]
             )
         },
-    }
+    }, mounted_path
 
 
-async def _pull_for(session_id: str) -> dict:
-    """The pull for this session: the in-process cache, or the mounted files
-    after a restart. This is what the tool answerer summarizes."""
+def _mounted_path(session) -> str:
+    """Where the platform says this session's pull is mounted.
+
+    The contract requires the tool's ``file`` to be the path the API gave back,
+    never a constant of ours — so it is read off the resource here and threaded
+    through to `alloc_tools.summarize`. An empty string when the session carries
+    no file resource, which the caller turns into the path we asked for.
+    """
+    for resource in getattr(session, "resources", None) or []:
+        if getattr(resource, "type", None) == "file" and getattr(resource, "mount_path", ""):
+            return resource.mount_path
+    return ""
+
+
+async def _pull_for(session_id: str) -> tuple[dict, str]:
+    """The pull for this session and where it is mounted: the in-process cache, or
+    the mounted file after a restart. This is what the tool answerer summarizes."""
     cached = _pull_by_session.get(session_id)
     if cached is not None:
         return cached
@@ -213,17 +280,21 @@ async def _pull_for(session_id: str) -> dict:
 async def _answer_custom_tools(session_id: str) -> None:
     """Answer this session's custom tool calls for as long as it lives.
 
-    Registers exactly one tool, built over this session's fetched-and-mounted
-    pull. A tool name the runner does not own is left unanswered, which is what
-    lets the cloud sandbox keep serving bash and the file tools while we serve the
-    data pull over the same session.
+    Registers the TWO tools we own, both built over this session's
+    fetched-and-mounted pull: the data pull, and the write-back that stages a
+    plan against it. A tool name the runner does not own is left unanswered,
+    which is what lets the cloud sandbox keep serving bash and the file tools
+    while we serve these over the same session.
 
     Runs as a background task owned by the session, not by the browser: the
     session idles on ``requires_action`` while a custom call is pending and never
     times out, so an unanswered call is a hang rather than an error.
     """
-    tool = alloc_tools.make_pull_tool(lambda: _pull_for(session_id))
-    runner = client.beta.sessions.events.tool_runner(session_id, tools=[tool])
+    tools = [
+        alloc_tools.make_pull_tool(lambda: _pull_for(session_id)),
+        alloc_tools.make_push_tool(lambda: _pull_for(session_id)),
+    ]
+    runner = client.beta.sessions.events.tool_runner(session_id, tools=tools)
     try:
         async for call in runner:
             # Log the arguments and a digest of the answer, not just the name.
@@ -339,7 +410,7 @@ def _render(event) -> dict | None:
         return {"type": "planner", "text": span} if span else None
     if kind == "user.message":
         text = "".join(b.text for b in event.content if getattr(b, "type", None) == "text")
-        return {"type": "user", "text": text}
+        return {"type": "user", "text": text, "attachments": _attachment_labels(event.content)}
     if kind == "agent.thinking":
         return {"type": "thinking"}
     if kind == "agent.tool_use":
@@ -432,24 +503,18 @@ async def new_session(body: NewSession) -> dict:
             await _detach(previous)
 
         # Read and translate the pull HERE, on the host, from the scenario the
-        # planner picked, then mount it into the sandbox as two files. The sandbox
-        # never reads the CSVs; it finds the translated rows waiting as files the
-        # flatten command reads. One pull backs the whole repair cycle — the
-        # invariant "same snapshot every turn". `pull()` is sync file I/O, so it
-        # goes to a thread rather than stalling every other session's tool answers.
+        # planner picked, then mount it into the sandbox as ONE document — the
+        # shape the "Allocation solve contract" specifies. The sandbox never reads
+        # the CSVs; it finds the translated rows waiting as a file the flatten
+        # command reads. One pull backs the whole repair cycle — the invariant
+        # "same snapshot every turn". `pull()` is sync file I/O, so it goes to a
+        # thread rather than stalling every other session's tool answers.
         source = datasource.get_source(body.scenario)
         rich = await asyncio.to_thread(source.pull)
-        orders_meta, vehicles_meta = await asyncio.gather(
-            _upload(
-                ORDERS_FILENAME,
-                json.dumps(datasource.orders_payload(rich)).encode(),
-                "application/json",
-            ),
-            _upload(
-                VEHICLES_FILENAME,
-                json.dumps(datasource.vehicles_payload(rich)).encode(),
-                "application/json",
-            ),
+        pull_file = await _upload(
+            PULL_FILENAME,
+            json.dumps(datasource.document(rich)).encode(),
+            "application/json",
         )
         # Mint the app-MCP bearer into its vault before the session exists, so
         # the agent's first reporting call cannot land on a stale one. Failing
@@ -470,21 +535,20 @@ async def new_session(body: NewSession) -> dict:
             resources=[
                 {
                     "type": "file",
-                    "file_id": orders_meta.id,
-                    "mount_path": alloc_tools.ORDERS_MOUNT_PATH,
-                },
-                {
-                    "type": "file",
-                    "file_id": vehicles_meta.id,
-                    "mount_path": alloc_tools.VEHICLES_MOUNT_PATH,
-                },
+                    "file_id": pull_file.id,
+                    "mount_path": alloc_tools.PULL_MOUNT_PATH,
+                }
             ],
             # Create-only: `vault_ids` is rejected on session update, so a vault
             # not attached here can never be attached to this session.
             **({"vault_ids": [appmcp_auth.vault_id()]} if appmcp_auth.configured() else {}),
         )
         _active = session.id
-        _pull_by_session[session.id] = rich
+        # The path the API reports, not the one we asked for: the contract's
+        # `file` must be what the platform gave back. They agree today; the day
+        # they stop, the agent gets the truth and we find out from the mount
+        # resolver rather than from a session that solves against nothing.
+        _pull_by_session[session.id] = (rich, _mounted_path(session) or alloc_tools.PULL_MOUNT_PATH)
         # Start answering before the planner can send anything: a pull that
         # arrives with no runner attached parks the session indefinitely.
         _answering = asyncio.create_task(_answer_custom_tools(session.id))
@@ -494,12 +558,14 @@ async def new_session(body: NewSession) -> dict:
         "session %s started (%s, %s)",
         session.id,
         MODELS[body.model]["id"],
-        rich["meta"]["source"],
+        rich["source"],
     )
     return {
         "id": session.id,
         "model": body.model,
-        "scenario": rich["meta"]["source"],
+        # Top-level, not under `meta`: the contract's three header fields moved
+        # up out of `meta` when the pull became one document.
+        "scenario": rich["source"],
         "stopped": previous,
     }
 
@@ -580,14 +646,77 @@ async def events(session_id: str) -> EventSourceResponse:
     return EventSourceResponse(relay())
 
 
+def _attachment_labels(content) -> list[str]:
+    """What was dragged into a user message, named for the transcript."""
+    labels = []
+    for block in content or []:
+        kind = getattr(block, "type", None)
+        if kind not in ("image", "document"):
+            continue
+        file_id = getattr(getattr(block, "source", None), "file_id", None)
+        labels.append(_attachment_names.get(file_id or "") or kind)
+    return labels
+
+
+async def _attachment_content(files: list[UploadFile]) -> list[dict]:
+    """Upload each dropped file and turn it into a content block.
+
+    Refusals are 400s with the offending name in them: a planner who drags a
+    .docx in has to be told, and a file uploaded and then left out of the
+    message would be a silent nothing.
+    """
+    if len(files) > MAX_ATTACHMENTS:
+        raise HTTPException(400, f"at most {MAX_ATTACHMENTS} files per message")
+    content = []
+    for upload in files:
+        name = os.path.basename(upload.filename or "attachment")
+        kind = attachment_kind(name)
+        if kind is None:
+            raise HTTPException(400, f"{name}: only images, PDFs and text files can be attached")
+        media_type, block = kind
+        blob = await upload.read()
+        if not blob:
+            raise HTTPException(400, f"{name} is empty")
+        if len(blob) > MAX_ATTACHMENT_BYTES:
+            raise HTTPException(400, f"{name} is {len(blob) // (1024 * 1024)}MB; the limit is 10MB")
+        uploaded = await _upload(name, blob, media_type)
+        _attachment_names[uploaded.id] = name
+        source = {"type": "file", "file_id": uploaded.id}
+        content.append(
+            {"type": "image", "source": source}
+            if block == "image"
+            else {"type": "document", "source": source, "title": name}
+        )
+        log.info("attached %s (%s, %d bytes) as %s", name, media_type, len(blob), uploaded.id)
+    return content
+
+
 @app.post("/message")
-async def message(body: Message) -> dict:
+async def message(
+    text: str = Form(""),
+    files: list[UploadFile] | None = File(None),
+) -> dict:
+    """The planner's turn: what they typed, and whatever they dragged in with it.
+
+    multipart rather than JSON because the files ride along — the attachments
+    belong to the message, so they are uploaded and sent in one act and there is
+    no half-sent state where a file exists but no turn quotes it.
+    """
     if not _active:
         raise HTTPException(409, "no active session")
+    text = text.strip()
+    files = files or []
+    if not text and not files:
+        raise HTTPException(400, "nothing to send")
+    # Attachments first: a picture is the subject and the text is about it, and
+    # the model reads a block it has already seen.
+    content = await _attachment_content(files)
+    if text:
+        content.append({"type": "text", "text": text})
     try:
         await client.beta.sessions.events.send(
             session_id=_active,
-            events=[{"type": "user.message", "content": [{"type": "text", "text": body.text}]}],
+            events=[{"type": "user.message", "content": content}],
         )
     except APIError as e:
         # A session paused at its budget takes only events that settle work

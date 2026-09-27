@@ -28,13 +28,17 @@ PROMISED = date(2026, 9, 14)
 LATE = date(2026, 10, 14)
 ON_TIME = date(2026, 9, 14)
 
-# One order id, one order, one car. No line suffix since 2026-08-27.
-ORDER_A, ORDER_B = "500001", "500002"
+# One order key, one order, one car. The key is the contract's `DMSJCNum` +
+# `LineNum`; these two sit on the SAME card, which is what lets the card-level
+# tests below tell "name a card" apart from "name a line".
+CARD = "900001"
+ORDER_A, ORDER_B = f"{CARD}-1", f"{CARD}-2"
 MODEL_A, MODEL_B = "SM-A", "SM-B"
 
 
-def _order(oid: str, model: str) -> Order:
-    return Order(order_id=oid, sales_model=model, delivery_date=PROMISED)
+def _order(key: str, model: str) -> Order:
+    card, _, line = key.rpartition("-")
+    return Order(job_card=card, line=line, sales_model=model, delivery_date=PROMISED)
 
 
 def _vehicle(vid: str, planned: date, model: str) -> Vehicle:
@@ -160,7 +164,7 @@ def test_an_order_is_named_by_its_whole_id_and_nothing_less():
     id must not protect an order by accident — a silent near-match is how an
     instruction looks applied when it did nothing."""
     snap = _snapshot()
-    result = solve(snap, {"may_move": {"never": ["50000"]}}, churn_price=0)
+    result = solve(snap, {"may_move": {"never": ["90000"]}}, churn_price=0)
     assert result.plan[ORDER_A] != "VEH-LATE-A"
     assert result.plan[ORDER_B] != "VEH-LATE-B"
 
@@ -193,3 +197,49 @@ def test_only_bounds_also_true():
     snap = _settled_snapshot()
     steer = {"may_move": {"also": True, "only": {"orders": [ORDER_B]}}}
     assert partition(snap, steer).free_orders == [ORDER_B]
+
+
+# --- naming a whole card ------------------------------------------------------
+# The contract keys an order line `DMSJCNum` + `LineNum`, so a planner has two
+# things they can name: one line, or the card it sits on. `solver.names_order`
+# is the ONE seam both go through, so every lever reads them the same way.
+
+
+def test_never_takes_a_card_number_and_holds_every_line_on_it():
+    """A planner says "leave card 900001 alone". Matching only the exact key
+    would reach neither line, and the order they meant to protect would still be
+    in play with nothing to catch it."""
+    snap = _snapshot()
+    free = partition(snap, {"may_move": {"never": [CARD]}}).free_orders
+    assert free == []
+
+
+def test_never_takes_one_line_without_taking_its_neighbour():
+    """The other half of the same rule: a card number is not the only thing that
+    can be named, and naming one line must not quietly freeze the card."""
+    snap = _snapshot()
+    free = partition(snap, {"may_move": {"never": [ORDER_A]}}).free_orders
+    assert free == [ORDER_B]
+
+
+def test_a_card_number_is_matched_whole_and_never_as_a_prefix():
+    """`900001` names the card; `90000` names nothing. A mistyped card number
+    must free nobody rather than freeing a neighbour's."""
+    snap = _snapshot()
+    assert partition(snap, {"may_move": {"never": ["90000"]}}).free_orders == [ORDER_A, ORDER_B]
+    assert partition(snap, {"may_move": {"never": ["900001-"]}}).free_orders == [ORDER_A, ORDER_B]
+
+
+def test_a_card_number_steers_priority_across_all_its_lines():
+    """`priority` goes through the same seam, so "card 900001 is urgent" raises
+    every line on it — the alternative is a card half-prioritised."""
+    snap = _snapshot()
+    steps = partition(snap, {"priority": [{"order": CARD, "step": "urgent"}]}).priority
+    assert steps[ORDER_A] == steps[ORDER_B] == "urgent"
+
+
+def test_a_card_number_filters_may_move_only():
+    """And so does the filter's `orders` dimension: "just fix card 900001"."""
+    snap = _snapshot()
+    free = partition(snap, {"may_move": {"only": {"orders": [CARD]}}}).free_orders
+    assert free == [ORDER_A, ORDER_B]

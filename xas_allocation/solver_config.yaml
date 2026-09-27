@@ -10,7 +10,7 @@
 # convex_exponent, early_weight, break_cost and the churn sweep — and none
 # has been checked against a real dealer's book.
 
-version: "0.3.0-prototype"
+version: "0.4.0-prototype"
 
 # Exponent on lateness. Above 1, pain grows faster than it accumulates, so the
 # solver spreads delay over several orders instead of dumping it on one. This
@@ -34,13 +34,18 @@ cost_scale: 1000
 # What it costs to take a car away from an order whose car was arriving ON TIME.
 # An order whose car is already late pays nothing — a promise already broken
 # protects nothing. This is the only thing that stops an authorised displacement
-# being free, and 200 is a guess nobody has signed off.
+# being free, and neither number has been signed off.
 #
-# ONE number since 2026-08-27. It used to be split hard/soft (200 for a real car,
-# 0 for one not built yet), which read a classification the export does not carry:
-# there, a car's status IS its allocation state, and what a promise costs to
-# disturb does not depend on which shipping stage the car is at.
-break_cost: 200.0
+# TWO numbers again since 2026-09-09, keyed on the LINE's own `AllocType`. The
+# split that went on 2026-08-27 read a real-vs-future binding guessed from the
+# car's status name, which the export does not carry. This one reads a column it
+# does: `allocationType` is `hard` or `soft` on every line — a firm commitment to
+# a VIN against a provisional reservation — so a hard promise costs more to
+# disturb than a soft one. `soft` keeps the old single value, so nothing about a
+# soft bump changes; `hard` is the new number.
+break_cost:
+  soft: 200.0
+  hard: 400.0
 
 # How much an order's lateness counts, in named steps the planner sets per turn
 # (override key `priority`). Every order starts at `default_priority_step`;

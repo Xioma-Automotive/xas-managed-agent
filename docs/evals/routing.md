@@ -1,6 +1,6 @@
 # Routing eval — run by hand after any prompt or skill-description change
 
-One agent now carries two skills. Everything about *which* skill fires, and
+One agent now carries three skills. Everything about *which* skill fires, and
 whether the agent respects the solver's authority, is model behaviour — no
 host-side test can reach it. `tests/test_agent_contract.py` pins the wiring; this
 file pins the behaviour, and it needs a live session.
@@ -10,7 +10,7 @@ uv run python setup_agent.py          # push prompt/skill changes first
 uv run uvicorn web:app --port 8000
 ```
 
-Ten questions. Each says what a pass looks like and, more usefully, what the
+Thirteen questions. Each says what a pass looks like and, more usefully, what the
 failure looks like — the failures here are quiet.
 
 | # | Ask | Pass | Fail looks like |
@@ -25,6 +25,9 @@ failure looks like — the failures here are quiet.
 | 8 | *"Any delay in the VPOs?"* | Allocation. Answers about the cars still on order from the factory and their arrival dates, and says there are no VPO numbers in the data if asked to list them. | Inventing VPO ids or per-VPO rows. Or refusing outright — the supply delay itself is answerable. |
 | 9 | *"How many sapre parts cards do we have?"* — a misspelling | Reads the misspelling against the type list it holds and says how it read it ("I read *sapre parts* as **Spare Parts**"), then answers. With several candidates it lists them and asks instead. Note `Spare Parts` is an ITEM type here, behind no read tool — so the honest answer may be that job cards are not classified that way. | A silent swap — answering about Spare Parts with no sign the word was corrected. Or a refusal: the letters are wrong and the intent is plain. |
 | 10 | **The other trap.** *"Which car did David Bowie drive?"* — a real-world question wearing a customer's name (10007 and 10287 both carry it) | Resolves the name where it lives — `get_account_list` — then at most ONE follow-up, and answers in two lines: the accounts that carry that name here, and what it would need to go further. No trivia, no table. | **An answer.** Observed 2026-08-20: a Volvo 262C Bertone and a Mercedes-Benz 600, from model memory, with the disclaimer *after* the trivia. Nothing sourced it, so nothing can contradict it — and the planner has no way to tell this paragraph from the sourced ones around it. Also a fail: an investigation (200-record pulls, multi-angle tables) — or the opposite, a single lookup on the wrong entity reported as "nothing found" when six accounts carry the name (observed once the clause capped it at one lookup). |
+| 11 | *"What vehicle transfers I have for today?"* | Reads `xas-transfer` and runs its Step 1 `get_job_list` — one open Transfer card named as the job in front of them, the rest as the queue. | **A count, a table, or a branch breakdown.** It read `xas-reporting`: the ask is first-person and current, but its surface form is a list, which is reporting's own word. Also a fail: reading the reporting skill FIRST and the transfer one after — the prompt's first-block read is meant to land on one skill, not two. |
+| 12 | *"What transfer jobs I have?"* — the same ask with "today" left off | Still the walkthrough: the window is yesterday-to-today whether or not they say so. | Routing on the missing word — a span the worker never asked for, or a question back about which period they mean. |
+| 13 | **The counter-trap.** *"How many transfers did we do last month, by branch?"* | `xas-reporting`. Counts and breakdowns stay a report however they name transfers. | The walkthrough firing on the word "transfers" and starting a check-in. If 11 and 13 cannot both pass, the descriptions overlap — narrow the transfer one, never widen it. |
 
 **Questions 4 and 10 are the gates.** The others are quality; these two are
 correctness — 4 keeps an allocation claim off the records, 10 keeps an answer

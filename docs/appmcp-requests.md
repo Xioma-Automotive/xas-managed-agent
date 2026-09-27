@@ -1,10 +1,11 @@
-# What the reporting lane needs from `xas-app-mcp`
+# What the agent needs from `xas-app-mcp`
 
-Two asks, both of them things no rule in this repo can fix, because they are
-properties of what the tools RETURN. Each one is measured against the dev tenant,
-not estimated — reproduce every figure with `uv run python -m appmcp` (see
-`appmcp-connect.md`). `xas-app-mcp` is a different repo; this file is the request,
-and it goes away when the request is answered.
+Four asks, all of them things no rule in this repo can fix, because they are
+properties of what the tools RETURN or do not offer at all. Two are the reporting
+lane's and two the transfer walkthrough's, marked below. Each one is measured
+against the dev tenant, not estimated — reproduce every figure with
+`uv run python -m appmcp` (see `appmcp-connect.md`). `xas-app-mcp` is a different
+repo; this file is the request, and it goes away when the request is answered.
 
 Why response size is worth a change request at all: every byte a tool returns
 enters the agent's conversation and is re-read on **every later model request** in
@@ -20,7 +21,7 @@ role, so a job card's customer and a vehicle's owner can be linked (today
 `Accounts.Owner` carries a name and no path, and a vehicle's `Owner.Code` cannot
 be composed into one at all, because the account page routes on `Id`).
 
-## 1. Let `fields` name a sub-field of `Accounts.*`
+## 1. Let `fields` name a sub-field of `Accounts.*` — *reporting lane*
 
 Asked for the customers behind 51 service cards, the only way to get a customer's
 name is `fields: ["Accounts.Owner"]`, and that returns the whole owner object:
@@ -55,7 +56,7 @@ Note the asymmetry that makes this surprising: `Accounts.Owner.AccountDMSCode` i
 already a documented **filter** key. Filtering on a sub-field works; asking to see
 one does not.
 
-## 2. Drop the `states` block unless it is asked for
+## 2. Drop the `states` block unless it is asked for — *reporting lane*
 
 Every `get_job_list` response appends five state objects — `Locales`, `Color`,
 `__v`, `CompanyDB`, `_id` and `Id` for the same value, and `Count: 0` on all five:
@@ -75,6 +76,37 @@ directly and gets it raw, twice in a two-call turn.
 `get_*_details` handles sub-resources. Either is fine; the current behaviour is the
 only one that cannot be opted out of.
 
+## 3. A way to put a photo on a job card — *transfer lane*
+
+`get_job_details include: ["attachments"]` returns what is already on the card,
+each with a signed S3 link to DOWNLOAD it. There is no matching write, so a
+worker being walked through a check-in cannot hand the agent a photo of the car
+and have it land on the job.
+
+"Vehicle 360 Completed" is one of the five tasks on the tenant's own "Vehicle
+Check-in" checklist, so the checklist asks for exactly the evidence the tool
+surface cannot accept. Today the walkthrough has to tell the worker to open the
+app and add it themselves, in the middle of a conversation whose whole purpose
+was to save them that.
+
+**Ask:** an attachment write beside `edit_job_checklist` — a card id, a file,
+and a type. Probed 2026-09-14 against the dev tenant.
+
+## 4. A way to move a job card's status — *transfer lane*
+
+`edit_job_checklist` is the only write in the whole tool surface, and it changes
+tasks, never the card. So the walkthrough can tick all five check-in tasks and
+the card still reads `New` in the app: the work is recorded and the job never
+progresses. `Transfer` carries `Check In` and `Check Out` statuses that exist
+for precisely this moment and nothing can set them.
+
+The skill's workaround is to say so out loud at the end — "this is recorded, the
+job is still open" — which is honest and is not what anybody wants.
+
+**Ask:** a status write for a job card, scoped the way `edit_job_checklist`
+already is (the backend enforces the user's company and permissions), and
+restricted to the classification's own statuses. Probed 2026-09-14.
+
 ## Not asked for, deliberately
 
 - **A `distinct` or `group by`.** It would have turned this turn's 51-row pull into
@@ -89,3 +121,20 @@ only one that cannot be opted out of.
 - **`OpenJobCards`**, which returns 0 regardless of the data. The tool description
   already says so and the skill routes around it via status ids. Worth fixing
   upstream, but it costs us nothing today.
+
+## Also true, not asked for yet
+
+- **`DueDate` does not exclude undated cards.** `{"DueDate": {"start": "2000-01-01",
+  "end": "2026-12-31"}}` over one owner's transfers narrowed 376 to 261, and the
+  first rows returned carry no `DueDate` at all (card 548 has none on the full
+  record either). Sorting `DueDate: asc` then puts undated cards at the top, where
+  they read as the most urgent. The transfer skill routes around it by ordering on
+  `CreateDateTime` and never ranking on the due date. Worth a fix upstream; it is a
+  silent wrong answer rather than a missing feature, so it may be a bug report
+  rather than a request.
+- **A transfer card has no destination.** `PickupAddress` exists on the DMS job
+  card (`dms_api/src/entities/V2/JobCard/types/internal.ts`) and is not in the
+  MCP's 29-field enum; a drop-off address exists nowhere but a commented-out line
+  in the SAP adapter. The `Transfer` classification carries 142 fields against the
+  29 the tools expose, so the pickup half is probably a projection ask and the
+  drop-off half a real gap in the DMS. Establish which before asking.

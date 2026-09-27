@@ -40,9 +40,10 @@ inputs, state has leaked into model memory and determinism is gone. Concretely:
   the real export — `data/scenario-*/orders.csv` + `vehicles.csv`, carved by
   `scenario_engine/real_*.py` — read host-side by `datasource.py` (DECIDE-7).
   `translate()` is the ONE mapping: it filters, counts every drop by reason and
-  writes the two payloads `web.py` mounts, `orders.json` and `vehicles.json`.
-  `flatten` reads those two files IN THE SANDBOX into the
-  `orders/vehicles/allocations` snapshot, one order row = one order for one car.
+  writes the ONE document `web.py` mounts, `dms_allocation.json`, in the shape the
+  **"Allocation solve contract"** sets. `flatten` reads that file IN THE SANDBOX
+  into the `orders/vehicles/allocations` snapshot, one order row = one order for
+  one car.
   The *same* pull backs every turn of a repair cycle — re-applying the same
   override against a different pull is not the same turn, and the scenario is
   chosen once, at session create.
@@ -75,7 +76,7 @@ client lazily rather than at import.
 
 | Where | Holds | Runs |
 | --- | --- | --- |
-| `web.py` here | organization API key, `MCP_TOKEN_ENC_KEY`, the dev login (`.env`) | the one custom tool, the host-side fetches that become mounts, and the 20-min bearer rotation |
+| `web.py` here | organization API key, `MCP_TOKEN_ENC_KEY`, the dev login (`.env`) | the two custom tools (the pull and the write-back), the host-side fetches that become mounts, and the 20-min bearer rotation |
 | Anthropic's vault | the app-MCP bearer only (write-only; never returned) | credential injection at egress |
 | Anthropic's sandbox | nothing of ours | bash, file tools, the solver, the MCP tool calls |
 
@@ -87,18 +88,34 @@ prompt injection. That is the whole reason this branch
 exists.
 
 **A custom tool is answered by the client wherever the sandbox lives.** That is
-the one host-side obligation left: `web.py` runs a `tool_runner` task per session
-answering `pull_allocation_snapshot`, and leaves every other tool name for the
-cloud sandbox. The credentialed data pull (DECIDE-7) lives here too — `web.py`
+the host-side obligation left: `web.py` runs ONE `tool_runner` task per session
+answering both `pull_allocation_snapshot` and `push_allocation_plan`, and leaves
+every other tool name for the cloud sandbox. `mode: "stage"` is a HOLD for a
+human to approve in the app: no value applies a plan, which is why the write-back
+can be answered here at all without a DMS write.
+
+**The write-back takes ROWS, not a path, and that is a platform fact.** The
+contract asked for `plan_file`. A file the agent writes in the sandbox is indexed
+into the session's file store only **~1-3s after the session goes idle** — `web.py`
+has always known this (`check_files` is False for a `requires_action` idle) — and
+a custom tool is answered MID-TURN, so the host's `files.list(scope_id=…)` cannot
+yet see the plan the agent just wrote. Tried live on 2026-09-09 against the dev
+agent: `no file named plan.json`, and the agent then spent a turn searching the
+filesystem for a path that was never going to be there. So `push_allocation_plan`
+takes the CHANGED rows in the call — an `unchanged` line is `skipped` anyway, so
+the payload is the part staging acts on and is far smaller than the file (4 rows
+of 10 in that trace). `was_car` is required on every row: it is what makes a
+staleness check possible, and a row without it overwrites a moved car blind. The credentialed data pull (DECIDE-7) lives here too — `web.py`
 calls `datasource.get_source()` host-side and mounts the result as a file, so the
 XAS endpoint and its credential never touch the sandbox.
 
 ## Invariants that bite if you change them
 
-- **The tool contract has exactly one definition.** `alloc_tools.py` holds
-  `PULL_TOOL` (what the agent declares) *and* `make_pull_tool` / the module-level
-  `pull_allocation_snapshot` (what `web.py` registers per session), all built from
-  the same constants. Splitting them is how you get an `agent.custom_tool_use`
+- **The tool contract has exactly one definition, and there are TWO tools now.**
+  `alloc_tools.py` holds `PULL_TOOL` + `make_pull_tool` / the module-level
+  `pull_allocation_snapshot`, and since 2026-09-09 `PUSH_TOOL` + `make_push_tool`
+  (the write-back) — declaration and implementation side by side, all built from
+  the same constants, both answered by the ONE `tool_runner` in `web.py`. Splitting them is how you get an `agent.custom_tool_use`
   nothing answers — which parks the session on a `requires_action` idle that
   **never times out**, so the failure looks like a hang, not an error.
   `tests/test_tool_contract.py` guards the wiring.
@@ -508,11 +525,50 @@ XAS endpoint and its credential never touch the sandbox.
   heading. Its tests moved whole from the deleted `tests/test_link.py` into
   `tests/test_phrasebook.py`. What it still does not solve: a job-card filter naming
   no classification has no single area, and the server just picks `/job_cards`.
-- **Two mounts, and reporting has no file at all.** `/workspace/orders.json` and
-  `/workspace/vehicles.json` are the pull — the export's two row streams, kept
-  apart because folding them into one document would only make `flatten` take it
-  apart again — and they are the only things `web.py` mounts. The reporting
-  lane had a third mount — a fabricated `jobcards.json` under
+- **The options line is the PROMPT's, and only its format (2026-09-17).** A
+  message ending `[[choices: A | B | C]]` is drawn as buttons by
+  `static/index.html` (`CHOICES_RE`, newest message only, the line stripped from
+  the text); tapping one sends that text as an ordinary message. It started in
+  `skills/xas-transfer/SKILL.md` and moved up for two reasons: the WINDOW renders
+  it for every agent message whatever lane wrote it, so a rule kept in one skill
+  left the other lanes unable to use a capability the UI already had; and a
+  prompt survives a summary where a skill body does not — buttons that quietly
+  stop appearing halfway through a long check-in have been summarized away.
+  **Only the format moved** (the marker, last line, two-to-five options, write
+  the message as if they were not there). When to REPEAT the line, the
+  confirm-the-value-on-record case and the hand-back's next step stay in the
+  transfer skill. The cost is +144 tokens on a prompt that was deliberately
+  halved twice, measured with `messages.count_tokens` against `claude-opus-4-8`
+  (823 -> 967 including the framing), and the risk it buys is real: a menu
+  ANCHORS. So the allocation ask-what-matters question explicitly takes NO
+  options line, in BOTH forks — that question exists to be open, and three
+  buttons anchor a planner exactly as a finished plan does. Three tests pin the
+  split: the prompt and the window agree on the marker, the format is in the
+  prompt and NOT in the transfer skill, and both forks carry the no-options rule
+  (`options line` is in the fork drift guard's token list).
+- **A file dragged into the chat is an ATTACHMENT, never a mount (2026-09-17).**
+  `web.py`'s `/message` is multipart now: what the planner typed plus whatever
+  they dropped, uploaded on Send and referenced from the `user.message` event as
+  an `image` or `document` block, picture FIRST so the words that describe it
+  read against something already seen. So the MODEL SEES the photo — the point,
+  for a worker standing at a car. The other door, `sessions.resources.add`, would
+  mount it into the running sandbox instead, and is deliberately shut: the
+  sandbox's one input is the pull, and a file the agent could read with `bash` is
+  a second source of facts about the same book. `attachment_kind` decides what a
+  message can carry (images, PDFs, text) off the EXTENSION and refuses the rest
+  by name before anything is uploaded — a `.csv` uploads as `text/plain` because
+  the block's source type has to match what was uploaded. What the drop cannot
+  do is come back: an uploaded input is not downloadable, and the event carries a
+  file id and no name, so `_attachment_names` holds the names IN THIS PROCESS and
+  a transcript replayed after a restart says `image`. `tests/test_attachments.py`
+  pins the shapes, the order and the refusals.
+- **ONE mount, and reporting has no file at all.** `/workspace/dms_allocation.json`
+  is the pull — both row streams in one document, because the contract says one
+  document — and it is the only thing `web.py` mounts. It replaced
+  `orders.json` + `vehicles.json` on 2026-09-06; the reason they were apart
+  (folding them together would only make `flatten` take them apart again) was
+  real and is simply outranked by the contract, and `flatten` now takes one
+  document apart instead of two. The reporting lane had a further mount — a fabricated `jobcards.json` under
   `/workspace/reports/`, whose namespace existed so the prompt could forbid a
   **path** — removed 2026-08-20 because the records were only ever mock data.
   Reporting reads the live system through `xas-app-mcp` instead, so the fence is
@@ -537,19 +593,66 @@ XAS endpoint and its credential never touch the sandbox.
   (`delay_days` / `delay_tiers` / `delayed_vehicles`, removed 2026-08-27): the
   summary reports the min/median/max days late instead, which real data can
   actually support.
-- **ONE ROW IS ONE ORDER, and there are no lines any more.** The key is the
-  export row's own `OrderId` (`502377`) — ONE level. The two-level
-  `{so_id}-{line}` key, the `Quantity` question with it, went out with the app-MCP
-  job-card grain on 2026-08-27: this export has no lines and no `Quantity`
-  column, so there is nothing to expand and nothing left uncounted. (Earlier
-  still, on 2026-08-25, qty expansion itself was replaced — `qty_index`, the
-  per-car report naming and the `allocation_qty_not_resolvable_to_cars` counter
-  are all gone.) A line-grain pull would bring the whole question back; do not
-  reintroduce one without deciding it. An order is NAMED by string in four places (`priority`,
-  `may_move.only/.also/.never`, the disruption manifest); all go through
-  `solver.names_order` / `disrupted_order_keys`, which match the line or the
-  whole VSO. `Snapshot.order_by_key` RAISES on a duplicate key rather than
-  collapsing two orders into one.
+- **ONE ROW IS ONE ORDER, and the key is TWO levels again (2026-09-06).** The
+  contract keys an order line `DMSJCNum` + `LineNum` — `900108-1` — so the
+  two-level key that went out with the app-MCP job-card grain on 2026-08-27 is
+  back, this time because the contract says so rather than because a pull happened
+  to have lines. What did NOT come back is `Quantity`: one line is still one
+  wanted car, so there is nothing to expand and nothing left uncounted. (The
+  2026-08-25 qty machinery — `qty_index`, the per-car report naming, the
+  `allocation_qty_not_resolvable_to_cars` counter — stays deleted.) An order is
+  NAMED by string in four places (`priority`, `may_move.only/.also/.never`, the
+  disruption manifest); all go through `solver.names_order` /
+  `disrupted_order_keys`, and `names_order` matches EITHER the whole key or the
+  bare card number, so "leave card 900128 alone" reaches both its lines. It is
+  matched whole, never as a prefix: `90012` frees nobody. The key is built in
+  exactly two places over the same two columns — `datasource.order_key` on the
+  host, `Order.key` in the sandbox — because a key that is `900108-1` on one side
+  and `900108-1.0` on the other matches nothing and says nothing about why.
+  `Snapshot.order_by_key` RAISES on a duplicate key rather than collapsing two
+  orders into one; two rows sharing a CARD are fine, that is a two-line card.
+  The export has no cards of its own: `scenario_engine/dms_fields.py` derives them
+  as one card per account per promised month (172 cards over 1641 orders), which
+  is small enough that naming a card is not the same act as naming a client — a
+  card per account would have quietly restored the client-wide lever removed on
+  2026-08-27 — and dense enough that a ten-order carve really lands a multi-line
+  card, which `tests/test_datasource.py` pins.
+- **The contract brought four LABELS onto the order, and not one of them is
+  priced.** `AllocType` (how firmly the customer is committed — `hard` from a
+  Dealer Order Confirmation, `soft` from a Dealer Reservation, derived by
+  `scenario_engine/label_commitment.py`), `Accounts.Owner.AccountDMSCode` (the
+  account's real key, which is what a client instruction should resolve THROUGH),
+  `DMSJCEntry` (the DMS's handle on the card, so a write-back has something to
+  quote) and `Accounts.Owner.AccountName`. They reach `Order`, the planner tables
+  and `plan.json`; nothing reads them — **except `AllocType`, which since
+  2026-09-09 IS the break-cost split** (DECIDE-3, re-split at the user's call).
+  `break_cost` is two numbers keyed on it, `soft: 200` (the old single value, so a
+  soft bump is unchanged) and `hard: 400`, and the value is PARSED AT THE BOUNDARY: `datasource.translate`
+  lowercases it and DROPS a row that says neither, counted as
+  `unreadable_commitment` so `exclusion_note` reports it like every other
+  unusable field. `break_cost_of` still raises rather than defaulting — it is the
+  last line of defence for a hand-built `Order`, and without the boundary drop
+  that raise landed mid-solve on turn 3 (a line has to reach the free set holding
+  an on-time car first), not on the turn that read the bad row. This is not the retired
+  mechanism returning: that one keyed on a real-vs-future binding guessed off the
+  CAR's status name, which the export does not carry, while `allocationType` is a
+  column on the LINE that it does — 1,380 hard against 261 soft. Neither number
+  has been validated by a planner; `tests/test_bump.py` pins the ordering and the
+  raise, and patches the pair for the behavioural test precisely because the
+  shipped values are guesses. `JobStatus` is in the file because the contract requires it and
+  reaches `Order` nowhere: every order in this export is an open card, so the
+  field would carry one value.
+- **Six vehicle columns are PRESENT and NULL, deliberately.** `SalesStatus`,
+  `PurchaseStatus`, `RegulatoryStatus`, `OperationalStatus`, `TransferRequired`
+  and `OpenDamage` exist only in the live DMS — the export carries one status axis
+  (`status.*`) and one physical stage (`inventoryStatus`). They are in the
+  document because the contract requires them present, and `None` because a
+  plausible value is worse than an admitted gap: a car with no damage record must
+  not come back looking undamaged. `datasource.UNSOURCED_VEHICLE_FIELDS` is the
+  list and `tests/test_datasource.py` pins that every one of them is null.
+  `InventoryEnteringDate` is the exception that IS derived — a car whose
+  `availableBy` has already passed entered stock then (1727 of 3523), one still
+  inbound has no such date.
 - **Nothing is walled off, and the free set is the whole protection.** The time
   fence (frozen ≤14d / slushy 15–42d), the soft instruction pin with its
   `not_before`, and the three weight-escalation terms were all REMOVED on
@@ -621,6 +724,43 @@ XAS endpoint and its credential never touch the sandbox.
   `planner_report` is the only renderer OF A PLAN. Reinstating per-car rows means
   reinstating the grouping rule with it: collapsing was only ever allowed when
   every displayed column agreed.
+- **THE ALLOCATION SKILL IS FORKED, and the fork is free to drift (2026-09-07).**
+  `skills/xas-allocation/` is what the LIVE agent deploys and `skills/xas-allocation-dev/`
+  what a `XAS_DEV=1` run deploys; `setup_agent.ALLOC_SKILL_DIRS` picks by target
+  and `alloc_bundle(skill_dir)` takes the dir as a parameter so a test can build
+  BOTH rather than whichever one the shell selected. Only SKILL.md is forked —
+  the solver package, `solver_config.yaml` and the reporting skill are shared,
+  and a test pins that both bundles ship the same solver. **What differs is the
+  planner-facing half only**: the LIVE copy still prints its reports through the
+  marker channel (`show()` / `planner_channel.py`, forwarded by `web.py` and
+  rendered by `static/index.html`'s `planner` case), and the DEV copy uses no
+  channel at all — nothing it prints reaches the planner, and the agent writes
+  the answer itself under three prose rules: **ten rows** (the reporting lane's
+  cap, so there is one number in the repo), **only rows that need a decision**
+  (late or holding no car), and **no column that does not drive one**. That
+  reverses the reason the channel exists, knowingly: a retyped row can lose a car
+  id and nothing catches it. **The channel code stays in the repo and in BOTH
+  bundles** because the live skill needs it — deleting it while the live copy
+  still says `from xas_allocation.planner_channel import show` is an ImportError
+  on the agent's first print. An unused channel is harmless: nothing marked means
+  nothing forwarded. **The price of the fork is drift**, and nothing structural
+  prevents it: a rule added to one copy is absent from the other and no deploy
+  notices. `test_the_two_forks_still_agree_on_every_rule_that_is_not_about_printing`
+  is the guard — twelve TOKENS (not sentences, because the dev copy is re-worded
+  throughout) that must appear in both, chosen to catch a rule DELETED from one
+  fork rather than a re-wrap. Every test that reads a skill file now names WHICH
+  copy: `LIVE_SKILL_DIR` / `DEV_SKILL_DIR`, never `ALLOC_SKILL_DIR`, because a
+  test whose subject depends on `XAS_DEV` passes by accident. The dev copy is
+  also the condensed one — 404 -> 356 lines, 22,850 -> 19,602 characters, every
+  rule kept and the narratives behind them cut. Both files must keep
+  `name: xas-allocation` in their frontmatter: `name` is immutable per
+  `skill_id`, so renaming one is a new skill object and a 400 on the next push.
+  **And the bundle FOLDER must equal that name**, which is why `skill_files` grew
+  a `root` parameter — `skills/xas-allocation-dev/` uploads re-rooted at
+  `xas-allocation/`, or the push is a 400 reading "The folder name
+  'xas-allocation-dev' must match the skill name 'xas-allocation'". So the two
+  bundles differ in CONTENT and never in their paths, and the agent sees the same
+  layout under either fork.
 - **Three planner-facing reports, and the third exists so the agent stops writing
   its own.** `discrepancy_report` is what the delay broke, `planner_report` is
   what a solve did, and `current_state_report` (2026-08-30) is the whole book as
@@ -737,24 +877,31 @@ XAS endpoint and its credential never touch the sandbox.
   — which is what makes the OTHER half of that note load-bearing: it also names
   the orders **holding no car** — 4 of 10 mixed, 8 of 10 in the unallocated carve,
   where "no orders are late" on its own would read as "nothing to do".
-- **The pull mounts files, not a seed, and not the rows in-band.** The source
+- **The pull mounts a file, not a seed, and not the rows in-band.** The source
   runs here; the agent runs there; everything the *tool* returns crosses into its
-  context. So the tool returns only a summary + a `flatten` command; the rows
-  travel as the two mounted files (read host-side, out of the sandbox's sight) and
+  context. So the tool returns the contract's five header fields — `pull_id`,
+  `captured_at`, `source`, `counts`, `file` — plus a `flatten` command; the rows
+  travel as the mounted document (read host-side, out of the sandbox's sight) and
   `flatten` reads them there — nothing dumps ~100KB of JSON into the transcript.
   The scenario scripts' *code* stays out of the sandbox; only the translated
-  *output* travels in. The summary carries counts, the scenario name, the drop
-  funnel and the min/median/max days late — no rows, and no customer map: the
-  client's name rides on the order rows in the mounted file, so there is nothing
-  for a separate map to key.
+  *output* travels in. **`file` is the path the API gave back**, read off
+  `session.resources[].mount_path` and threaded into `summarize` as a parameter —
+  the contract forbids a constant there, and the day the platform resolves mounts
+  differently the agent gets the truth. Keeping the extras beside those five is a
+  deliberate reading of a contract that fixes the five and says nothing about the
+  rest: dropping `excluded` would take away the one thing the turn-1 reply is
+  REQUIRED to say, and dropping `flatten` would leave the agent no command to run.
+  There is still no customer map: the client's name rides on the order rows in the
+  mounted file, so there is nothing for a separate map to key.
 - **`flatten_command` searches from `.`/`/workspace`, never from `/`.** The solver
   lands wherever the platform puts skills, so the command self-locates
   `xas_allocation/flatten.py` — but bounded to the sandbox tree. An unbounded
   `find /` exceeds the 120s bash timeout and kills the agent's shell; that is not
-  hypothetical, it happened on the self-hosted build. The two payloads are *not*
-  searched for: each is resolved against `mount_candidates` (the path we chose,
-  then the `/mnt/session/uploads` prefix the platform was observed to use). The
-  command names whichever is missing and exits non-zero — and note the trap that
+  hypothetical, it happened on the self-hosted build. The document is *not*
+  searched for: it is resolved against `mount_candidates` (the path the API
+  reported, then the `/mnt/session/uploads` prefix the platform was observed to
+  use — the API reports the path that was REQUESTED, so the fallback stays). The
+  command names the path it looked at and exits non-zero — and note the trap that
   cost one debug cycle: `next(gen, sys.exit(...))` evaluates the default EAGERLY,
   so the exit fires before the lookup. Pick, then check.
 - **A skill's `name` is immutable per `skill_id`, and `display_title` is unique
@@ -768,6 +915,26 @@ XAS endpoint and its credential never touch the sandbox.
   400s with "Cannot delete skill with existing versions" — every version goes
   first (`versions.delete(version, skill_id=...)`, in that argument order), and
   only then the skill.
+- **There are TWO agents now, the DEV one is the DEFAULT, and the flag that picks
+  one is read in two files.** `XAS_DEV` switches every id `setup_agent.py` and
+  `web.py` read to the `DEV_`-prefixed set in `.env` — `DEV_ALLOC_AGENT_ID` /
+  `DEV_ALLOC_ENV_ID` / `DEV_ALLOC_SKILL_ID` / `DEV_REPORTING_SKILL_ID`, created
+  2026-09-07 — so a dev run creates and refreshes its own environment, its own two
+  SKILL OBJECTS and its own agent. The separate skill objects are the whole point,
+  not a tidiness: the agent attaches a skill with no version pinned, so
+  `versions.create` against the LIVE skill object changes the live agent's
+  behaviour on its next session, whatever else the run touched. A separate agent
+  alone would not protect anything. Both scripts announce the target — setup
+  before it writes, `web.py` in a startup log line — because a mis-run is
+  otherwise invisible until the frontend behaves differently. Titles carry a
+  `(dev)` suffix because `display_title` is unique per organization. **`.env`
+  carries `XAS_DEV=1`**, so a bare run of either script goes to the dev agent and
+  the LIVE deploy is the explicit act (`XAS_DEV=0 uv run python setup_agent.py`) —
+  the safe direction to forget. A value on the command line wins, because
+  `load_dotenv()` does not override what is already in the environment. What is NOT
+  split: the app-MCP vault and credential (attached per session by `web.py` from
+  the same `.env`, and read-only against the same dev DMS) and the mounted pull
+  (also per session). Only the agent, its environment and its skills.
 - **`agents.update()` preserves omitted array fields.** `setup_agent.py`
   always sends `tools` and `skills` explicitly. Changing `PULL_TOOL` without
   re-running setup does nothing.
@@ -786,11 +953,15 @@ line counts what is genuinely undecided. The shape of it:
   id, mounted like the pull) is the candidate fix, not a decision. Check the
   Managed Agents persistence surface against current docs before wiring it.
 - **Two are settled in SHAPE but carry a number nobody has validated** —
-  DECIDE-3 (`break_cost=200`) and DECIDE-15 (`early_weight=0.15`), both in
-  `solver_config.yaml`. Never checked against a planner's judgment. The mechanism
-  is not up for debate; the value is, and it is reviewed at first real dealer
-  data. DECIDE-3's own MECHANISM retired on 2026-08-27 — the hard/soft split read
-  a real-vs-future binding the export does not carry — leaving one number.
+  DECIDE-3 (`break_cost.soft=200` / `break_cost.hard=400`) and DECIDE-15
+  (`early_weight=0.15`), both in `solver_config.yaml`. Never checked against a
+  planner's judgment. The mechanism is not up for debate; the value is, and it is
+  reviewed at first real dealer data. DECIDE-3 is TWO numbers again as of
+  2026-09-09: the split retired on 2026-08-27 read a real-vs-future binding off
+  the car's status name, and this one reads `AllocType` on the order line, which
+  the export actually carries. 400 is a guess about how much dearer a firm
+  commitment is; it is not a wall, and the shipped pair still lets an urgent
+  rescue through.
 - **Five are RETIRED** — DECIDE-1 (aging), DECIDE-2 (time fence), DECIDE-4 (pin
   mechanism), DECIDE-11 (reschedule fairness), DECIDE-14 (time scale). Built,
   reviewed and removed on 2026-08-26. They stay in the register with what went
@@ -824,6 +995,8 @@ mutation.
 ## Verifying a change
 
 ```bash
+uv run python -m scenario_engine.label_commitment   # (fresh export only) allocationType
+uv run python -m scenario_engine.dms_fields         # (fresh export only) the contract's columns
 uv run python -m datasource --list                  # the scenarios the picker offers
 uv run python -m datasource --census                # what the scenario kept vs dropped
 uv run python -m datasource --scenario scenario-unallocated --census

@@ -108,13 +108,14 @@ def find_discrepancies(snapshot: Snapshot) -> list[Discrepancy]:
 DROP_PHRASES = {
     "no_model": "no model on the order",
     "no_promised_date": "no promised date",
-    "no_order_id": "no order number",
-    "order_without_an_id": "no order number",
+    "no_card_or_line_number": "no job-card or line number",
+    "order_without_a_card_or_line_number": "no job-card or line number",
     "order_without_a_model": "no model on the order",
     "order_without_a_promised_date": "no promised date",
     "vehicle_without_a_model": "no model on the car",
     "vehicle_without_an_arrival_date": "no arrival date on the car",
     "allocation_to_a_dropped_vehicle": "allocated to a car that is out of scope",
+    "unreadable_commitment": "no readable firm-or-reservation on the order",
 }
 
 
@@ -562,7 +563,7 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
     """One row per order — the full allocation, as data rather than prose.
 
     Everything the report shows and a few things it does not, so a follow-up
-    question ("show me the new allocations", "what did VSO-4007 get?") is answered
+    question ("show me the new allocations", "what did 900108-1 get?") is answered
     by reading this back, not by re-reading the report.
     """
     override = override or {}
@@ -587,7 +588,15 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
         rows.append(
             {
                 "order": oid,
+                # The two halves of the key, spelled out: a write-back names the
+                # card and the line, and `entry` is the handle the DMS wants with
+                # them. Nothing here is priced.
+                "job_card": o.job_card,
+                "line": o.line,
+                "entry": o.entry,
                 "customer": o.customer,
+                "account": o.account_code,
+                "alloc_type": o.alloc_type,
                 "priority": priority.get(oid, DEFAULT_STEP),
                 "model": o.sales_model,
                 "promised": date_label(o.delivery_date),
@@ -606,6 +615,29 @@ def plan_rows(snapshot: Snapshot, result: SolveResult, override: dict | None = N
     return rows
 
 
+def _plan_counts(rows: list[dict], snapshot: Snapshot) -> dict[str, int]:
+    """The push contract's `summary`, counted from the plan rows themselves.
+
+    The four row statuses PARTITION the book — `moved` + `unchanged` + `no_car`
+    is every line — which is what makes the staging side's cross-check able to
+    add up. `bumped` is a subset of `moved`, not a fourth class, and it is the
+    number a planner reads first: someone who was not late lost their car.
+
+    Counted here rather than by the agent, on purpose. A summary the model
+    totalled by hand is a number nobody can reproduce, and the whole point of
+    sending it is that the receiver can refuse a mismatch.
+    """
+    by_status: dict[str, int] = {"moved": 0, "unchanged": 0, "no_car": 0}
+    for row in rows:
+        by_status[row["status"]] += 1
+    return {
+        "orders": len(snapshot.orders),
+        **by_status,
+        "bumped": sum(1 for row in rows if row["bumped"]),
+        "still_late": sum(1 for row in rows if row["days_late"]),
+    }
+
+
 def save_plan(
     snapshot: Snapshot,
     result: SolveResult,
@@ -618,21 +650,15 @@ def save_plan(
     config it was priced with — the numbers live in ``solver_config.yaml`` now,
     so a saved plan that did not name a version could not be traced to them."""
     out = Path(path)
+    rows = plan_rows(snapshot, result, override)
     payload = {
         "now": date_label(snapshot.now),
         "solver_version": SOLVER_VERSION,
         "override": override or {},
         "churn_price": result.churn_price,
         "self_check": result.self_check,
-        "counts": {
-            "orders": len(snapshot.orders),
-            "moved": sum(
-                1 for r in plan_rows(snapshot, result, override) if r["status"] == "moved"
-            ),
-            "still_late": sum(1 for r in plan_rows(snapshot, result, override) if r["days_late"]),
-            "no_car": len(result.unfilled),
-        },
-        "allocations": plan_rows(snapshot, result, override),
+        "counts": _plan_counts(rows, snapshot),
+        "allocations": rows,
     }
     out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return out
@@ -660,12 +686,11 @@ def repair_and_report(
 
 def _demo_snapshot() -> Snapshot:
     """The demo's snapshot, built the way the host does it: translate a scenario
-    directory, then flatten the two payloads. Host-side only — `datasource` never
+    directory, then flatten the document. Host-side only — `datasource` never
     ships to the sandbox, which is why this import is inside the function."""
     import datasource
 
-    pull = datasource.get_source().pull()
-    return flatten(datasource.orders_payload(pull), datasource.vehicles_payload(pull))
+    return flatten(datasource.document(datasource.get_source().pull()))
 
 
 def _banner(title: str) -> str:

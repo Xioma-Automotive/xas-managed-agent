@@ -14,7 +14,7 @@ uv sync          # install dependencies (run once, and after pulling changes)
 
 The pull is a **scenario directory** of the real export — `orders.csv` +
 `vehicles.csv` + a `scenario.json` sidecar carrying the pull date — read
-host-side and translated into the two files the sandbox gets. Three are
+host-side and translated into the one file the sandbox gets. Three are
 committed; the next section is how to cut another.
 
 ```bash
@@ -57,6 +57,25 @@ Each asks for its knobs, or takes them as flags. The first two are the mixed one
 with a count pinned to zero — `real_mixed --late 0` produces a byte-identical file
 to `real_unallocated`.
 
+### Before the first carve of a fresh export: two labelling passes
+
+The export does not carry every column the ["Allocation solve
+contract"](https://xiomautomotive.atlassian.net/wiki/spaces/~7120207e8153ad22894019bea4a2554d938218/pages/3138355201/Allocation+solve+contract)
+requires. Two one-off, re-runnable passes write them onto `data/*.csv` **before**
+any carve, and the carve then carries them for free because it copies whole rows.
+Order matters: `label_commitment` reads a car's status, and freeing a car in a
+carve rewrites it.
+
+```bash
+uv run python -m scenario_engine.label_commitment  # allocationType: hard / soft
+uv run python -m scenario_engine.dms_fields        # card + line + entry, account code,
+                                                   # job status, in-stock date, the blanks
+```
+
+Both are idempotent — every column is recomputed from the export each run, never
+appended to — so re-running them changes nothing, and a fresh export needs both
+before the three carves above.
+
 **A book is three classes: no car, a late car, a car that arrives on time.** The
 first two are counts (`--empty`, `--late`); the third is a SHARE of the book
 (`--on-time-pct`, 20% by default), because it is the control group — what a plan
@@ -66,7 +85,7 @@ car subset follows from the book, so neither is a knob any more.
 
 | Flag | Scripts | Default | What it changes |
 | --- | --- | --- | --- |
-| `--empty` | unallocated, mixed | `8` / `4` | Orders stripped of their car. They keep `OrderId`, model, colour and `etaDealer` — the demand that needs a plan. Their cars are freed, so an emptied order can always at least get its own car back; the interesting part is whether a better one exists. |
+| `--empty` | unallocated, mixed | `8` / `4` | Orders stripped of their car. They keep their card and line, model, colour and `etaDealer` — the demand that needs a plan. Their cars are freed, so an emptied order can always at least get its own car back; the interesting part is whether a better one exists. |
 | `--late` | delayed, mixed | `8` / `4` | Orders whose car is delayed past its promise. Only `availableBy` moves — the allocation stands and the order row is untouched. |
 | `--days-late` | delayed, mixed | `1-20` | How far past the promise the car lands, drawn per order. A span or one number. `1-20` is what the export's own 114 real late orders show, median 8. |
 | `--extra-free` | all | `0` / `3` / `1` | Cars freed by deleting an allocation, their ORDERS LEAVING THE BOOK — otherwise every freed car arrives with its own claimant attached and the pool never has slack. |
@@ -151,8 +170,8 @@ uv run python -m xas_allocation.session      # full per-turn loop: discrepancy m
                                              # planner report, 3 demo steering turns
 uv run python -m xas_allocation.decisions    # every DECIDE-n, its default and its STATUS
 
-# flatten the two MOUNTED payloads (what the agent's pull command runs):
-uv run python -m xas_allocation.flatten --orders orders.json --vehicles vehicles.json
+# flatten the MOUNTED document (what the agent's pull command runs):
+uv run python -m xas_allocation.flatten --pull dms_allocation.json
 ```
 
 ---
@@ -231,8 +250,22 @@ you change the **solver package** or **`SKILL.md`** (re-carving a scenario needs
 no redeploy — the data is mounted per session, not bundled).
 
 ```bash
-uv run python setup_agent.py
+uv run python setup_agent.py                       # the DEV agent (XAS_DEV=1 is in .env)
+XAS_DEV=0 uv run python setup_agent.py             # the LIVE agent — the frontend's
 ```
+
+Each target deploys its own copy of the allocation skill —
+`skills/xas-allocation/` for live, `skills/xas-allocation-dev/` for dev — and
+setup prints which one it sent. The solver, its config and the reporting skill
+are shared.
+
+**The dev agent is the default, deliberately.** The live agent attaches its skills
+without pinning a version, so a skill version pushed to the live skill object takes
+effect on its next session. `XAS_DEV` picks which set of ids in `.env` both scripts
+read — the `DEV_`-prefixed ones are a separate environment, a separate pair of skill
+objects and a separate agent — and `web.py` takes the same flag, so the browser UI
+drives whichever agent you set it to. A value on the command line wins over `.env`,
+and setup prints its target before it writes anything.
 
 ---
 

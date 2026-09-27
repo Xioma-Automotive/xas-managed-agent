@@ -18,7 +18,7 @@ import pytest
 
 from xas_allocation.session import bump_candidates, carry_forward
 from xas_allocation.snapshot import Order, Snapshot, Vehicle
-from xas_allocation.solver import CFG, solve, tardiness
+from xas_allocation.solver import CFG, break_cost_of, solve, tardiness
 
 NOW = date(2026, 8, 3)
 PROMISED = date(2026, 9, 14)
@@ -29,11 +29,21 @@ ON_TIME = date(2026, 9, 14)
 
 # One order id, one order, one car. HI is the late one; LO holds the on-time car
 # a rescue would have to take.
-ORDER_HI, ORDER_LO = "500001", "500002"
+ORDER_HI, ORDER_LO = "900001-1", "900002-1"
 
 
-def _order(oid: str, promised: date = PROMISED) -> Order:
-    return Order(order_id=oid, sales_model="SM1", delivery_date=promised)
+def _order(oid: str, promised: date = PROMISED, alloc_type: str = "soft") -> Order:
+    card, _, line = oid.rpartition("-")
+    # A bump victim's promise has a price keyed on its firmness, so every fixture
+    # here has to name one. `soft` is the old single value, which is what keeps
+    # the assertions below about the DEFAULT bump behaviour unchanged.
+    return Order(
+        job_card=card,
+        line=line,
+        sales_model="SM1",
+        delivery_date=promised,
+        alloc_type=alloc_type,
+    )
 
 
 def _vehicle(vid: str, planned: date) -> Vehicle:
@@ -135,7 +145,7 @@ def test_break_cost_can_block_an_authorized_bump(monkeypatch):
     snap = _snapshot()
     assert solve(snap, AUTH, churn_price=0).plan[ORDER_HI] == "VEH-LO-GOOD"
 
-    monkeypatch.setitem(CFG, "break_cost", 100_000.0)
+    monkeypatch.setitem(CFG, "break_cost", {"soft": 100_000.0, "hard": 100_000.0})
     blocked = solve(snap, AUTH, churn_price=0)
     assert blocked.plan[ORDER_LO] == "VEH-LO-GOOD", "on-time hard allocation kept"
     assert (
@@ -202,3 +212,56 @@ def test_carry_forward_does_not_mutate_the_override_that_was_solved():
 def test_carry_forward_handles_an_empty_or_missing_override():
     assert carry_forward(None) == {}
     assert carry_forward({}) == {}
+
+
+# --- DECIDE-3, re-split 2026-09-09: a hard promise costs more to break --------
+
+
+def test_a_hard_promise_costs_more_to_break_than_a_soft_one():
+    """The whole of the decision, in one comparison. `AllocType` is the firmness
+    of the LINE — a committed VIN against a provisional reservation — and it is
+    the only thing that changes here: same order, same car, same date."""
+    car = _vehicle("VEH-LO-GOOD", PROMISED)
+    soft = _order(ORDER_LO, PROMISED, alloc_type="soft")
+    hard = _order(ORDER_LO, PROMISED, alloc_type="hard")
+    assert break_cost_of(hard, car) > break_cost_of(soft, car)
+    assert break_cost_of(soft, car) == CFG["break_cost"]["soft"]
+    assert break_cost_of(hard, car) == CFG["break_cost"]["hard"]
+
+
+def test_firmness_prices_nothing_when_there_is_no_promise_to_break():
+    """Both exemptions survive the split: no car at all, and a car that is
+    already late. A promise already broken protects nothing, however firm it was
+    — so the rescue of a disrupted order stays free for hard lines too."""
+    late_car = _vehicle("VEH-HI-LATE", LATE)
+    for kind in ("hard", "soft"):
+        order = _order(ORDER_LO, PROMISED, alloc_type=kind)
+        assert break_cost_of(order, None) == 0.0
+        assert break_cost_of(order, late_car) == 0.0
+
+
+def test_an_unreadable_firmness_is_an_error_not_a_shrug():
+    """Same rule as an unknown priority step: defaulting to either price would
+    make a line whose firmness we could not read look deliberately cheap (or
+    deliberately protected). The message names the line."""
+    car = _vehicle("VEH-LO-GOOD", PROMISED)
+    for bad in ("", "HARD-ISH", "firm"):
+        with pytest.raises(ValueError, match="neither 'hard' nor 'soft'"):
+            break_cost_of(_order(ORDER_LO, PROMISED, alloc_type=bad), car)
+
+
+def test_the_same_authorised_bump_turns_on_the_victims_firmness(monkeypatch):
+    """The behavioural half: the planner authorises the same displacement, and
+    whether it happens depends on which price the victim's firmness selects. The
+    two numbers are patched rather than read, because the SHIPPED pair is tuned
+    and unvalidated (DECIDE-3) — what this pins is that the key is read at all."""
+    monkeypatch.setitem(CFG, "break_cost", {"soft": 0.0, "hard": 100_000.0})
+
+    soft_victim = _snapshot()
+    assert solve(soft_victim, AUTH, churn_price=0).plan[ORDER_HI] == "VEH-LO-GOOD"
+
+    hard_victim = _snapshot()
+    hard_victim.orders[1] = _order(ORDER_LO, PROMISED, alloc_type="hard")
+    declined = solve(hard_victim, AUTH, churn_price=0)
+    assert declined.plan[ORDER_LO] == "VEH-LO-GOOD", "a hard promise held"
+    assert declined.plan[ORDER_HI] != "VEH-LO-GOOD"

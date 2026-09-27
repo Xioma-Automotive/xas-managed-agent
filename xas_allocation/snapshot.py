@@ -10,18 +10,19 @@ real XAS export by `scenario_engine/real_*.py`) are translated host-side by
 in the sandbox. This module owns only the flattened shape the solver consumes and
 its JSON (de)serialization.
 
-Grain: the allocatable **order** is one **wanted car**, and it is one row of the
-export's ``orders.csv`` — so the key is the row's own ``OrderId`` (e.g.
-``502377``), one level. The job-card/car-line grain went with the app MCP on
-2026-08-27, and the "a line asking for 3 cars is planned as 1" question went with
-it: this export has no lines and no ``Quantity``.
+Grain: the allocatable **order** is one **wanted car**, and the "Allocation solve
+contract" keys it ``DMSJCNum`` + ``LineNum`` — a job card and one line on it
+(``900108-1``). One line is still one car: there is no ``Quantity`` and no "a line
+asking for 3 cars is planned as 1" question. The card half is what makes an
+instruction about a whole card resolvable (``solver.names_order``); the line half
+is what keeps two lines of one card from collapsing into each other.
 
 Supply is ONE ``vehicles`` list; each vehicle is capacity-1 with a
-``sales_model`` and an ``eta_dealer`` date. There is no hard/soft binding any
-more (2026-08-27): in this export a car's status IS its allocation state, so what
-matters about a car is whether an order holds it (``allocations``) and when it
-lands (``eta_dealer``). Breaking a kept promise costs the same whatever kind of
-car it is — one ``break_cost`` in the config, not two.
+``sales_model`` and an ``eta_dealer`` date. Nothing about the CAR carries a
+hard/soft binding (2026-08-27): in this export a car's status IS its allocation
+state, so what matters about a car is whether an order holds it (``allocations``)
+and when it lands (``eta_dealer``). The firmness that IS priced belongs to the
+order line — see ``alloc_type`` below.
 
 Everything is keyed on **real dates** (`YYYY-MM-DD`); tardiness is in **days**.
 `now` is the pull date, carried on the snapshot as the provenance of the picture —
@@ -52,7 +53,11 @@ def date_label(d: date) -> str:
 class Order:
     """One order row — one wanted car, the demand side of the match.
 
-    Three priced fields plus one label, and that is the whole of the demand side.
+    Three priced fields, the two that make the key, and four labels — that is the
+    whole of the demand side. Nothing below the priced three is read by the
+    solver; they exist so a planner-facing table can name the order the way the
+    DMS does and so a write-back has the handle it needs.
+
     What is NOT here:
 
     * **no priority.** The record's letter was never a planner's decision and the
@@ -66,36 +71,64 @@ class Order:
     * **no delay history and no price.** The three escalation fields were read
       only by weight terms deleted on 2026-08-26 and were zero on every real row;
       ``price`` was display-only and the export does not carry it.
+    * **``AllocType`` IS priced, since 2026-09-09.** ``alloc_type`` below is the
+      line's firmness — ``hard`` for a committed VIN, ``soft`` for a provisional
+      reservation — and ``solver.break_cost_of`` selects one of two config prices
+      with it, so a hard promise costs more to disturb (DECIDE-3). Neither number
+      has been validated by a planner. It is priced and nothing else: not
+      eligibility, not a filter.
+    * **no job-card STATUS.** The contract carries ``JobStatus`` in the file
+      because the DMS does; nothing here reads it, and every order in this export
+      is an open card, so adding a field would be a column with one value in it.
     """
 
-    order_id: str  # the export's OrderId, e.g. "502377" — the whole key
+    job_card: str  # DMSJCNum — the card this line sits on, e.g. "900108"
+    line: str  # LineNum — which line of it. Together with job_card, the key.
     sales_model: str  # the eligibility key (SalesModel), matched by equality
     delivery_date: date  # etaDealer on the ORDER — the promise. NOT the car's date.
-    # customer.name — display and lookup only, never priced. Defaulted so a
-    # snapshot written before it existed still loads.
+    # Accounts.Owner.AccountName — display and lookup only, never priced.
     customer: str = ""
+    # Accounts.Owner.AccountDMSCode — the account's real key. What a client
+    # instruction is resolved THROUGH; the name is what it is resolved FROM.
+    account_code: str = ""
+    # AllocType — how firmly the customer is committed. Shown, never priced.
+    alloc_type: str = ""
+    # DMSJCEntry — the DMS's handle on the card, for a write-back to quote.
+    entry: str = ""
 
     @property
     def key(self) -> str:
-        """The unique order key. One row, one order, so the id IS the key —
-        ``key`` stays as the name every caller reads it by."""
-        return self.order_id
+        """The unique order key: the card and the line, ``900108-1``.
+
+        Built HERE and nowhere else. ``datasource.order_key`` builds the same
+        string on the host side from the same two columns, because the host has
+        rows and not ``Order``s; the two agreeing is what makes a key the planner
+        saw in one turn still name the same line in the next."""
+        return f"{self.job_card}-{self.line}"
 
     def to_dict(self) -> dict:
         return {
-            "order_id": self.order_id,
+            "job_card": self.job_card,
+            "line": self.line,
             "sales_model": self.sales_model,
             "delivery_date": date_label(self.delivery_date),
             "customer": self.customer,
+            "account_code": self.account_code,
+            "alloc_type": self.alloc_type,
+            "entry": self.entry,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> Order:
         return cls(
-            order_id=str(d["order_id"]),
+            job_card=str(d["job_card"]),
+            line=str(d["line"]),
             sales_model=d["sales_model"],
             delivery_date=parse_date(d["delivery_date"]),
             customer=str(d.get("customer") or ""),
+            account_code=str(d.get("account_code") or ""),
+            alloc_type=str(d.get("alloc_type") or ""),
+            entry=str(d.get("entry") or ""),
         )
 
 
@@ -134,7 +167,7 @@ class Vehicle:
 class Snapshot:
     """Everything one solve consumes — the flattened, frozen pull."""
 
-    orders: list[Order]  # one per wanted CAR — one row of orders.csv
+    orders: list[Order]  # one per wanted CAR — one line of one job card
     vehicles: list[Vehicle]  # the car pool: free ∪ currently allocated
     allocations: dict[str, str]  # order_key -> vehicle_id (current allocation)
     disruption: dict  # the delayed vehicles + who they touched
@@ -159,6 +192,13 @@ class Snapshot:
             dupes = sorted(k for k, n in counts.items() if n > 1)
             raise ValueError(f"duplicate order keys — demand would be lost: {dupes}")
         return by_key
+
+    def orders_on_card(self, job_card: str) -> list[Order]:
+        """Every line of one card, in line order. What "the whole card" means when
+        a planner names a card number rather than a line."""
+        return sorted(
+            (o for o in self.orders if o.job_card == job_card), key=lambda o: (o.line, o.key)
+        )
 
     def vehicle_by_id(self) -> dict[str, Vehicle]:
         return {u.vehicle_id: u for u in self.vehicles}

@@ -70,6 +70,7 @@
 
   footer { border-top: 1px solid var(--line); padding: 12px; display: flex; gap: 8px;
            background: var(--panel); }
+  .composer { flex: 1; display: flex; flex-direction: column; gap: 6px; }
   textarea { flex: 1; resize: none; height: 62px; background: #fff; color: var(--fg);
              border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
   textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
@@ -81,8 +82,38 @@
   button.danger { background: var(--err); color: #fff; border-color: var(--err); }
   #send { min-width: 76px; }
 
+  /* Files waiting to go out with the next message. They are attached to that
+     message, so nothing is uploaded until Send. */
+  .tray { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tray .att { display: flex; align-items: center; gap: 6px; background: #eef1f5;
+               border: 1px solid var(--line); border-radius: 6px; padding: 3px 4px 3px 8px;
+               font-size: 12px; max-width: 260px; }
+  .tray .att img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; }
+  .tray .att .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tray .att .size { color: var(--dim); }
+  .tray .att button { background: none; border: 0; color: var(--dim); padding: 2px 4px;
+                      line-height: 1; font-size: 14px; }
+  .tray .att button:hover { color: var(--err); }
+
+  /* The whole window is the drop target; this is the only thing that says so. */
+  #drop { position: fixed; inset: 0; display: none; place-items: center; z-index: 10;
+          background: rgba(47, 111, 235, .12); backdrop-filter: blur(1px); }
+  #drop.on { display: grid; }
+  #drop span { background: var(--panel); border: 2px dashed var(--accent); border-radius: 10px;
+               padding: 18px 26px; color: var(--accent); font-weight: 600; }
+
+  /* What a sent message carried, in its own bubble. Named, not shown: an
+     uploaded file cannot be read back, so the name is all there is. */
+  .msg.user .att { display: inline-block; background: #c9dbff; border-radius: 6px;
+                   padding: 1px 7px; margin: 4px 4px 0 0; font-size: 12px; }
+
   /* Rendered markdown inside an agent message (tables, code, diagrams). */
   .msg.agent.md { white-space: normal; }
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .choices button.choice { background: #fff; color: var(--accent); border: 1px solid var(--accent);
+    border-radius: 999px; padding: 7px 14px; font-size: 13px; font-family: inherit; cursor: pointer; }
+  .choices button.choice:hover { background: var(--accent); color: #fff; }
+  .choices button.choice:disabled { opacity: .5; cursor: default; }
   .msg.agent.md > :first-child { margin-top: 0; }
   .msg.agent.md > :last-child { margin-bottom: 0; }
   .msg.agent.md h1, .msg.agent.md h2, .msg.agent.md h3 { margin: .5em 0 .3em; font-size: 1.05em; }
@@ -124,10 +155,15 @@
   </header>
   <div id="transcript"></div>
   <footer>
-    <textarea id="input" placeholder="Describe the disruption and your steering instruction…" disabled></textarea>
+    <div class="composer">
+      <div class="tray" id="tray"></div>
+      <textarea id="input" placeholder="Describe the disruption and your steering instruction… (drag a photo or file in to attach it)" disabled></textarea>
+    </div>
     <button id="send" class="primary" disabled>Send</button>
   </footer>
 </main>
+
+<div id="drop"><span>Drop to attach</span></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -135,6 +171,7 @@ let active = null;   // the server's active session — the one messages reach
 let viewing = null;  // the session whose transcript is on screen
 let running = false; // is the agent currently working?
 let stream = null;
+let pending = [];    // files dragged in, waiting to go out with the next message
 
 // The app the records live in. Every link the MCP returns is a PATH
 // (/job_cards/8814), so without an origin here they resolve against this demo
@@ -158,6 +195,7 @@ function refreshControls() {
   const messageable = !!active && viewing === active;   // can only send to the active session
   $("input").disabled = !messageable;
   $("end").disabled = !messageable;
+  if (!messageable && pending.length) { pending = []; renderTray(); }
   $("title").textContent = viewing || "No session";
 
   const send = $("send");
@@ -289,10 +327,50 @@ function runMermaid(container) {
     .then((m) => m.run({ nodes }))
     .catch(() => nodes.forEach((n) => n.classList.add("mermaid-fallback")));
 }
+// --- `[[choices: A | B | C]]` — the options line, whose format is in the SYSTEM
+//     PROMPT (2026-09-17) because this renders it for every agent message,
+//     whatever lane wrote it. They see buttons, never the line; tapping one
+//     sends that text as an ordinary message. Only the newest message's buttons
+//     are live, because a lane may repeat the line while the answer is
+//     outstanding: a later message either carries its own or the answer is no
+//     longer wanted.
+const CHOICES_RE = /^[ \t]*\[\[choices:([^\]]+)\]\][ \t]*$/m;
+
+function takeChoices(text) {
+  const match = (text || "").match(CHOICES_RE);
+  if (!match) return { body: text, options: [] };
+  const options = match[1].split("|").map((o) => o.trim()).filter(Boolean);
+  return { body: (text || "").replace(match[0], "").trimEnd(), options };
+}
+
+function clearChoices() {
+  $("transcript").querySelectorAll(".choices").forEach((node) => node.remove());
+}
+
+function addChoices(div, options) {
+  if (!options.length) return;
+  const box = document.createElement("div");
+  box.className = "choices";
+  for (const option of options) {
+    const button = document.createElement("button");
+    button.className = "choice";
+    button.textContent = option;
+    button.onclick = () => {
+      box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      sendMessage(option);
+    };
+    box.append(button);
+  }
+  div.append(box);
+}
+
 function addAgent(text, extra = "") {
+  const { body, options } = takeChoices(text);
+  clearChoices();
   const div = document.createElement("div");
   div.className = "msg agent md" + (extra ? " " + extra : "");
-  div.innerHTML = renderMarkdown(text);
+  div.innerHTML = renderMarkdown(body);
+  addChoices(div, options);
   $("transcript").append(div);
   $("transcript").scrollTop = $("transcript").scrollHeight;
   runMermaid(div);
@@ -300,7 +378,12 @@ function addAgent(text, extra = "") {
 
 function render(event) {
   switch (event.type) {
-    case "user":  return add("user", escape(event.text));
+    case "user": {
+      clearChoices();
+      const carried = (event.attachments || [])
+        .map((name) => `<span class="att">\u{1F4CE} ${escape(name)}</span>`).join("");
+      return add("user", escape(event.text) + (carried ? `<div>${carried}</div>` : ""));
+    }
     case "agent": return addAgent(event.text);
     // The solver's own report, forwarded from the sandbox. Same markdown
     // rendering as an agent message so tables come out as tables.
@@ -446,12 +529,99 @@ async function endSession() {
   refreshControls();
 }
 
-async function sendMessage() {
-  const text = $("input").value.trim();
-  if (!text) return;
-  $("input").value = "";
-  try { await api("/message", { method: "POST", body: JSON.stringify({ text }) }); }
+// --- Attachments ---------------------------------------------------------
+// A file dragged into the window rides out with the next message, so the MODEL
+// SEES it — a photo of a scratch is looked at, not read off disk. Nothing is
+// uploaded until Send, and the server decides what it will carry (images, PDFs,
+// text); anything else comes back as a plain refusal naming the file.
+const MAX_ATTACHMENTS = 5;
+
+const fileSize = (bytes) =>
+  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+function renderTray() {
+  const tray = $("tray");
+  tray.replaceChildren(...pending.map((file, index) => {
+    const chip = document.createElement("div");
+    chip.className = "att";
+    if (file.type.startsWith("image/")) {
+      const img = document.createElement("img");
+      // Revoked on load: the bytes are the File's, the URL is only the preview.
+      img.src = URL.createObjectURL(file);
+      img.onload = () => URL.revokeObjectURL(img.src);
+      img.alt = "";
+      chip.append(img);
+    }
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = file.name;
+    const size = document.createElement("span");
+    size.className = "size";
+    size.textContent = fileSize(file.size);
+    const remove = document.createElement("button");
+    remove.textContent = "\u00d7";
+    remove.title = `Remove ${file.name}`;
+    remove.onclick = () => { pending.splice(index, 1); renderTray(); };
+    chip.append(name, size, remove);
+    return chip;
+  }));
+}
+
+function attachFiles(files) {
+  const list = [...files].filter((f) => f.size > 0 || f.type);  // a folder drops as a typeless 0-byte entry
+  if (!list.length) return;
+  if (!(active && viewing === active)) {
+    add("error", "Start or select a session before attaching anything.");
+    return;
+  }
+  const room = MAX_ATTACHMENTS - pending.length;
+  if (room <= 0) {
+    add("error", `At most ${MAX_ATTACHMENTS} files per message.`);
+    return;
+  }
+  if (list.length > room) add("error", `Only ${room} more file(s) fit on this message.`);
+  pending.push(...list.slice(0, room));
+  renderTray();
+  $("input").focus();
+}
+
+// The whole window is the target: a worker holding a phone should not have to
+// hit a small one. dragenter/dragleave fire per element, so count them rather
+// than flickering the overlay on every child crossed.
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  if (![...e.dataTransfer.types].includes("Files")) return;
+  dragDepth++;
+  $("drop").classList.add("on");
+});
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("dragleave", () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) $("drop").classList.remove("on");
+});
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $("drop").classList.remove("on");
+  attachFiles(e.dataTransfer.files || []);
+});
+
+async function sendMessage(preset) {
+  const text = (preset === undefined ? $("input").value : preset).trim();
+  const files = preset === undefined ? pending : [];
+  if (!text && !files.length) return;
+  // multipart, not JSON: the files belong to this message and go with it.
+  const form = new FormData();
+  form.append("text", text);
+  for (const file of files) form.append("files", file);
+  $("send").disabled = true;
+  try {
+    // headers: {} — let the browser set the multipart boundary itself.
+    await api("/message", { method: "POST", body: form, headers: {} });
+    if (preset === undefined) { $("input").value = ""; pending = []; renderTray(); }
+  }
   catch (e) { add("error", escape(e.message)); }
+  refreshControls();
 }
 
 function stopThinking() {

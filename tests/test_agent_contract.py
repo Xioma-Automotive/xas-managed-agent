@@ -28,6 +28,13 @@ import web
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# The allocation skill is forked, so every test names WHICH copy it pins. Reading
+# `LIVE_SKILL_DIR` here would make the subject depend on `XAS_DEV`,
+# and a test that pins whichever file the environment happens to select is a test
+# that passes by accident.
+LIVE_SKILL_DIR = setup_agent.ALLOC_SKILL_DIRS[False]
+DEV_SKILL_DIR = setup_agent.ALLOC_SKILL_DIRS[True]
+
 
 def _flat(text: str) -> str:
     """Collapse whitespace: a pinned phrase must survive a re-wrap of the prose."""
@@ -51,6 +58,131 @@ def test_agent_carries_both_skills():
     skills = setup_agent._skills("sk_alloc", "sk_reporting")
     assert [s["skill_id"] for s in skills] == ["sk_alloc", "sk_reporting"]
     assert all(s["type"] == "custom" for s in skills)
+
+
+def test_the_transfer_skill_is_attached_like_the_other_two():
+    """Three lanes on both targets since 2026-09-22 — it was dev-only before that.
+
+    Each target still keeps its OWN transfer skill object (`TRANSFER_SKILL_ID` /
+    `DEV_TRANSFER_SKILL_ID`): the agent attaches a skill with no version pinned, so
+    a version pushed to the live object is live on the next session whoever pushed
+    it. The id stays optional because the first run on a target has none yet.
+    """
+    three = setup_agent._skills("sk_alloc", "sk_reporting", "sk_transfer")
+    assert [s["skill_id"] for s in three] == ["sk_alloc", "sk_reporting", "sk_transfer"]
+    assert all(s["type"] == "custom" for s in three)
+
+    first_run = setup_agent._skills("sk_alloc", "sk_reporting")
+    assert [s["skill_id"] for s in first_run] == ["sk_alloc", "sk_reporting"]
+
+
+def test_transfer_skill_shows_one_job_card():
+    """The oldest card and no queue — asked for on 2026-09-22.
+
+    It shipped fetching 20 and naming the first, and a live turn printed all three
+    with a button each. `count: 1` makes it structural: the queue never reaches the
+    model, so it cannot be listed, and `totalCount` still carries how many wait.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert '"paging": {"count": 1}' in skill
+    assert '"paging": {"count": 20}' not in skill
+    assert "Never list the queue behind it" in skill
+    assert "totalCount" in skill
+
+
+def test_transfer_skill_holds_answers_and_writes_once():
+    """No write lands between two questions — the worker answers the set, then it saves.
+
+    Asked for on 2026-09-22: a call per answer made the walkthrough stop and start,
+    and on the Vehicle 360 each call rewrites the whole record and syncs it to SAP.
+    Both tools say it themselves ("Send every task you are changing in ONE call"), so
+    the skill collects and fires once per set. The cost is that a held answer is lost
+    if the worker walks away, which is why the save-what-you-have line is pinned too.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Nothing is written between two" in skill
+    assert "**One call, every task in it**" in skill
+    assert "save what you have before you leave the card" in skill
+    assert "One call per answer" not in skill
+
+
+def test_transfer_skill_starts_a_checklist_when_none_is_on_the_card():
+    """A card with no check-in checklist gets one added, and the worker is not asked first.
+
+    Asked for on 2026-09-24. `add_checklist` only attaches a checklist — nothing is
+    deleted — so there is no decision to hand the worker; asking just costs a turn.
+    The ask was "no OPEN checklist", but a card holds one of each type: adding
+    "Vehicle Check-in" to card 80, whose copy was 5/5 done, came back
+    `"Vehicle Check-in" is already on job card 80.` So the rule is scoped to a card
+    with none; a finished one needs no rule of its own (the user's call, 2026-09-24).
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "No checklist — start one, without asking" in skill
+    assert '"action": "add_checklist"' in skill
+
+
+def test_transfer_skill_tells_the_agent_to_say_less():
+    """A worker with one hand on the phone does not read a paragraph.
+
+    The voice rule is a section of its own so it survives being skimmed, and the
+    steps that used to invite prose — the step 4 brief, the step 7 hand-back — now
+    name their own length.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Say less" in skill
+    assert "No preamble, no sign-off" in skill
+    assert "Never explain yourself" in skill
+    assert "one short paragraph" not in skill
+    assert "in three sentences" not in skill
+
+
+def test_transfer_skill_opens_a_vehicle_360_when_none_is_open():
+    """A card with no open record gets one opened, and the worker is not asked first.
+
+    Live on 2026-09-22 (`sthr_01LNG4J6mq33qxxsV3JjQwNT`, card 8815): the section was
+    requested, came back absent — not `[]`, not `{"error": ...}` — and the walkthrough
+    never mentioned the Vehicle 360. It reported the check-in complete off a ticked
+    "Vehicle 360 Completed" checklist task on a card that holds no record. So the
+    absence is named by its shape and the checklist tick is called out as not being
+    the record. Then the skill handed the worker the card link to open one in the app,
+    because `edit_vehicle_360` could not create one. It can now (`action: "open"`,
+    refused while a non-completed record exists), so on 2026-09-24 the skill opens one
+    itself — the same no-ask rule as the checklist.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "no\n  `vehicle360` key at all" in skill
+    assert "No open record — open one, without asking" in skill
+    assert '"action": "open"' in skill
+    assert '"Vehicle 360 Completed" task is not a record' in skill
+    assert "you cannot create a record" not in skill
+    assert "I'll open one" not in skill
+
+
+def test_transfer_bundle_is_the_skill_and_nothing_else():
+    """No code, no data — it reads the live system through the app MCP.
+
+    The bundle is one file, so a helper or a taxonomy appearing here is a change
+    of shape that should be argued for rather than picked up by a glob.
+    """
+    names = [name for name, _ in setup_agent.transfer_bundle()]
+    assert names == ["xas-transfer/SKILL.md"]
+
+
+def test_transfer_skill_names_the_transfer_classification():
+    """Filtering `Service` here returns service orders, which are a different job.
+
+    The walkthrough exists for vehicle transfers; the classification is the whole
+    of what scopes it, and `Service` was what it shipped with until 2026-09-17.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text()
+    assert '"JobClassification": "Transfer"' in skill
+    assert '"JobClassification": "Service"' not in skill
+    # The app's own transfer page filters on PlannedDateTime; a `DueDate` window
+    # returned totalCount 0 live on 2026-09-17 against a page that had rows.
+    assert '"PlannedDateTime"' in skill
+    assert '"DueDate"' not in skill
+    # Vehicle Ready belongs to Service/Parts/ServiceCall, never to Transfer.
+    assert "6530d9a89c098a33be3e0c76" not in skill
 
 
 def test_agent_still_declares_the_pull_tool():
@@ -156,6 +288,47 @@ def test_prompt_stops_claiming_there_is_no_network():
 
 
 # --------------------------------------------------------------------------
+# The options line — one format, three places that must agree about it
+# --------------------------------------------------------------------------
+
+OPTIONS_MARKER = "[[choices:"
+
+
+def test_the_window_and_the_prompt_agree_on_the_options_line():
+    """The window turns that line into buttons for EVERY agent message, whatever
+    lane wrote it, so the rule moved into the prompt on 2026-09-17. A format that
+    lives in only one of the two is invisible: the prompt alone prints the raw
+    line at a worker, the window alone draws buttons nobody ever offers."""
+    assert OPTIONS_MARKER in setup_agent.SYSTEM_PROMPT
+    page = (REPO_ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    assert "choices:" in page and "CHOICES_RE" in page
+    # Last line, nothing after it — the page's regex only matches a whole line.
+    assert "last, nothing after it" in _flat(setup_agent.SYSTEM_PROMPT)
+
+
+def test_only_the_prompt_says_how_to_write_an_options_line():
+    """The FORMAT is one copy. What each lane does with it is the lane's: the
+    transfer skill keeps when to repeat the line and what to offer on a hand-back,
+    and says nothing about how to write one. Two copies of a format drift, and the
+    skill is the copy a long session summarizes away."""
+    assert "Two to five options" in setup_agent.SYSTEM_PROMPT
+    transfer = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "Two to five options" not in transfer
+    assert "Repeat the line while the answer is still outstanding" in transfer
+
+
+@pytest.mark.parametrize("skill_dir", [LIVE_SKILL_DIR, DEV_SKILL_DIR])
+def test_the_ask_what_matters_question_takes_no_options(skill_dir):
+    """The counterweight, in BOTH forks. A menu of three anchors a planner the
+    same way a finished plan does — they pick the nearest of yours instead of
+    saying what actually matters — which is the whole reason that question is
+    asked before a plan exists rather than after."""
+    skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+    assert "options line" in skill
+    assert "anchor" in skill
+
+
+# --------------------------------------------------------------------------
 # The rule that keeps the two lanes from contaminating each other
 # --------------------------------------------------------------------------
 
@@ -176,9 +349,51 @@ def test_prompt_names_no_records_mount():
 
 def test_skill_descriptions_are_disjoint():
     reporting = _description(setup_agent.REPORTING_SKILL_DIR / "SKILL.md")
-    alloc = _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md")
+    alloc = _description(LIVE_SKILL_DIR / "SKILL.md")
     assert "Do NOT use for allocation repair" in reporting
     assert "Do NOT use for general reporting" in alloc
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "what vehicle transfers do i have for today",
+        "what transfer jobs do i have today",
+        "what's my next job",
+        "my transfers",
+    ],
+)
+def test_transfer_description_carries_the_words_a_worker_types(phrase):
+    """A worker asks for their queue as a LIST — "what vehicle transfers do I have
+    for today" — which is reporting's own surface form, and the description used to
+    hand every question ABOUT transfers to xas-reporting. The words themselves are
+    what the platform routes on, so they are here rather than described."""
+    assert phrase in _description(setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").lower()
+
+
+def test_transfer_and_reporting_each_disclaim_the_other():
+    """Both sides must say it. One description claiming a phrasing the other still
+    claims leaves the platform picking on surface form, and the surface form here
+    is a list."""
+    transfer = _description(setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").lower()
+    reporting = _description(setup_agent.REPORTING_SKILL_DIR / "SKILL.md").lower()
+    # Transfer keeps the aggregate questions out: a count or a branch breakdown is
+    # a report whatever it counts.
+    assert "how many" in transfer and "xas-reporting" in transfer
+    # Reporting hands the worker's own queue back, in the words they use.
+    assert "xas-transfer" in reporting
+    assert "what transfers do i have today" in reporting
+
+
+def test_the_first_block_reads_the_skill_that_fits_not_always_reporting():
+    """The rule named `xas-reporting` for everything before the first `xas-app-mcp`
+    call — and a transfer walkthrough's first call is `get_job_list`, so a worker's
+    turn read the reporting skill before its own. The prompt still does not name
+    the transfer lane; the skill descriptions route, the prompt only stops
+    pre-empting them."""
+    prompt = _flat(setup_agent.SYSTEM_PROMPT)
+    assert "read the skill the question belongs to" in prompt
+    assert "read the `xas-reporting` skill" not in prompt
 
 
 def test_reporting_skill_does_not_claim_every_turn():
@@ -196,7 +411,8 @@ def test_reporting_skill_does_not_claim_every_turn():
 @pytest.mark.parametrize(
     "bundle,root",
     [
-        (setup_agent.alloc_bundle(), "xas-allocation"),
+        (setup_agent.alloc_bundle(LIVE_SKILL_DIR), "xas-allocation"),
+        (setup_agent.alloc_bundle(DEV_SKILL_DIR), "xas-allocation"),
         (setup_agent.reporting_bundle(), "xas-reporting"),
     ],
 )
@@ -204,8 +420,13 @@ def test_bundle_has_skill_md_at_its_root(bundle, root):
     assert any(name == f"{root}/SKILL.md" for name, _ in bundle)
 
 
-def test_alloc_bundle_ships_the_solver():
-    names = [n for n, _ in setup_agent.alloc_bundle()]
+@pytest.mark.parametrize("skill_dir", [LIVE_SKILL_DIR, DEV_SKILL_DIR])
+def test_alloc_bundle_ships_the_solver(skill_dir):
+    """Both forks ship the SAME solver package — only SKILL.md is forked, so a
+    dev copy that quietly shipped a different solver would break the one thing
+    the two targets must agree on. Both upload re-rooted at `xas-allocation/`,
+    which the API requires: the bundle folder must match the name in SKILL.md."""
+    names = [n for n, _ in setup_agent.alloc_bundle(skill_dir)]
     assert "xas-allocation/xas_allocation/solver.py" in names
 
 
@@ -236,20 +457,40 @@ def test_no_session_dataset_is_bundled(bundle):
 
 
 def test_the_pull_is_the_only_mount():
-    """TWO files since 2026-08-27 — the export's two row streams — and nothing
-    else. Reporting used to get a third under /workspace/reports/; it reads the
-    live MCP now, so a session that mounts anything more is a session whose
-    reporting numbers came from somewhere this design does not control."""
-    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.ORDERS_FILENAME, web.VEHICLES_FILENAME})
+    """ONE file since 2026-09-06 — the contract's document, both row streams in
+    it — and nothing else. Reporting used to get another under /workspace/reports/;
+    it reads the live MCP now, so a session that mounts anything more is a session
+    whose reporting numbers came from somewhere this design does not control."""
+    assert web.MOUNTED_INPUT_FILENAMES == frozenset({web.PULL_FILENAME})
     source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
-    assert source.count('"type": "file"') == 2, "two resources, or the fence moved"
+    # `mount_path`, not `"type": "file"`: since 2026-09-17 a file DRAGGED into
+    # the chat window is a `{"type": "file", "file_id": ...}` content SOURCE on
+    # the message, which is not a mount and counts against nothing here. A
+    # resource cannot be mounted without a path, so the path is the thing to
+    # count.
+    assert source.count('"mount_path":') == 1, "one mounted resource, or the fence moved"
+    # The other way in: `sessions.resources.add` mounts a file into a session
+    # that is already running. A dropped file deliberately does NOT take it —
+    # an attachment the model looks at cannot become a file the agent reads.
+    assert "resources.add" not in source, "a dropped file must not become a mount"
+
+
+def test_web_reads_the_pull_header_fields_from_the_top_level():
+    """`captured_at` / `pull_id` / `source` are top-level on the pull document,
+    not under `meta`, since it became one document. `web.py` reads `source` when
+    it answers a session create, so a reader left on the old path is a `KeyError`
+    in the one route a planner cannot avoid — it reached a browser as a 500, and
+    no test failed. `tests/test_datasource.py` pins where the fields live; this
+    pins that web.py agrees."""
+    source = (REPO_ROOT / "web.py").read_text(encoding="utf-8")
+    for stale in ('["meta"]["source"]', '["meta"]["now"]', '["meta"].get("source")'):
+        assert stale not in source, f"web.py still reads {stale}; the field moved out of meta"
 
 
 def test_every_mounted_input_is_filtered_from_outputs():
     """files.list(scope_id=...) returns the inputs too; handing a planner their
     own pull back as an 'output' is noise, and downloading it is worse."""
-    mounted = {Path(p).name for p in alloc_tools.MOUNT_PATHS}
-    assert mounted == set(web.MOUNTED_INPUT_FILENAMES)
+    assert {Path(alloc_tools.PULL_MOUNT_PATH).name} == set(web.MOUNTED_INPUT_FILENAMES)
 
 
 # --------------------------------------------------------------------------
@@ -292,19 +533,19 @@ def test_host_no_longer_serves_a_taxonomy():
 
 
 def test_pull_is_resolved_not_assumed():
-    """Both mounts, and the /mnt/session/uploads prefix the platform was actually
-    observed to materialize them under."""
-    for path in alloc_tools.MOUNT_PATHS:
-        candidates = alloc_tools.mount_candidates(path)
-        assert path in candidates
-        assert f"{alloc_tools.UPLOAD_PREFIX}{path}" in candidates
+    """The mount, and the /mnt/session/uploads prefix the platform was actually
+    observed to materialize it under. The API reports a mount_path now, but what
+    it reports is the path that was REQUESTED — so the resolution stays."""
+    path = alloc_tools.PULL_MOUNT_PATH
+    candidates = alloc_tools.mount_candidates(path)
+    assert path in candidates
+    assert f"{alloc_tools.UPLOAD_PREFIX}{path}" in candidates
 
 
 def test_flatten_command_tries_every_candidate():
     command = alloc_tools.flatten_command()
-    for path in alloc_tools.MOUNT_PATHS:
-        for candidate in alloc_tools.mount_candidates(path):
-            assert candidate in command, f"{candidate} unreachable by the flatten command"
+    for candidate in alloc_tools.mount_candidates(alloc_tools.PULL_MOUNT_PATH):
+        assert candidate in command, f"{candidate} unreachable by the flatten command"
 
 
 def test_flatten_command_never_searches_from_root():
@@ -352,7 +593,7 @@ def test_reporting_skill_keeps_links_out_of_bold():
 def test_alloc_description_carries_the_words_users_type(phrase):
     """The description is what the platform routes on, and a planner says "check
     the deliveries", never "repair the allocation"."""
-    assert phrase in _description(setup_agent.ALLOC_SKILL_DIR / "SKILL.md").lower()
+    assert phrase in _description(LIVE_SKILL_DIR / "SKILL.md").lower()
 
 
 def test_reporting_description_disclaims_the_allocation_vocabulary():
@@ -365,7 +606,7 @@ def test_reporting_description_disclaims_the_allocation_vocabulary():
 
 
 def test_alloc_skill_stops_a_status_question_at_the_report():
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     # "the state report" since 2026-08-30: there are two of them now
     # (`discrepancy_report` and `current_state_report`) and either one is where a
     # status question stops.
@@ -406,11 +647,13 @@ def test_the_first_block_fires_the_skill_read_and_the_dates_together():
     and resolved terms together, then spent a SECOND round trip on the date range,
     because the one-block rule named the read and the lookup but not the dates.
     The lookup is gone entirely now, so the block is exactly two things and both
-    are named."""
+    are named. WHICH skill the read is stopped being fixed on 2026-09-22 — see
+    `test_the_first_block_reads_the_skill_that_fits_not_always_reporting` — but it
+    is still one of the block's two things, which is what this test is about."""
     prompt = setup_agent.SYSTEM_PROMPT
     assert "dates.py" in prompt
     assert "goes in ONE block, never a round trip each" in _flat(prompt)
-    assert "read the `xas-reporting` skill" in prompt
+    assert "read the skill the question belongs to" in prompt
     assert "turn every named period into a date range" in prompt
     assert "Never work one out yourself" in prompt
 
@@ -522,7 +765,7 @@ def test_skill_requires_the_exclusion_census_on_turn_one():
     whole book is the worst failure this change can produce, and the only thing
     stopping it is the prose — nothing structural forces the agent to mention it.
     """
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "exclusion_note" in skill
     assert "Never present it as the whole book" in skill
     # and it must be excluded from the "stays internal" suppression list
@@ -534,7 +777,7 @@ def test_skill_offers_a_report_for_the_whole_book():
     named for it the agent scripts over `snapshot.json` and hand-builds the table
     — the exact re-derivation this skill exists to forbid, and the one that put a
     false claim about free cars in front of a planner."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "current_state_report" in skill
     assert "There IS a report for the whole book, so you never build one." in skill
     # the API block must actually offer it, and count itself correctly
@@ -546,14 +789,14 @@ def test_skill_forbids_retyping_a_printed_table_as_bullets():
     """The rule was already there and was broken anyway, in the one shape it did
     not name: the rows re-listed as bullets, one message after the planner read
     them."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "**A list of bullets is a table.**" in skill
 
 
 def test_skill_names_the_eligibility_rule_and_its_hardness():
     """Eligibility is exact model equality. A skill that suggests a near match is
     a skill that invites the agent to offer a car nobody can have."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "matched exactly" in skill
     assert "no near-match and no substitution" in skill
 
@@ -561,7 +804,7 @@ def test_skill_names_the_eligibility_rule_and_its_hardness():
 def test_skill_separates_the_promise_from_the_arrival():
     """The one confusion that makes nothing ever late: the promise is the ORDER's
     date, the arrival is the CAR's."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "**The promise** is the date on the ORDER" in skill
     assert "**The arrival** is the date on the CAR" in skill
     # and the MCP field names must be gone with the MCP
@@ -574,7 +817,7 @@ def test_skill_gates_every_repair_behind_the_preferences_question():
     silently invents them — every order equal, nothing protected. Nothing
     structural can force the ask, so the skill must state it as a rule, name the
     three things to ask about, and say that "fix it" is not an answer to it."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "## Before you repair — ask what matters, every time" in skill
     assert "Never suggest, offer or run a repair before asking the planner" in skill
     assert "none of them is an answer to this question" in skill
@@ -591,11 +834,82 @@ def test_skill_can_answer_in_client_terms_but_steers_on_ids():
     label is NOT a solver dimension (that went on 2026-08-27), so the skill must
     say the agent groups orders by client itself and confirms the ids it used —
     a client with three orders and two of them named is half-prioritised."""
-    skill = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text()
+    skill = (LIVE_SKILL_DIR / "SKILL.md").read_text()
     assert "Every order also carries the client it is for" in skill
     assert "It is a LABEL" in skill
     assert "resolve it yourself to every order" in skill
     assert "there is no model-wide or client-wide lever" in skill
+
+
+# --------------------------------------------------------------------------
+# The DEV fork of the allocation skill (2026-09-07)
+# --------------------------------------------------------------------------
+# `skills/xas-allocation-dev/` is what a `XAS_DEV=1` run deploys. It drops the
+# marker channel entirely: nothing the sandbox prints reaches the planner, and
+# the agent writes the answer itself. The tests above pin the LIVE copy, which
+# still prints through `show()` — the two are deliberately different, and these
+# tests exist so "deliberately" stays true rather than becoming "nobody noticed".
+
+
+def test_dev_skill_writes_the_answer_itself_and_prints_nothing():
+    """The whole point of the fork. The dev copy must say that printing reaches
+    nobody: an agent that believes a printed report is on screen answers with a
+    summary of a table the planner cannot see."""
+    skill = _flat((DEV_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**Nothing you print reaches the planner.**" in skill
+    assert "Your reply is the only thing on their screen" in skill
+    assert "show(" not in skill, "the dev fork does not use the marker channel"
+
+
+def test_dev_skill_caps_what_the_agent_writes():
+    """The agent is the only writer of what a planner reads in this fork, so
+    three prose rules are all that stops the wall of output coming back in its
+    own words: ten rows, decision rows only, no decorative column. Nothing
+    structural can cap a reply."""
+    skill = _flat((DEV_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**TEN ROWS IS THE CAP, and it is a ceiling, not a target.**" in skill
+    assert "the orders that are late or holding no car, worst first" in skill
+    assert "**No column that does not drive a decision.**" in skill
+    # and it must still account for what it left out, or a short table reads as
+    # the whole book — the same failure as presenting a survivor as one.
+    assert "how many orders were untouched" in skill
+
+
+def test_the_two_forks_still_agree_on_every_rule_that_is_not_about_printing():
+    """The drift guard, and the price of forking. Only the planner-facing half
+    was meant to differ; everything below is a rule about the DATA or the SOLVER
+    and must hold in both copies. Tokens, not sentences, because the dev copy is
+    re-worded throughout — this catches a rule DELETED from one fork, which is
+    the way drift actually happens, not a re-wrap."""
+    shared = (
+        "exclusion_note",  # what the pull could not use, reported on turn 1
+        "## Before you repair — ask what matters, every time",
+        "may_move.never",  # the only way to hold a late order
+        "never beats only beats also",  # the precedence
+        "carry_forward",  # `also` expires
+        "matched exactly",  # eligibility is hard
+        "**The promise** is",  # the promise/arrival split
+        "**The arrival** is",
+        "solver_config.yaml",  # never edited live
+        "plan.json",  # the authority for allocations
+        "bump_candidates",  # ask before displacing
+        "per-VPO rows",  # no VPO ids, so you cannot list the open VPOs
+        "options line",  # the ask-what-matters question offers none
+    )
+    live = _flat((LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    dev = _flat((DEV_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    for rule in shared:
+        assert rule in live, f"{rule!r} missing from the LIVE skill"
+        assert rule in dev, f"{rule!r} missing from the DEV skill"
+
+
+def test_both_forks_declare_the_same_skill_name():
+    """`name` is immutable per skill_id, so the dev fork must keep the name its
+    skill object was created with — renaming it there is a NEW skill object and a
+    400 on the next version push."""
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        head = (skill_dir / "SKILL.md").read_text(encoding="utf-8")[:200]
+        assert "name: xas-allocation\n" in head, f"{skill_dir.name} declares another name"
 
 
 # --- The planner channel (web.py forwards the solver's marked reports) --------
@@ -642,12 +956,56 @@ def test_render_drops_a_marked_span_that_failed():
 
 
 def test_the_skill_tells_the_agent_to_wrap_planner_prints():
-    body = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    body = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "show(S." in body, "the skill must show the agent how to reach the planner"
 
 
 def test_the_skill_forbids_retyping_a_table_the_planner_has_seen():
     """The double-copy rule. Prose is the whole mechanism, so pin the prose."""
-    lowered = (setup_agent.ALLOC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
+    lowered = (LIVE_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "already seen" in lowered
     assert "do not repeat the table" in lowered
+
+
+def test_the_write_back_is_declared_on_the_agent():
+    """Both custom tools or neither: `web.py` answers both over one runner, and a
+    declared name nothing answers parks the session on an idle that never times
+    out. The reverse — answering a tool the agent cannot call — is dead code."""
+    names = [t.get("name") for t in setup_agent.TOOLS if t.get("type") == "custom"]
+    assert names == [alloc_tools.TOOL_NAME, alloc_tools.PUSH_TOOL_NAME]
+
+
+def test_staging_a_plan_needs_the_planner_to_have_asked():
+    """Said TWICE on purpose, unlike the repair gate. A write-back is the one act
+    that puts work on another person's desk with no undo, and the skill body can
+    be summarised out of a long session while the prompt cannot."""
+    assert "only when the planner has seen that plan and asked for it" in _flat(
+        setup_agent.SYSTEM_PROMPT
+    )
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        assert "## Sending a plan to the app — only when they ask" in skill
+        assert "Never on your own initiative" in skill
+
+
+def test_the_skill_tells_the_planner_about_stale_rows():
+    """A row the live system moved under us did NOT stage. Silence there is the
+    worst outcome available: the planner believes the whole plan went."""
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        assert "Tell the planner about every stale row by name" in skill
+
+
+def test_the_push_recipe_sends_only_the_fields_the_tool_takes():
+    """The tool's row schema is `additionalProperties: False`, and a plan row
+    carries a dozen fields it does not accept. Both skills must therefore PROJECT
+    the row rather than passing it whole, or the call is rejected by validation
+    before the host ever sees it."""
+    allowed = set(
+        alloc_tools.PUSH_TOOL["input_schema"]["properties"]["changes"]["items"]["properties"]
+    )
+    for skill_dir in (LIVE_SKILL_DIR, DEV_SKILL_DIR):
+        skill = _flat((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        projected = '{k: r[k] for k in ("order", "was_car", "now_car", "status", "bumped")}'
+        assert projected in skill, "the recipe must project, not pass the whole row"
+        assert allowed == {"order", "was_car", "now_car", "status", "bumped"}
