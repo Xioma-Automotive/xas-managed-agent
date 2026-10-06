@@ -114,6 +114,7 @@
     border-radius: 999px; padding: 7px 14px; font-size: 13px; font-family: inherit; cursor: pointer; }
   .choices button.choice:hover { background: var(--accent); color: #fff; }
   .choices button.choice:disabled { opacity: .5; cursor: default; }
+  .choices button.choice.picked { background: var(--accent); color: #fff; }
   .msg.agent.md > :first-child { margin-top: 0; }
   .msg.agent.md > :last-child { margin-bottom: 0; }
   .msg.agent.md h1, .msg.agent.md h2, .msg.agent.md h3 { margin: .5em 0 .3em; font-size: 1.05em; }
@@ -333,44 +334,64 @@ function runMermaid(container) {
 //     sends that text as an ordinary message. Only the newest message's buttons
 //     are live, because a lane may repeat the line while the answer is
 //     outstanding: a later message either carries its own or the answer is no
-//     longer wanted.
-const CHOICES_RE = /^[ \t]*\[\[choices:([^\]]+)\]\][ \t]*$/m;
+//     longer wanted. `[[choices multi: …]]` lets them pick several: the
+//     buttons toggle and Send sends the picked ones as one comma-separated
+//     message.
+const CHOICES_RE = /^[ \t]*\[\[choices( multi)?:([^\]]+)\]\][ \t]*$/m;
 
 function takeChoices(text) {
   const match = (text || "").match(CHOICES_RE);
-  if (!match) return { body: text, options: [] };
-  const options = match[1].split("|").map((o) => o.trim()).filter(Boolean);
-  return { body: (text || "").replace(match[0], "").trimEnd(), options };
+  if (!match) return { body: text, options: [], multi: false };
+  const options = match[2].split("|").map((o) => o.trim()).filter(Boolean);
+  return { body: (text || "").replace(match[0], "").trimEnd(), options, multi: !!match[1] };
 }
 
 function clearChoices() {
   $("transcript").querySelectorAll(".choices").forEach((node) => node.remove());
 }
 
-function addChoices(div, options) {
+function addChoices(div, options, multi) {
   if (!options.length) return;
   const box = document.createElement("div");
   box.className = "choices";
+  const picked = new Set();
+  const send = document.createElement("button");
   for (const option of options) {
     const button = document.createElement("button");
     button.className = "choice";
     button.textContent = option;
     button.onclick = () => {
+      if (multi) {
+        picked.has(option) ? picked.delete(option) : picked.add(option);
+        button.classList.toggle("picked", picked.has(option));
+        send.disabled = !picked.size;
+        return;
+      }
       box.querySelectorAll("button").forEach((b) => (b.disabled = true));
       sendMessage(option);
     };
     box.append(button);
   }
+  if (multi) {
+    send.className = "choice picked";
+    send.textContent = "Send";
+    send.disabled = true;
+    send.onclick = () => {
+      box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      sendMessage(options.filter((o) => picked.has(o)).join(", "));
+    };
+    box.append(send);
+  }
   div.append(box);
 }
 
 function addAgent(text, extra = "") {
-  const { body, options } = takeChoices(text);
+  const { body, options, multi } = takeChoices(text);
   clearChoices();
   const div = document.createElement("div");
   div.className = "msg agent md" + (extra ? " " + extra : "");
   div.innerHTML = renderMarkdown(body);
-  addChoices(div, options);
+  addChoices(div, options, multi);
   $("transcript").append(div);
   $("transcript").scrollTop = $("transcript").scrollHeight;
   runMermaid(div);

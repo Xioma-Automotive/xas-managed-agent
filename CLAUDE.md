@@ -528,7 +528,10 @@ XAS endpoint and its credential never touch the sandbox.
 - **The options line is the PROMPT's, and only its format (2026-09-17).** A
   message ending `[[choices: A | B | C]]` is drawn as buttons by
   `static/index.html` (`CHOICES_RE`, newest message only, the line stripped from
-  the text); tapping one sends that text as an ordinary message. It started in
+  the text); tapping one sends that text as an ordinary message.
+  `[[choices multi: …]]` (2026-10-05) toggles instead and a Send button sends
+  the picked ones as one comma-separated message; same prompt section, one
+  sentence more. It started in
   `skills/xas-transfer/SKILL.md` and moved up for two reasons: the WINDOW renders
   it for every agent message whatever lane wrote it, so a rule kept in one skill
   left the other lanes unable to use a capability the UI already had; and a

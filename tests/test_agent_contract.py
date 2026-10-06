@@ -306,6 +306,15 @@ def test_the_window_and_the_prompt_agree_on_the_options_line():
     assert "last, nothing after it" in _flat(setup_agent.SYSTEM_PROMPT)
 
 
+def test_the_window_and_the_prompt_agree_on_the_multi_select_line():
+    """`[[choices multi: …]]` is the same line with one word added, so the window
+    must read both: a prompt that offers it to a page that matches only the
+    single form prints the raw line at the worker."""
+    assert "[[choices multi:" in setup_agent.SYSTEM_PROMPT
+    page = (REPO_ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    assert "choices( multi)?:" in page
+
+
 def test_only_the_prompt_says_how_to_write_an_options_line():
     """The FORMAT is one copy. What each lane does with it is the lane's: the
     transfer skill keeps when to repeat the line and what to offer on a hand-back,
