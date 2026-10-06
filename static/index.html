@@ -557,6 +557,26 @@ async function endSession() {
 // text); anything else comes back as a plain refusal naming the file.
 const MAX_ATTACHMENTS = 5;
 
+// A photo is shrunk before it goes, to what the app's chatbot sends: 1200px on
+// the long side, quality 0.6. A phone photo is otherwise often over the
+// gateway's 5 MB, and the model reads no more from the bigger one. A GIF goes
+// as it is (a canvas keeps one frame), and so does a photo the shrink would not
+// make smaller.
+const SHRINK_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const SHRINK_EDGE = 1200;
+async function shrinkPhoto(file) {
+  if (!SHRINK_TYPES.includes(file.type)) return file;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, SHRINK_EDGE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, file.type, 0.6));
+  return blob && blob.size < file.size ? new File([blob], file.name, { type: file.type }) : file;
+}
+
 const fileSize = (bytes) =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
@@ -634,9 +654,9 @@ async function sendMessage(preset) {
   // multipart, not JSON: the files belong to this message and go with it.
   const form = new FormData();
   form.append("text", text);
-  for (const file of files) form.append("files", file);
   $("send").disabled = true;
   try {
+    for (const file of files) form.append("files", await shrinkPhoto(file));
     // headers: {} — let the browser set the multipart boundary itself.
     await api("/message", { method: "POST", body: form, headers: {} });
     if (preset === undefined) { $("input").value = ""; pending = []; renderTray(); }

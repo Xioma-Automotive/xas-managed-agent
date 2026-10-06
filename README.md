@@ -334,6 +334,11 @@ disk. Up to five files a message, 10MB each: images (png/jpg/gif/webp), PDFs, an
 text (txt/md/csv/json/log/yaml). Anything else comes back as a refusal naming the
 file, and nothing is uploaded until it is known to be carryable.
 
+A photo is also stored on the app gateway, the way the app's own chatbot does,
+and the message names its `uploadId` — so the agent can save it to the job card
+(`attach_chat_photo`) or as new damage on the Vehicle 360 (`edit_vehicle_360`
+`add_damage_photo`). The browser shrinks it first to 1200px, as the app does.
+
 A dropped file is **not** mounted into the sandbox. The sandbox has one input,
 the pull, and a file the agent could read with `bash` would be a second source of
 facts about the same book. `tests/test_attachments.py` pins the shapes and the

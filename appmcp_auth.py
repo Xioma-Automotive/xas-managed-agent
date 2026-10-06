@@ -52,15 +52,28 @@ APPMCP_URL = "https://dev-appmcp.app.automotivecloud.net/mcp"
 # fine and still fails every tool call with "chat session has expired".
 GATEWAY_LOGIN = "https://dev.proxy.automotivecloud.net/api/account/login"
 USER_TOKEN_COOKIE = "__DMS_app_token"
+# Where a chat photo is stored before the agent may save it to a record — the
+# same gateway, the same call the app's chatbot makes (`uploadChatImage` in
+# dms-service-proxy). The gateway keys the photo by the CALLER, and the MCP's
+# `attach_chat_photo` fetches it back as the caller, so the upload has to be made
+# with the very user token the bearer carries.
+GATEWAY_UPLOADS = "https://dev.proxy.automotivecloud.net/api/aibot/uploads"
 
 # Claims the MCP requires. `typ` is the one that is easy to forget; without it
 # the server answers a bare 401 with no indication which param was wrong.
 ISS = "http://dev_aibot:5050"
 CLAIM_TYPE = "appmcp"
-# `jobcards.write` is the checklist editor's scope, and the name is NOT yet
-# confirmed against the MCP — the read three are what the server was known to
-# accept. Adding it is what gives a session `edit_job_checklist` at all.
-SCOPE = "jobcards.read jobcards.write accounts.read vehicles.read"
+# Each write tool checks its own scope and refuses with "This tool is not
+# available in this session." — a tool-level error, so nothing else notices.
+# `jobcards.write` gives `edit_job_checklist` (confirmed live 2026-10-01).
+# `vehicle360.write` gives `edit_vehicle_360` (`src/mcp/tools/vehicle360.ts` in
+# xas-app-mcp); xas-ai-bot leaves it out by default because Xioma also gates the
+# save on the tenant permission `allow_reset_vehicle_360_damages_status`.
+# `attachments.write` gives `attach_chat_photo`; `edit_vehicle_360`'s
+# `add_damage_photo` needs only `vehicle360.write`.
+SCOPE = (
+    "jobcards.read jobcards.write accounts.read vehicles.read vehicle360.write attachments.write"
+)
 
 OUTER_TTL_SECONDS = 7 * 24 * 60 * 60  # a week, per Olga's call
 ROTATE_EVERY_SECONDS = 20 * 60  # 20 min — comfortably inside the inner 30
@@ -143,6 +156,40 @@ async def _fetch_user_token(http: httpx.AsyncClient) -> str:
     return token
 
 
+# The user token inside the bearer most recently stored. Kept because the login
+# is `forceLogin`: logging in again to upload a photo would end the session the
+# stored bearer carries, and every MCP call after it would fail "chat session has
+# expired". In-process only, like the rotation that sets it.
+_user_token: str | None = None
+
+
+async def upload_chat_photo(
+    http: httpx.AsyncClient, blob: bytes, media_type: str, name: str
+) -> str:
+    """Store a photo on the gateway as the bearer's user and return its `uploadId`.
+
+    The body is the app's: base64 with no `data:` prefix, the image type, a name.
+    The gateway refuses anything but JPEG/PNG/WEBP/GIF and anything over 5 MB,
+    and says which in `message` (a missing licence, in `error`), which is passed on
+    as it is.
+    """
+    if _user_token is None:
+        raise RuntimeError("no gateway login yet — the app-MCP credential was never minted")
+    response = await http.post(
+        GATEWAY_UPLOADS,
+        json={"data": base64.b64encode(blob).decode("ascii"), "mimeType": media_type, "name": name},
+        headers={"Authorization": f"Bearer {_user_token}"},
+    )
+    if response.status_code != 201:
+        try:
+            body = response.json()
+            reason = body.get("message") or body.get("error") or response.text
+        except ValueError:
+            reason = response.text
+        raise RuntimeError(f"gateway refused the photo ({response.status_code}): {reason}")
+    return response.json()["uploadId"]
+
+
 def mint(user_token: str, now: int | None = None) -> str:
     """Wrap a user token in the compact JWE the MCP accepts.
 
@@ -182,12 +229,14 @@ async def rotate(client, http: httpx.AsyncClient) -> None:
     token changes. A running session picks the new value up on its next MCP
     call, because the proxy reads the credential per request.
     """
-    token = mint(await _fetch_user_token(http))
+    global _user_token
+    user_token = await _fetch_user_token(http)
     await client.beta.vaults.credentials.update(
         credential_id=os.environ["APPMCP_CREDENTIAL_ID"],
         vault_id=os.environ["APPMCP_VAULT_ID"],
-        auth={"type": "static_bearer", "token": token},
+        auth={"type": "static_bearer", "token": mint(user_token)},
     )
+    _user_token = user_token
 
 
 async def rotate_once(client) -> None:

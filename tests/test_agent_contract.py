@@ -15,6 +15,7 @@ That answer would look right and not be reproducible, which is the exact leak
 Runs host-side with no API key and no network, like the rest of the suite.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -90,18 +91,19 @@ def test_transfer_skill_shows_one_job_card():
     assert "totalCount" in skill
 
 
-def test_transfer_skill_holds_answers_and_writes_once():
-    """No write lands between two questions — the worker answers the set, then it saves.
-
-    Asked for on 2026-09-22: a call per answer made the walkthrough stop and start,
-    and on the Vehicle 360 each call rewrites the whole record and syncs it to SAP.
-    Both tools say it themselves ("Send every task you are changing in ONE call"), so
-    the skill collects and fires once per set. The cost is that a held answer is lost
-    if the worker walks away, which is why the save-what-you-have line is pinned too.
-    """
-    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    assert "Nothing is written between two" in skill
-    assert "**One call, every task in it**" in skill
+def test_transfer_skill_saves_each_task_and_holds_the_vehicle_360():
+    """The checklist IS the flow since 2026-09-28: each task is said as an
+    instruction and saved the moment the worker says it is done, one `set_tasks`
+    call per task — a task is one row, and a done task that waits for the rest is
+    lost if the worker walks away. The Vehicle 360 is different: each call rewrites
+    the whole record and syncs it to SAP, so its inventory and questions are still
+    held and saved once per pass (asked for on 2026-09-22, kept on 2026-09-28)."""
+    skill = _flat((setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**Each task is an instruction, not a question.**" in skill
+    assert "Say when done." in skill
+    assert "[[choices: Done | Doesn't apply | Problem]]" in skill
+    assert "**Save the task as soon as it is answered**" in skill
+    assert "nothing is written between two of their questions" in skill
     assert "save what you have before you leave the card" in skill
     assert "One call per answer" not in skill
 
@@ -119,6 +121,18 @@ def test_transfer_skill_starts_a_checklist_when_none_is_on_the_card():
     skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     assert "No checklist — start one, without asking" in skill
     assert '"action": "add_checklist"' in skill
+
+
+def test_transfer_brief_offers_start_or_another_task():
+    """The brief of the found card gives the worker a choice, not a made-up next step.
+
+    With no options line on the brief the agent wrote its own from the stage
+    table — "I've arrived" — and a worker who wanted a different job had no way
+    to say so. "Choose another task" is offered only when there is one.
+    """
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "[[choices: Start | Choose another task]]" in skill
+    assert "only when `totalCount` is above 1" in _flat(skill)
 
 
 def test_transfer_skill_tells_the_agent_to_say_less():
@@ -156,6 +170,112 @@ def test_transfer_skill_opens_a_vehicle_360_when_none_is_open():
     assert '"Vehicle 360 Completed" task is not a record' in skill
     assert "you cannot create a record" not in skill
     assert "I'll open one" not in skill
+
+
+def test_transfer_skill_asks_the_inventory_once_and_then_the_exceptions():
+    """Eleven items asked one by one was eleven taps and eleven model turns, and the
+    three answers are the same for every item and nearly always "there" (the user's
+    call, 2026-09-28). Only the named exceptions are asked item by item."""
+    skill = _flat((setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "Inventory — ONE question, then only the exceptions" in skill
+    assert "[[choices: All there | Something's missing or damaged]]" in skill
+    assert "Every item not named is `Exists`" in skill
+
+
+def test_transfer_skill_runs_the_vehicle_360_at_the_inspection_task():
+    """The Vehicle 360 is not a separate step after the checklist but the point in
+    it where the inspection task comes up (2026-09-28). That task is found by
+    MEANING, not by name, because task names are tenant setup and a rename or a
+    Hebrew name would skip the inspection; it is saved from the inspection itself,
+    never asked as "done?", because a tick is not a record. A card with no such task
+    still gets its inspection, after the last task."""
+    skill = _flat((setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "**The inspection task is step 5, not an instruction.**" in skill
+    assert "None: do step 5 after the last task" in skill
+    assert "save the inspection task" in skill
+
+
+def test_transfer_skill_looks_at_damage_on_record_and_asks_for_new():
+    """Both halves of the photo pass (the user's call, 2026-09-28). A new record
+    carries the last inspection's damage markers over, so the worker is shown each
+    one and asked whether it is unchanged; new damage comes as a photo in the chat,
+    saved on the record by the `uploadId` the chat names (2026-10-01 — until then the
+    MCP could not take a chat photo and the skill sent the worker to the app). The
+    helper clause keeps the dev agent, whose photo tools are off, working from the
+    same skill."""
+    skill = _flat((setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "analyse_vehicle_360_photos" in skill
+    assert "`HasImage: true`" in skill
+    assert "[[choices: Still the same | Worse | Gone]]" in skill
+    assert "If your instructions give photos to a helper" in skill
+    assert '"action": "add_damage_photo"' in skill
+    assert "pass the id, never the picture" in skill
+    assert "cannot be put on the record" not in skill
+
+
+def test_transfer_skill_checks_licence_and_registration_from_a_photo():
+    """A licence or registration task asks for a photo, compares it with the card,
+    and saves a mismatch `pending`, never `confirm` (2026-10-04)."""
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    section = skill.split("## Document checks", 1)[1].split("\n## ", 1)[0]
+    for phrase in (
+        "identifying the driver",
+        "registration",
+        "Ask for a photo",
+        "`pending`",
+        "Skip",
+    ):
+        assert phrase in section
+    assert "Identify the driver.** Say when done." not in skill
+
+
+# `get_job_list`'s `fields` enum, copied from the server's own refusal on
+# 2026-10-04. A name outside it fails the WHOLE call (MCP -32602), so the worker
+# gets no job at all.
+JOB_LIST_FIELDS = frozenset(
+    [
+        "DMSJCEntry",
+        "JobEntryNum",
+        "JobEntryNumString",
+        "JobClassification",
+        "JobStatus",
+        "JobState",
+        "Branch",
+        "Organization",
+        "EntryDate",
+        "DueDate",
+        "ClosedDateTime",
+        "CreateDateTime",
+        "UpdateDateTime",
+        "Make",
+        "ModelId",
+        "PlateNo",
+        "VIN",
+        "VehicleDescription",
+        "Currency",
+        "JobOwner",
+        "JobPriority",
+        "CaseNumber",
+        "Accounts",
+        "Accounts.Owner",
+        "Accounts.Financer",
+        "Accounts.Seller",
+        "Accounts.User",
+        "Accounts.Buyer",
+        "Accounts.Ad-Hoc",
+    ]
+)
+
+
+def test_transfer_job_list_asks_only_for_fields_the_server_returns():
+    """The walkthrough shipped `PlannedDateTime` in `fields`, and every job search
+    failed on 2026-10-04. It is a FILTER and a SORT key, never a field: the server
+    refuses it there and no call returns it."""
+    skill = (setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    lists = re.findall(r'"fields": \[([^\]]*)\]', skill)
+    assert lists
+    for names in lists:
+        assert set(re.findall(r'"([^"]+)"', names)) <= JOB_LIST_FIELDS
 
 
 def test_transfer_bundle_is_the_skill_and_nothing_else():
@@ -313,6 +433,16 @@ def test_the_window_and_the_prompt_agree_on_the_multi_select_line():
     assert "[[choices multi:" in setup_agent.SYSTEM_PROMPT
     page = (REPO_ROOT / "static" / "index.html").read_text(encoding="utf-8")
     assert "choices( multi)?:" in page
+
+
+def test_a_vehicle_360_question_with_more_than_two_answers_takes_several():
+    """The app answers every questionnaire question through a multi-select and the
+    question carries no single/multi flag, so the walkthrough needs its own rule:
+    more than two options -> `[[choices multi: …]]`, two or fewer stay one tap.
+    """
+    text = _flat((setup_agent.TRANSFER_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    assert "`[[choices multi: …]]` when it has more than two" in text
+    assert "<every Option they picked>" in text
 
 
 def test_only_the_prompt_says_how_to_write_an_options_line():

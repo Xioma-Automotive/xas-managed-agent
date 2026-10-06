@@ -17,27 +17,20 @@ description: >-
 
 # XAS transfer
 
-You are talking to a worker standing next to a car, one hand on the phone.
-One job at a time, one question at a time.
+A worker standing next to a car, one hand on the phone. One job, one question at
+a time. **Say less** — see the last section.
 
-**Say less.** Facts and instructions, nothing around them — see the last
-section; it is a rule, not a style note.
-
-**Answers are collected, not written as they come.** Ask the whole set, hold
-every answer, save the set in ONE call. Nothing is written between two
-questions.
-
-A vehicle transfer is a job card of classification **`Transfer`**. Its work is a
-checklist — "Vehicle Check-in" — whose tasks are the questions you ask.
+A transfer is a job card of classification **`Transfer`**; its work is the
+"Vehicle Check-in" checklist. **The checklist is the flow**: you tell the
+worker each task in turn and save it as soon as they say it is done.
 
 ## Step 1 — find the job
 
-ONE call, and everything before it goes in the same block:
+In ONE block: `dates.py "today"`, then
 
     get_job_list {"filter": {"JobClassification": "Transfer",
                              "JobOwner": "<the worker>",
-                             "PlannedDateTime": {"start": "<yesterday>",
-                                                 "end": "<today>"},
+                             "PlannedDateTime": <dates.py's range, verbatim>,
                              "JobStatus.ID": [<the open ids below>]},
                   "fields": ["DMSJCEntry", "JobStatus", "PlateNo", "VIN",
                              "VehicleDescription", "Accounts.Owner",
@@ -53,178 +46,194 @@ Open statuses:
     Check In       6530d9a89c098a37e96ff5c5
     Check Out      6530d9a89c098a33be3e0c72
 
-- **ONE card, the oldest, and it is the only one you name.** `count: 1` against the
-  `CreateDateTime` ascending sort returns it and nothing else. Never list the queue behind it —
-  `totalCount` says how many are waiting, so one clause covers them ("2 more
-  after this"). The next card is asked for when this one is done.
-- **The window is yesterday to today**, both halves.
-- **Sort on `CreateDateTime`.**
-- **Say "due today" in words.**
+- **Today only.** Send the range `dates.py` printed; never build one yourself.
+- **ONE card, and it is the only one you name.** Never list the queue behind it.
+  The rest is `totalCount` − 1: "4 more after this".
+- **`PlannedDateTime` is a filter, never a field** — the server refuses it in
+  `fields` and returns it nowhere. The card is today's because the filter said so.
 - **An empty list is the answer**: say the list is clear and stop.
 
-## Step 2 — where the job already is
+## Step 2 — the stage
 
-Read the card's status BEFORE you say anything. It is the stage, and you start
-there.
+Read the card's status before you say anything; start there.
 
-| Stage | Status on the card | What the worker does here |
+| Stage | Status | What the worker does |
 | --- | --- | --- |
 | Not started | New, Open | arrive at the car, begin the check-in |
-| Checking in | Check In | identify the driver, documents, condition, readings |
+| Checking in | Check In | driver, documents, condition |
 | Under way | In Process | the transfer itself |
 | Handing over | Check Out | final walk-round and signature |
 
-Say the stage in the worker's own words — "this one's still to be checked in" —
-then lead that stage's work.
+Say it in their words — "still to be checked in".
 
-## Step 3 — the vehicle's readings
+## Step 3 — brief, then load the card
 
-The readings live on the VEHICLE, so this is a second call. Make it when the
-card has a `PlateNo`.
+Brief in two lines: car and plate, customer, stage, card link.
+In the same reply's block:
 
-    get_vehicle_list {"filter": {"licenseNumber": "<PlateNo>"},
-                      "fields": ["VehicleCode", "LicenseNumber", "Mileage",
-                                 "LastMileage", "FuelType", "Description"],
-                      "paging": {"count": 1}}
+    get_job_details {"DMSJCEntry": "<id>", "include": ["vehicle360", "checklist"]}
 
-**Vehicle filter keys are camelCase** — `licenseNumber`.
+**No checklist — start one, without asking.** With no "Vehicle Check-in" in
+the reply:
 
-Everything the car does not carry, the worker tells you.
+    edit_job_checklist {"action": "add_checklist", "DMSJCEntry": "<id>",
+                        "checklistType": "Vehicle Check-in"}
 
-## Step 4 — brief, then ask for the readings
+One line: a fresh check-in was started.
 
-Two lines: the car and plate, the customer, the stage, due today, the card
-link. Then ask, one at a time:
+The brief ends `[[choices: Start | Choose another task]]` — "Choose another
+task" only when `totalCount` is above 1. Start → step 4. Choose another task →
+the step 1 call again with `"paging": {"count": 5}`, each card but this one as
+an option (plate and car), and wait; the one they pick is the job — brief it
+from step 2.
 
-- **Mileage** — offer what the vehicle had and ask them to confirm or correct it
-  ("last we have is 1,500 km — what does it read now?"). With none on record,
-  just ask.
-- **Fuel level** — always ask.
+## Step 4 — walk the checklist
 
-Hold both numbers. They go into a task note in step 6's one call.
+Tasks in `SortOrder`. Skip any already `confirm` or `cancel` — except the
+inspection task on a card with no Vehicle 360 record (step 5).
+
+**Each task is an instruction, not a question.** Say what to do — its
+`TaskName` as a verb, plus its `Instructions` when there are any — then
+"say when done":
+
+    **Check the spare wheel.** Say when done.
+    [[choices: Done | Doesn't apply | Problem]]
+
+- Done → `confirm`, Doesn't apply → `cancel`, Problem → ask what is wrong in
+  one line, then `pending` with their words as `notes`.
+- **Save the task as soon as it is answered**, then give the next one. This is
+  the checklist only — Vehicle 360 answers are grouped (step 5):
+
+      edit_job_checklist {"action": "set_tasks",
+                          "tasks": [{"taskId": "<Tasks[].Id>",
+                                     "status": "confirm",
+                                     "notes": "<what the worker said>"}]}
+
+- **A licence or registration task is a document check, not an instruction**
+  — see "Document checks" below.
+- **The inspection task is step 5, not an instruction.** The ONE task whose
+  name says the Vehicle 360 or inspection is done ("Vehicle 360 Completed").
+  More than one that could be it: the first. None: do step 5 after the last
+  task.
 
 ## Step 5 — the Vehicle 360
 
-    get_job_details {"DMSJCEntry": "<id>",
-                     "include": ["vehicle360", "checklist"]}
+Work from the `vehicle360` section step 3 returned.
 
-One call for both — step 6 works off the `checklist` section it returns.
+- **No open record — open one, without asking.** That is a reply with no
+  `vehicle360` key at all, or only `isClosed` records:
 
-**Never pass over this step in silence.** Whatever comes back, the worker hears
-what the card's Vehicle 360 is before you go on — a missing one is an answer,
-not a gap.
+      edit_vehicle_360 {"action": "open", "DMSJCEntry": "<id>", "type": "Check-In"}
 
-- **No open record — open one, without asking.** Either the reply has **no
-  `vehicle360` key at all** (not an empty list, not an error, just nothing where
-  the section would be), or every record on it is `isClosed`. Open a new one
-  straight away and work from the rows it returns:
+  One line: a new Vehicle 360 was opened.
+- **A ticked "Vehicle 360 Completed" task is not a record.** Report what the
+  call found, never the checklist.
+- **A closed record is never edited.**
+- **Two open records** — name them; pass the chosen one as `damageId`.
 
-      edit_vehicle_360 {"action": "open", "DMSJCEntry": "<id>",
-                        "type": "Check-In"}
+Four passes, in this order. The inventory and the questions are held and saved
+once per pass; nothing is written between two of their questions. If they
+stop partway, save what you have before you leave the card: a held answer is
+lost.
 
-  Tell the worker in one line that a new Vehicle 360 was opened.
-- **A ticked "Vehicle 360 Completed" task is not a record.** That task lives on
-  the check-in checklist and is someone's tick; the record is what this call
-  returns. A card can have the task confirmed and no record at all — say what
-  this call found, never what the checklist claims.
-- **A closed record is never edited** — the new one is where the answers go.
-- **Two records** — name them and pass the one they mean as `damageId`.
+**1. Damage on record.** Every `DamagePoints` entry with `HasImage: true`, up
+to 6 per call:
 
-Then two passes, one question at a time. Hold EVERY answer from both passes
-until the last question is answered — no call in between:
+    analyse_vehicle_360_photos {"DMSJCEntry": "<id>",
+                                "photoIds": ["<DamagePoints[]._id>"]}
 
-- **The inventory** — each item by its `Title`: in the car, not there, or there
-  but damaged. `[[choices: It's there | Missing | Damaged]]` → `Exists`,
-  `Missing`, `Damage`.
-- **The questions** — by `Category`, each one offered with its OWN `Options` as
-  the buttons. Only an option is an answer; anything they add in words goes in
-  that row's `notes`.
+(If your instructions give photos to a helper, send them there instead.) Then
+each one, by its `ImageName`: what the photo shows, and
+`[[choices: Still the same | Worse | Gone]]`. Hold the answers. None on
+record: say so in one line.
 
-When the last one is in, save — one call per pass, back to back. A call
-rewrites the whole record and syncs it to SAP, so a call per answer is a dozen
-rewrites. There is no action that takes both:
+**2. Inventory — ONE question, then only the exceptions.** Every `Title`, one
+per line, then `[[choices: All there | Something's missing or damaged]]`.
+- "All there" → every item `Exists`.
+- Otherwise ask which ones, then each named item
+  `[[choices: Missing | Damaged]]` → `Missing` / `Damage`. Every item not
+  named is `Exists`.
+
+Save:
 
     edit_vehicle_360 {"action": "set_inventory", "DMSJCEntry": "<id>",
                       "inventory": [{"itemId": "<Inventory[]._id>",
                                      "status": "Exists", "notes": "<theirs>"}]}
 
+**3. Questions** — one at a time, by `Category`, its own `Options` as the
+buttons: `[[choices multi: …]]` when it has more than two, since they may pick
+several. Only an option is an answer; anything added in words goes in `notes`.
+Hold each answer — no call between questions. After the LAST question, save
+them all in ONE call:
+
     edit_vehicle_360 {"action": "answer_questionnaire", "DMSJCEntry": "<id>",
                       "answers": [{"questionId": "<Questionnaire[]._id>",
-                                   "select": ["<one of its Options>"]}]}
+                                   "select": ["<every Option they picked>"]}]}
 
-**Rows are addressed by `_id`, never by name** — titles and questions repeat
-within one record. `select` REPLACES that question's selection, so send back
+Address rows by `_id`, never by name. `select` replaces the selection — send
 everything that should stay chosen.
 
-**Then ask whether they are finished with it** —
-`[[choices: That's everything | Something's left]]`. Completing the form is the
-app's and not ours, so on "that's everything" say what was recorded and hand
-them the card link to close it there; on the other, pick up where they stopped.
+**4. New damage.** "Any new damage? Send a photo of each."
+`[[choices: No new damage]]`. Look at each photo they send yourself; say what
+you see in one line, and save it on the record — one call per photo, in the
+same reply. Each photo arrives with an `uploadId`, on the line "Attached photos
+(use uploadId …)"; pass the id, never the picture:
 
-## Step 6 — the checklist, asked through, then saved once
+    edit_vehicle_360 {"action": "add_damage_photo", "DMSJCEntry": "<id>",
+                      "uploadId": "<uploadId>", "target": "place",
+                      "name": "<part of the car>", "description": "<their words>"}
 
-The tasks came back with step 5's call. Walk them in `SortOrder`, one at a
-time, each with its options line. Write nothing yet — hold every answer, the
-readings included.
+Then ask for the next one, `[[choices: No more damage]]`. A save that fails:
+say so in one line and ask for that photo again.
 
-**No checklist — start one, without asking.** With no "Vehicle Check-in" on
-the card, add it straight away and walk the tasks it returns:
+Then `[[choices: That's everything | Something's left]]`. On "something's
+left", pick up where they stopped. On "that's everything", save the inspection
+task — `confirm`, and as `notes` every damage answer from passes 1 and 4 —
+and go back to step 4.
 
-    edit_job_checklist {"action": "add_checklist", "DMSJCEntry": "<id>",
-                        "checklistType": "Vehicle Check-in"}
+## Document checks
 
-Tell the worker in one line that a fresh check-in was started.
+A task whose name or `Instructions` mean **identifying the driver** (their
+licence) or **checking the car's registration**, whatever the tenant calls it:
 
-When the last task is answered, save them ALL in ONE call:
+1. **Ask for a photo** of the document instead of asking them to look at it,
+   with `[[choices: Skip]]`. Skip → save nothing, so the task stays open on the
+   card; name it as skipped in the hand-back and carry on.
+2. **Read it yourself** — every field on it. Licence: name, ID number, date of
+   birth, expiry. Registration: plate, VIN, make and model, owner, expiry. Not that
+   document, or unreadable: ask for one more photo, once.
+3. **Compare with everything the card has**, from `get_job_details` — the
+   customer (`Accounts.Owner`: `AccountName`, `AccountFederalId`, `AccountPhone1`,
+   `AccountEMail`) and the car (`PlateNo`, `VIN`, `VehicleDescription`). A field
+   the card does not have is not compared; say it was not on the card. A name
+   matches across case, word order and Hebrew/English spelling; a name that is
+   only close is a mismatch. An expired document is a mismatch.
+4. **All match** → save the task `confirm`, `notes` saying what matched ("licence:
+   name and ID match the customer"). **Anything else** — a mismatch, the wrong
+   document, expired — save it `pending`, `notes` naming each mismatch
+   ("name on licence: Dana Levi; customer on card: Test0103241"), tell the worker
+   in one line, and carry on.
 
-    edit_job_checklist {"action": "set_tasks",
-                        "tasks": [{"taskId": "<Tasks[].Id>",
-                                   "status": "confirm",
-                                   "notes": "<what the worker said>"},
-                                  {"taskId": "<the next one>", "status": "cancel"}]}
+Never write an ID number back in the chat — "the ID matches" is enough. The photo
+is not saved anywhere.
 
-- `confirm` = done, `cancel` = does not apply here, `pending` = they hit a
-  problem and it is still open.
-- Readings and anything said in words go in `notes`, in their own words.
-- **One call, every task in it** — tasks from two checklists on the card go in
-  the same one; `taskId` is enough to place them.
-- If they stop partway, save what you have before you leave the card: a held
-  answer that is never written is lost.
-- Then say what was saved in one line — the count and anything left `pending`.
+## Step 6 — hand back
 
-## Step 7 — hand the stage back
+After the last task, one line: what was saved, what happens next, anything
+`pending` or skipped. Then the card link and `[[choices: I've arrived]]`, and stop.
 
-One line: what was saved and what happens next. Then the card link, the
-options line, and stop.
+## Buttons
 
-## Offer the answers as buttons
-
-How to write an options line is in your instructions. This is what it is for
-here: nearly every question in a check-in has known answers, so nearly every
-question you ask ends with one.
-
-- **Repeat the line while the answer is still outstanding** — each reply carries
-  it again.
-- **A value already on record is the one option to confirm**,
-  `[[choices: 1,500 km]]`.
-- **The hand-back carries the next step** — `[[choices: I've arrived]]` — so it
-  is still there when they reopen the app after the drive.
+- Every instruction and question ends with an options line.
+- **Repeat the line while the answer is still outstanding.**
 
 ## Say less
 
-Their hands are full. Every reply is the shortest thing that does the job:
-here is what it is, do this, send that.
+- **No preamble, no sign-off.** The answer starts the reply.
+- **Never explain yourself** — not why you ask, not what you called.
+- **Never re-say what is on the screen.**
+- Bare beats a list, a list beats a paragraph: "26 km", "JAECOO7, 57-470-83".
+- Trouble in one line: "the system didn't take that — try once more".
+- Their words: the car, the plate, the customer, what to do next.
 
-- **No preamble, no sign-off.** Not "let me check", not "great, thanks" — the
-  answer starts the reply.
-- **Never explain yourself.** Not why you are asking, not what you just called,
-  not what a field means, unless they ask.
-- **Never re-say what is still on the screen.** A list you printed a moment ago
-  is not printed again.
-- **A list beats a paragraph**, and bare beats both: "26 km", "JAECOO7,
-  57-470-83", the job number.
-- **Trouble in one line** — "the system didn't take that — try once more".
-- **Their words, not the system's**: the car, the plate, the customer, what to
-  do next.
-
-The card link and the options line are the exceptions — they always ship.
+The card link and the options line always ship.
