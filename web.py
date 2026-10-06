@@ -32,6 +32,7 @@ import mimetypes
 import os
 from pathlib import Path
 
+import httpx
 from anthropic import APIError, AsyncAnthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -139,6 +140,11 @@ class NewSession(BaseModel):
 # Nothing dragged in reaches the sandbox. That is deliberate: the sandbox's one
 # input is the mounted pull, and a file the agent could read with `bash` would be
 # a second source of allocation facts.
+#
+# A PHOTO is also stored on the gateway, the way the app's chatbot does it, so
+# the agent can save it to a record: the message then carries a line naming each
+# photo's `uploadId`, which `attach_chat_photo` and `edit_vehicle_360`'s
+# `add_damage_photo` take. The agent passes the id, never the picture.
 ATTACHMENT_IMAGE_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -161,6 +167,9 @@ ATTACHMENT_DOCUMENT_TYPES = {
 }
 MAX_ATTACHMENTS = 5
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+# The line xas-ai-bot puts after the photos (`buildUserContent`), word for word,
+# so both chats hand the agent the same thing.
+PHOTO_HANDLES = "Attached photos (use uploadId with attach_chat_photo to save): "
 
 # file_id -> the name it was dropped under, so a replayed transcript can say
 # "photo.jpg" rather than "image". The event carries the id and no name, and an
@@ -668,6 +677,7 @@ async def _attachment_content(files: list[UploadFile]) -> list[dict]:
     if len(files) > MAX_ATTACHMENTS:
         raise HTTPException(400, f"at most {MAX_ATTACHMENTS} files per message")
     content = []
+    upload_ids = []
     for upload in files:
         name = os.path.basename(upload.filename or "attachment")
         kind = attachment_kind(name)
@@ -679,6 +689,8 @@ async def _attachment_content(files: list[UploadFile]) -> list[dict]:
             raise HTTPException(400, f"{name} is empty")
         if len(blob) > MAX_ATTACHMENT_BYTES:
             raise HTTPException(400, f"{name} is {len(blob) // (1024 * 1024)}MB; the limit is 10MB")
+        if block == "image" and appmcp_auth.configured():
+            upload_ids.append(await _store_photo(name, blob, media_type))
         uploaded = await _upload(name, blob, media_type)
         _attachment_names[uploaded.id] = name
         source = {"type": "file", "file_id": uploaded.id}
@@ -688,7 +700,25 @@ async def _attachment_content(files: list[UploadFile]) -> list[dict]:
             else {"type": "document", "source": source, "title": name}
         )
         log.info("attached %s (%s, %d bytes) as %s", name, media_type, len(blob), uploaded.id)
+    if upload_ids:
+        content.append({"type": "text", "text": PHOTO_HANDLES + ", ".join(upload_ids)})
     return content
+
+
+async def _store_photo(name: str, blob: bytes, media_type: str) -> str:
+    """Store a dropped photo on the gateway so the agent can save it to a record.
+
+    A refusal fails the message rather than sending the photo without its id: the
+    worker would be told it was saved by an agent that had nothing to save it with.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60) as http:
+            upload_id = await appmcp_auth.upload_chat_photo(http, blob, media_type, name)
+    except (httpx.HTTPError, RuntimeError) as e:
+        log.warning("photo %s not stored on the gateway: %s", name, e)
+        raise HTTPException(502, f"{name} could not be stored for saving: {e}") from e
+    log.info("stored %s on the gateway as %s", name, upload_id)
+    return upload_id
 
 
 @app.post("/message")

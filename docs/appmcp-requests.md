@@ -2,7 +2,8 @@
 
 Four asks, all of them things no rule in this repo can fix, because they are
 properties of what the tools RETURN or do not offer at all. Two are the reporting
-lane's and two the transfer walkthrough's, marked below. Each one is measured
+lane's and two the transfer walkthrough's, marked below. They keep their numbers
+(there is no 3) because other files cite them. Each one is measured
 against the dev tenant, not estimated — reproduce every figure with
 `uv run python -m appmcp` (see `appmcp-connect.md`). `xas-app-mcp` is a different
 repo; this file is the request, and it goes away when the request is answered.
@@ -20,6 +21,12 @@ per record and the list tools a top-level `ListUrl` over the filter just run, so
 role, so a job card's customer and a vehicle's owner can be linked (today
 `Accounts.Owner` carries a name and no path, and a vehicle's `Owner.Code` cannot
 be composed into one at all, because the account page routes on `Id`).
+
+**Answered 2026-09-29: a way to put a photo on a job card** (was ask 3). A chat
+photo is stored on the gateway (`POST /api/aibot/uploads`) and the agent saves it
+by its `uploadId` — `attach_chat_photo` to a job card, vehicle or account, and
+`edit_vehicle_360` `add_damage_photo` as Vehicle 360 damage. `web.py` makes the
+upload; see `CLAUDE.md`.
 
 ## 1. Let `fields` name a sub-field of `Accounts.*` — *reporting lane*
 
@@ -76,22 +83,6 @@ directly and gets it raw, twice in a two-call turn.
 `get_*_details` handles sub-resources. Either is fine; the current behaviour is the
 only one that cannot be opted out of.
 
-## 3. A way to put a photo on a job card — *transfer lane*
-
-`get_job_details include: ["attachments"]` returns what is already on the card,
-each with a signed S3 link to DOWNLOAD it. There is no matching write, so a
-worker being walked through a check-in cannot hand the agent a photo of the car
-and have it land on the job.
-
-"Vehicle 360 Completed" is one of the five tasks on the tenant's own "Vehicle
-Check-in" checklist, so the checklist asks for exactly the evidence the tool
-surface cannot accept. Today the walkthrough has to tell the worker to open the
-app and add it themselves, in the middle of a conversation whose whole purpose
-was to save them that.
-
-**Ask:** an attachment write beside `edit_job_checklist` — a card id, a file,
-and a type. Probed 2026-09-14 against the dev tenant.
-
 ## 4. A way to move a job card's status — *transfer lane*
 
 `edit_job_checklist` is the only write in the whole tool surface, and it changes
@@ -106,6 +97,28 @@ job is still open" — which is honest and is not what anybody wants.
 **Ask:** a status write for a job card, scoped the way `edit_job_checklist`
 already is (the backend enforces the user's company and permissions), and
 restricted to the classification's own statuses. Probed 2026-09-14.
+
+## 5. Read a document photo through the photo-analysis Lambda — *transfer lane*
+
+The transfer walkthrough checks a driver's licence and a car's registration from a
+photo the worker sends in chat, against what the card holds (`skills/xas-transfer`,
+"Document checks"). Today the agent reads the photo itself, which means a licence —
+name, ID number, date of birth — goes to Claude with the rest of the conversation.
+The intent is for these to be read on Bedrock, like the Vehicle 360 photos.
+
+`analyse_vehicle_360_photos` cannot do it: it takes `DamagePoints[]._id` values,
+resolves them to stored keys from the card's Vehicle 360 records, and sends only
+those to the Lambda (`src/mcp/tools/photoAnalysis.ts`). A chat photo is stored on
+the gateway now, under an `uploadId`, but that tool takes no `uploadId`, and by
+design "a storage key is never an argument".
+
+**Ask:** the analysis for any photo stored on the card — an attachment, or a file
+on a checklist task — with a question, the way `analyse_vehicle_360_photos` takes
+damage-marker ids — or for a chat photo by its `uploadId`, which the gateway
+now stores (answered ask 3). On our side, `web.py` then sends a dropped document
+photo as its id alone instead of as an image block — so the photo never reaches
+Claude.
+Asked 2026-10-01.
 
 ## Not asked for, deliberately
 

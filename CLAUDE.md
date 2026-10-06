@@ -19,8 +19,8 @@ prompted this branch. Don't merge the two; they are alternatives.
 
 Docs: `docs/appmcp-connect.md` is how to call the dev MCP by hand (reporting
 lane), `docs/evals/routing.md` the hand-run check of which skill fires, and
-`docs/appmcp-requests.md` the three things the reporting lane needs from
-`xas-app-mcp` that no rule here can fix — the last is an open request against
+`docs/appmcp-requests.md` the four things the reporting lane and the walkthrough
+need from `xas-app-mcp` that no rule here can fix — the last is an open request against
 another repo and goes away when it is answered. That is all three, and each
 describes the code as it stands — `docs/` is not an archive. Deleted 2026-08-30: the app-MCP allocation-pull change request
 (`mcp-field-spec.md`, `mcp-response-schema.md`), the three implementation plans,
@@ -565,6 +565,20 @@ XAS endpoint and its credential never touch the sandbox.
   file id and no name, so `_attachment_names` holds the names IN THIS PROCESS and
   a transcript replayed after a restart says `image`. `tests/test_attachments.py`
   pins the shapes, the order and the refusals.
+  **A photo is also stored on the gateway (2026-10-01)**, so the agent can SAVE
+  it: copied from xas-ai-bot (`src/chat/attachments.ts`) and the app's chatbot.
+  `POST /api/aibot/uploads {data, mimeType, name}` returns an `uploadId`, and the
+  message gets the bot's own line after the attachments — "Attached photos (use
+  uploadId with attach_chat_photo to save): …" — which `attach_chat_photo` and
+  `edit_vehicle_360 add_damage_photo` take; the MCP fetches the bytes back from
+  the gateway as the user. The gateway keys a photo by its UPLOADER, so the
+  upload must use the user token inside the stored bearer: `appmcp_auth.rotate`
+  keeps it in `_user_token`, because a second login is `forceLogin` and would
+  end the MCP's session. A gateway refusal fails the message with a 502 naming
+  the file rather than sending a photo the agent cannot save. The browser
+  shrinks a photo first to the app's 1200px / quality 0.6, since the gateway
+  takes 5 MB at most. Needs `attachments.write` in `SCOPE` and the tenant's
+  `ai_assistant` licence (every `/aibot` route checks it).
 - **ONE mount, and reporting has no file at all.** `/workspace/dms_allocation.json`
   is the pull — both row streams in one document, because the contract says one
   document — and it is the only thing `web.py` mounts. It replaced
