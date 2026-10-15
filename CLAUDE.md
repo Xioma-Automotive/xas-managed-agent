@@ -142,6 +142,13 @@ XAS endpoint and its credential never touch the sandbox.
   skill; until then, verify by hand. What is still pinned is only the two-place
   declaration (`MCP_SERVERS` + the `mcp_toolset` that grants it — a server nothing
   references is a validation error, and so is the reverse).
+- **App-MCP tools are an ALLOWLIST on all three agents (2026-10-15).**
+  `setup_agent.APPMCP_TOOLS_ON` is the ten tools the deployed dev MCP listed that
+  day; dev and live get it from `setup_agent.py`, and the demo agent
+  (`ANTHROPIC_DEMO_AGENT_ID`, `xas-agent-demo`, on `demo-appmcp`) carries the same
+  list set BY HAND — nothing here deploys it, so a change to the list must be
+  copied there too. A tool added to xas-app-mcp later is OFF until named — a new
+  tool that "isn't showing up" is this list, not the server. Names compare as-is.
 - **Three places must agree on the MCP URL, and a mismatch is silent.** The agent
   declares it (`MCP_SERVERS`), the vault credential is keyed by it
   (`appmcp_auth.APPMCP_URL`), and the environment must allow the egress

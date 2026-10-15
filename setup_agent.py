@@ -266,6 +266,24 @@ def render_vocabulary(skill_md: str) -> str:
 # python). The DEV agent keeps all of them: its transfer runs edit a progress file.
 _TOOLSET_OFF = ["web_search", "web_fetch"] + ([] if DEV else ["write", "edit", "glob", "grep"])
 
+# Both targets take app-MCP tools by ALLOWLIST (2026-10-15): exactly what the
+# deployed dev MCP listed that day, so a tool added to xas-app-mcp later stays OFF
+# here until it is named. Names are the server's own, compared as-is. The demo
+# agent (ANTHROPIC_DEMO_AGENT_ID) carries the same list, set by hand — nothing
+# here deploys it.
+APPMCP_TOOLS_ON = [
+    "get_job_list",
+    "get_job_details",
+    "edit_job_checklist",
+    "edit_vehicle_360",
+    "edit_job_card",
+    "get_vehicle_list",
+    "get_vehicle_details",
+    "get_account_list",
+    "get_account_details",
+    "attach_chat_photo",
+]
+
 TOOLS = [
     {
         "type": "agent_toolset_20260401",
@@ -290,7 +308,8 @@ TOOLS = [
     {
         "type": "mcp_toolset",
         "mcp_server_name": APPMCP_SERVER_NAME,
-        "default_config": {"enabled": True, "permission_policy": {"type": "always_allow"}},
+        "default_config": {"enabled": False, "permission_policy": {"type": "always_allow"}},
+        "configs": [{"name": name, "enabled": True} for name in APPMCP_TOOLS_ON],
     },
 ]
 

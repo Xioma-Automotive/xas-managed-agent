@@ -370,6 +370,16 @@ def test_mcp_tools_run_without_a_confirmation_nobody_sends():
     assert toolset["default_config"]["permission_policy"] == {"type": "always_allow"}
 
 
+def test_both_agents_take_app_mcp_tools_by_allowlist(agent_as):
+    """Both targets turn the app MCP's tools on by name (2026-10-15), so a tool
+    added to the server later stays off until it is listed."""
+    for dev in (True, False):
+        toolset = next(t for t in agent_as(dev).TOOLS if t.get("type") == "mcp_toolset")
+        assert toolset["default_config"]["enabled"] is False
+        assert [c["name"] for c in toolset["configs"]] == setup_agent.APPMCP_TOOLS_ON
+        assert all(c["enabled"] is True for c in toolset["configs"])
+
+
 def test_mcp_url_matches_the_credential_the_host_mints_for():
     """Vault matching normalizes host case and default ports but compares the
     PATH byte-for-byte. A mismatch is not an error: the connection is attempted
