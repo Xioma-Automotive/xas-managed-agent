@@ -15,6 +15,7 @@ That answer would look right and not be reproducible, which is the exact leak
 Runs host-side with no API key and no network, like the rest of the suite.
 """
 
+import importlib
 import re
 from pathlib import Path
 
@@ -55,13 +56,30 @@ def _description(skill_md: Path) -> str:
 # --------------------------------------------------------------------------
 
 
-def test_agent_carries_both_skills():
-    skills = setup_agent._skills("sk_alloc", "sk_reporting")
-    assert [s["skill_id"] for s in skills] == ["sk_alloc", "sk_reporting"]
-    assert all(s["type"] == "custom" for s in skills)
+@pytest.fixture
+def agent_as(monkeypatch):
+    """setup_agent as built for one target. TOOLS and the skills differ by target
+    since 2026-10-06, and both are decided at import, so the module is reloaded."""
+
+    def load(dev: bool):
+        monkeypatch.setenv("XAS_DEV", "1" if dev else "0")
+        return importlib.reload(setup_agent)
+
+    yield load
+    monkeypatch.undo()
+    importlib.reload(setup_agent)
 
 
-def test_the_transfer_skill_is_attached_like_the_other_two():
+def test_only_the_dev_agent_carries_the_allocation_skill(agent_as):
+    """Allocation runs on the DEV agent only (2026-10-06); LIVE is reporting + transfer."""
+    dev = agent_as(True)._skills("sk_alloc", "sk_reporting")
+    assert [s["skill_id"] for s in dev] == ["sk_alloc", "sk_reporting"]
+    live = agent_as(False)._skills("sk_alloc", "sk_reporting")
+    assert [s["skill_id"] for s in live] == ["sk_reporting"]
+    assert all(s["type"] == "custom" for s in dev + live)
+
+
+def test_the_transfer_skill_is_attached_like_the_other_two(agent_as):
     """Three lanes on both targets since 2026-09-22 — it was dev-only before that.
 
     Each target still keeps its OWN transfer skill object (`TRANSFER_SKILL_ID` /
@@ -69,12 +87,15 @@ def test_the_transfer_skill_is_attached_like_the_other_two():
     a version pushed to the live object is live on the next session whoever pushed
     it. The id stays optional because the first run on a target has none yet.
     """
-    three = setup_agent._skills("sk_alloc", "sk_reporting", "sk_transfer")
+    three = agent_as(True)._skills("sk_alloc", "sk_reporting", "sk_transfer")
     assert [s["skill_id"] for s in three] == ["sk_alloc", "sk_reporting", "sk_transfer"]
     assert all(s["type"] == "custom" for s in three)
 
-    first_run = setup_agent._skills("sk_alloc", "sk_reporting")
+    first_run = agent_as(True)._skills("sk_alloc", "sk_reporting")
     assert [s["skill_id"] for s in first_run] == ["sk_alloc", "sk_reporting"]
+
+    live = agent_as(False)._skills("sk_alloc", "sk_reporting", "sk_transfer")
+    assert [s["skill_id"] for s in live] == ["sk_reporting", "sk_transfer"]
 
 
 def test_transfer_skill_shows_one_job_card():
@@ -305,9 +326,19 @@ def test_transfer_skill_names_the_transfer_classification():
     assert "6530d9a89c098a33be3e0c76" not in skill
 
 
-def test_agent_still_declares_the_pull_tool():
+def test_dev_agent_still_declares_the_pull_tool(agent_as):
     """Dropping it makes the pull unanswerable; the session would hang, not error."""
-    assert alloc_tools.PULL_TOOL in setup_agent.TOOLS
+    assert alloc_tools.PULL_TOOL in agent_as(True).TOOLS
+
+
+def test_live_agent_carries_no_allocation_or_file_editing_tools(agent_as):
+    """Each one is context on every model call; none was used in 61 live chats."""
+    tools = agent_as(False).TOOLS
+    assert not [t for t in tools if t.get("type") == "custom"]
+    toolset = next(t for t in tools if t.get("type") == "agent_toolset_20260401")
+    disabled = {c["name"] for c in toolset["configs"] if not c["enabled"]}
+    assert {"write", "edit", "glob", "grep"} <= disabled
+    assert not {"bash", "read"} & disabled
 
 
 def test_web_search_and_fetch_stay_off():
@@ -1106,11 +1137,11 @@ def test_the_skill_forbids_retyping_a_table_the_planner_has_seen():
     assert "do not repeat the table" in lowered
 
 
-def test_the_write_back_is_declared_on_the_agent():
+def test_the_write_back_is_declared_on_the_agent(agent_as):
     """Both custom tools or neither: `web.py` answers both over one runner, and a
     declared name nothing answers parks the session on an idle that never times
     out. The reverse — answering a tool the agent cannot call — is dead code."""
-    names = [t.get("name") for t in setup_agent.TOOLS if t.get("type") == "custom"]
+    names = [t.get("name") for t in agent_as(True).TOOLS if t.get("type") == "custom"]
     assert names == [alloc_tools.TOOL_NAME, alloc_tools.PUSH_TOOL_NAME]
 
 

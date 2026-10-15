@@ -259,20 +259,23 @@ def render_vocabulary(skill_md: str) -> str:
 # pull, so a web lookup could only add un-snapshotted state and break the invariant.
 # The environment's egress is MCP-only, so they could not reach anything anyway;
 # turning them off also keeps them out of the agent's context.
+# The LIVE agent is reporting + transfer only (2026-10-06): allocation runs on the
+# DEV agent. On live, the two allocation tools and the allocation skill cost ~1,200
+# tokens on every model call and were called 0 times in 61 chats; write / edit /
+# glob / grep go too — bash covers what the skills need (a chart is written with
+# python). The DEV agent keeps all of them: its transfer runs edit a progress file.
+_TOOLSET_OFF = ["web_search", "web_fetch"] + ([] if DEV else ["write", "edit", "glob", "grep"])
+
 TOOLS = [
     {
         "type": "agent_toolset_20260401",
         "default_config": {"enabled": True},
-        "configs": [
-            {"name": "web_search", "enabled": False},
-            {"name": "web_fetch", "enabled": False},
-        ],
+        "configs": [{"name": name, "enabled": False} for name in _TOOLSET_OFF],
     },
-    alloc_tools.PULL_TOOL,
     # The write-back. Both custom tools are answered HOST-SIDE by web.py's one
     # runner; `stage` is a hold for a human, so nothing the agent can call
     # reaches the DMS.
-    alloc_tools.PUSH_TOOL,
+    *([alloc_tools.PULL_TOOL, alloc_tools.PUSH_TOOL] if DEV else []),
     # Both halves or neither: a server in `mcp_servers` that no `mcp_toolset`
     # references is rejected as a validation error, and a toolset naming a
     # server that is not declared is too.
@@ -461,10 +464,9 @@ def _skills(
     The transfer id is optional because it is dev-only: a live run passes None and
     sends the same two entries it always did.
     """
-    skills = [
-        {"type": "custom", "skill_id": alloc_skill_id},
-        {"type": "custom", "skill_id": reporting_skill_id},
-    ]
+    # No allocation skill on LIVE — see _TOOLSET_OFF.
+    skills = [{"type": "custom", "skill_id": alloc_skill_id}] if DEV else []
+    skills.append({"type": "custom", "skill_id": reporting_skill_id})
     if transfer_skill_id:
         skills.append({"type": "custom", "skill_id": transfer_skill_id})
     return skills
