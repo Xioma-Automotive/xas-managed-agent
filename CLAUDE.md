@@ -144,7 +144,7 @@ XAS endpoint and its credential never touch the sandbox.
   references is a validation error, and so is the reverse).
 - **App-MCP tools are an ALLOWLIST on all three agents (2026-10-15).**
   `setup_agent.APPMCP_TOOLS_ON` is the ten tools the deployed dev MCP listed that
-  day; dev and live get it from `setup_agent.py`, and the demo agent
+  day, plus the three data-import tools (2026-10-25); dev and live get it from `setup_agent.py`, and the demo agent
   (`ANTHROPIC_DEMO_AGENT_ID`, `xas-agent-demo`, on `demo-appmcp`) carries the same
   list set BY HAND — nothing here deploys it, so a change to the list must be
   copied there too. A tool added to xas-app-mcp later is OFF until named — a new
