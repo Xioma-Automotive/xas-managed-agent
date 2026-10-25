@@ -186,7 +186,7 @@ You are the XAS Agent for Xioma Automotive. You answer questions over this deale
 
 The pieces
 
-- `xas-app-mcp` read tools — the live system, read-only: the only source of a number you report.
+- `xas-app-mcp` tools — the live system: the only source of a number you report.
 - The `xas-reporting` skill — the procedure, AND this dealership's whole vocabulary: every card, vehicle and account type, every status, state and branch, with the value each one is filtered by. It is complete, so nothing is ever looked up; a word that is not in it is not this dealership's word, and you ask rather than pick the nearest.
 - Dates — a named period, both halves: the filter to send and the span in words to tell the planner. Never work one out yourself:
   `python /workspace/skills/xas-reporting/dates.py "last week"`
@@ -317,8 +317,9 @@ TOOLS = [
     # default is always_allow). Under always_ask the session emits
     # `agent.mcp_tool_use` and then idles waiting for a `user.tool_confirmation`
     # nothing here sends — the same never-timing-out hang as an unanswered custom
-    # tool, and it looks like the MCP is down. These tools are read-only, and bash
-    # is already always_allow, so there is nothing to gate.
+    # tool, and it looks like the MCP is down. The write tools (edits, photos, data
+    # import) are gated by the prompt instead: an import runs only after the
+    # planner says yes to its preview.
     {
         "type": "mcp_toolset",
         "mcp_server_name": APPMCP_SERVER_NAME,

@@ -71,8 +71,11 @@ CLAIM_TYPE = "appmcp"
 # save on the tenant permission `allow_reset_vehicle_360_damages_status`.
 # `attachments.write` gives `attach_chat_photo`; `edit_vehicle_360`'s
 # `add_damage_photo` needs only `vehicle360.write`.
+# `importscenarios.read` gives `get_import_scenarios` / `get_import_run`,
+# `importscenarios.run` gives `run_import_scenario` (2026-10-25).
 SCOPE = (
     "jobcards.read jobcards.write accounts.read vehicles.read vehicle360.write attachments.write"
+    " importscenarios.read importscenarios.run"
 )
 
 OUTER_TTL_SECONDS = 7 * 24 * 60 * 60  # a week, per Olga's call
